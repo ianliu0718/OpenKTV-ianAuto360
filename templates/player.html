@@ -9,6 +9,7 @@
         #waiting { font-size: 50px; color: #555; cursor: pointer; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 </head>
 <body>
     <div id="overlay">等待連線...</div>
@@ -21,10 +22,11 @@
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
         
-        let audioCtx, source, splitter, gainL, gainR, merger, masterGain;
+        let audioCtx, source, splitter, gainL, gainR, merger, masterGain, pitchShift;
         let isAudioSetup = false;
         let currentMode = 'stereo';
         let currentVolume = 1;
+        let currentKey = 0;
 
         function initAudioContext() {
             if(!audioCtx) {
@@ -48,6 +50,8 @@
             gainL = audioCtx.createGain();
             gainR = audioCtx.createGain();
             masterGain = audioCtx.createGain();
+            Tone.setContext(audioCtx);
+            pitchShift = new Tone.PitchShift({ pitch: currentKey, windowSize: 0.1 }).toDestination();
 
             source.connect(splitter);
             splitter.connect(gainL, 0); 
@@ -57,7 +61,7 @@
             gainR.connect(merger, 0, 0); 
             gainR.connect(merger, 0, 1); 
             merger.connect(masterGain);
-            masterGain.connect(audioCtx.destination);
+            Tone.connect(masterGain, pitchShift);
             masterGain.gain.value = currentVolume;
             
             isAudioSetup = true;
@@ -94,10 +98,17 @@
         });
 
         socket.on('apply_effect', (data) => {
-            if (data.volume === undefined) return;
-            currentVolume = Math.max(0, Math.min(2, Number(data.volume)));
-            if (masterGain) {
-                masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
+            if (data.volume !== undefined) {
+                currentVolume = Math.max(0, Math.min(2, Number(data.volume)));
+                if (masterGain) {
+                    masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
+                }
+            }
+            if (data.pitch !== undefined) {
+                currentKey = Math.max(-12, Math.min(12, Number(data.pitch)));
+                if (pitchShift) {
+                    pitchShift.pitch = currentKey;
+                }
             }
         });
 
