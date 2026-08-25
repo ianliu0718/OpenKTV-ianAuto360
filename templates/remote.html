@@ -101,6 +101,7 @@
         // --- 音效與升降 KEY 控制 ---
         function updateEffect() {
             const vol = parseFloat(document.getElementById('vol').value);
+            document.getElementById('vol-val').innerText = Math.round(vol * 100) + "%";
             socket.emit('control_effect', { volume: vol });
         }
 

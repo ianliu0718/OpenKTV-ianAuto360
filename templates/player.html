@@ -21,9 +21,10 @@
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
         
-        let audioCtx, source, splitter, gainL, gainR, merger;
+        let audioCtx, source, splitter, gainL, gainR, merger, masterGain;
         let isAudioSetup = false;
         let currentMode = 'stereo';
+        let currentVolume = 1;
 
         function initAudioContext() {
             if(!audioCtx) {
@@ -46,6 +47,7 @@
             merger = audioCtx.createChannelMerger(2);
             gainL = audioCtx.createGain();
             gainR = audioCtx.createGain();
+            masterGain = audioCtx.createGain();
 
             source.connect(splitter);
             splitter.connect(gainL, 0); 
@@ -54,7 +56,9 @@
             splitter.connect(gainR, 1);
             gainR.connect(merger, 0, 0); 
             gainR.connect(merger, 0, 1); 
-            merger.connect(audioCtx.destination);
+            merger.connect(masterGain);
+            masterGain.connect(audioCtx.destination);
+            masterGain.gain.value = currentVolume;
             
             isAudioSetup = true;
             setAudioMode(currentMode);
@@ -87,6 +91,14 @@
         socket.on('set_audio', (mode) => {
             currentMode = mode;
             setAudioMode(mode);
+        });
+
+        socket.on('apply_effect', (data) => {
+            if (data.volume === undefined) return;
+            currentVolume = Math.max(0, Math.min(2, Number(data.volume)));
+            if (masterGain) {
+                masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
+            }
         });
 
         function setAudioMode(mode) {
