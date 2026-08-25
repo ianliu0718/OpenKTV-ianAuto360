@@ -1,5 +1,6 @@
 import sys
 import os
+import glob
 import queue
 
 # ==========================================
@@ -63,8 +64,27 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
 
-if os.path.exists(FFMPEG_DIR):
-    os.environ["PATH"] += os.pathsep + FFMPEG_DIR
+def get_ytdlp_command():
+    if os.path.exists(YT_DLP_PATH):
+        return [YT_DLP_PATH]
+    if not getattr(sys, 'frozen', False) and shutil.which("py"):
+        return ["py", "-3.10", "-m", "yt_dlp"]
+    return [sys.executable, "-m", "yt_dlp"]
+
+def get_ffmpeg_location():
+    if os.path.isdir(FFMPEG_DIR):
+        return FFMPEG_DIR
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return os.path.dirname(ffmpeg_path)
+    winget_ffmpeg = glob.glob(os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\**\ffmpeg.exe"
+    ), recursive=True)
+    return os.path.dirname(winget_ffmpeg[0]) if winget_ffmpeg else None
+
+ffmpeg_location = get_ffmpeg_location()
+if ffmpeg_location:
+    os.environ["PATH"] += os.pathsep + ffmpeg_location
 os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
@@ -235,9 +255,7 @@ def handle_update_ytdlp():
         socketio.emit('task_status', {'status': 'busy'})
         broadcast_log("開始更新 yt-dlp 核心...")
         try:
-            cmd = ["yt-dlp", "-U"]
-            if os.path.exists(YT_DLP_PATH):
-                cmd = [YT_DLP_PATH, "-U"]
+            cmd = get_ytdlp_command() + ["-U"]
             result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
             broadcast_log(result.stdout)
             if result.stderr: broadcast_log(result.stderr)
@@ -289,9 +307,10 @@ class KTVProcessor:
             temp_output = os.path.join(job_temp_dir, "output.mp4")
 
             self.log("步驟 1/4: 下載影片...")
-            cmd_dl = [
-                "yt-dlp", 
-                "--ffmpeg-location", FFMPEG_DIR, 
+            ffmpeg_location = get_ffmpeg_location()
+            cmd_dl = get_ytdlp_command() + ([
+                "--ffmpeg-location", ffmpeg_location
+            ] if ffmpeg_location else []) + [
                 "--force-overwrites",  
                 "--no-playlist",       
                 "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", 
@@ -437,7 +456,7 @@ if __name__ == "__main__":
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
 
-    if shutil.which("ffmpeg") is None and not os.path.exists(FFMPEG_DIR):
+    if get_ffmpeg_location() is None:
         try:
             messagebox.showerror("錯誤", "找不到 FFmpeg\n請將 ffmpeg 資料夾放在程式同一目錄")
         except:

@@ -14,10 +14,18 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+
 # 忽略 Vercel 的本地輸出
-.vercel/
+.venv/
 
 # 忽略作業系統產生的檔案
 .DS_Store
 Thumbs.db
-.vercel
+.venv
+
+# 忽略 Python 快取與本機產生資料
+__pycache__/
+*.py[cod]
+pretrained_models/
+temp_processing/
+ktv_songs/

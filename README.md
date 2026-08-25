@@ -67,12 +67,23 @@ OpenKTV-AI/
 ### 2. 安裝依賴套件
 打開終端機，執行以下指令安裝必要套件：
 ```bash
-pip install flask flask-socketio flask-cors spleeter yt-dlp
+python -m pip install flask flask-socketio flask-cors spleeter yt-dlp
 ```
 
 ### 3. 啟動伺服器
+請在專案資料夾開啟 PowerShell，先啟用虛擬環境：
+```powershell
+cd "D:\Buff\Cursor資料夾\OpenKTV-AI-main"
+.\.venv\Scripts\Activate.ps1
+```
+
+看到命令列前方出現 `(.venv)` 後，再執行：
 ```bash
 python main.py
+```
+若不想啟用虛擬環境，也可以直接執行：
+```powershell
+& "D:\Buff\Cursor資料夾\OpenKTV-AI-main\.venv\Scripts\python.exe" "D:\Buff\Cursor資料夾\OpenKTV-AI-main\main.py"
 ```
 啟動後，本機將會彈出「伺服器狀態監控器」，並顯示可供連線的區域網路網址（例如 `http://192.168.1.X:5000/...`）。
 
