@@ -83,7 +83,7 @@
             });
         }
 
-        function play(filename) { socket.emit('request_play', {filename: filename}); }
+        function play(filename) { socket.emit('add_to_queue', {filename: filename}); }
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
