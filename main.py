@@ -2,6 +2,7 @@ import sys
 import os
 import glob
 import queue
+import re
 
 # ==========================================
 # 【終極修復】修正 Bad file descriptor 崩潰問題
@@ -56,7 +57,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.1"
+APP_VERSION = "v1.0.2"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -92,6 +93,7 @@ os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
 TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing") 
+SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
 
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
@@ -191,23 +193,152 @@ def page_index(): return render_template('remote.html')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
+@app.route('/subtitles/<path:filename>')
+def serve_subtitle(filename):
+    """Serve a stored WebVTT subtitle file for a song."""
+    return send_from_directory(SONGS_DIR, filename, mimetype='text/vtt; charset=utf-8')
+
 @app.route('/api/list')
 def get_song_list():
     songs = [f for f in os.listdir(SONGS_DIR) if f.lower().endswith('.mp4')]
     return json.dumps(songs) 
 
+@app.route('/api/subtitles')
+def get_subtitle_list():
+    """Return MP4 filenames that have a matching WebVTT subtitle file."""
+    subtitles = {
+        os.path.splitext(filename)[0] + '.mp4'
+        for filename in os.listdir(SONGS_DIR)
+        if filename.lower().endswith('.vtt')
+    }
+    return json.dumps(sorted(subtitles), ensure_ascii=False)
+
+@app.route('/api/subtitles/upload', methods=['POST'])
+def upload_subtitle():
+    """Convert subtitle file or text and save it beside its matching song."""
+    song_filename = os.path.basename(request.form.get('song', ''))
+    subtitle_file = request.files.get('subtitle')
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(os.path.join(SONGS_DIR, song_filename)):
+        return json.dumps({'error': '請選擇有效的歌曲'}), 400
+    subtitle_text = request.form.get('subtitle_content', '').strip()
+    if subtitle_file and subtitle_file.filename and subtitle_text:
+        return json.dumps({'error': '字幕檔案與文字內容請擇一輸入'}), 400
+    if subtitle_file and subtitle_file.filename:
+        subtitle_extension = os.path.splitext(subtitle_file.filename)[1].lower().lstrip('.')
+        if subtitle_extension not in SUBTITLE_EXTENSIONS:
+            return json.dumps({'error': '只支援 .srt、.lrc 或 .vtt 字幕檔'}), 400
+    elif subtitle_text:
+        subtitle_extension = str(request.form.get('subtitle_extension', '')).lower().lstrip('.')
+    else:
+        return json.dumps({'error': '請選擇字幕檔或輸入字幕文字'}), 400
+    try:
+        content = subtitle_file.read().decode('utf-8-sig') if subtitle_file else subtitle_text
+        subtitle_extension = detect_subtitle_format(content, subtitle_extension)
+        output_name = save_subtitle(song_filename, content, subtitle_extension)
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': output_name}, ensure_ascii=False)
+    except (UnicodeDecodeError, OSError, ValueError) as error:
+        return json.dumps({'error': f'字幕檔處理失敗：{error}'}), 400
+
+def save_subtitle(song_filename, content, subtitle_extension):
+    """Convert subtitle text and save it as the matching song's WebVTT file."""
+    converted_content = convert_to_webvtt(content, subtitle_extension)
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
+    with open(os.path.join(SONGS_DIR, output_name), 'w', encoding='utf-8', newline='\n') as output_file:
+        output_file.write(converted_content)
+    return output_name
+
+def convert_to_webvtt(content, subtitle_extension):
+    """Convert SRT, LRC, or VTT text into browser-compatible WebVTT text."""
+    if subtitle_extension == 'srt':
+        return srt_to_webvtt(content)
+    if subtitle_extension == 'lrc':
+        return lrc_to_webvtt(content)
+    if not content.lstrip().startswith('WEBVTT'):
+        return 'WEBVTT\n\n' + content
+    return content
+
+def detect_subtitle_format(content, extension=''):
+    """Detect a subtitle format from content, using the extension only as fallback."""
+    normalized = content.strip()
+    if re.match(r'^WEBVTT(?:\s|$)', normalized, re.IGNORECASE):
+        return 'vtt'
+    if re.search(r'^\s*\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]', normalized, re.MULTILINE):
+        return 'lrc'
+    if re.search(r'\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->', normalized):
+        return 'srt'
+    if extension in SUBTITLE_EXTENSIONS:
+        return extension
+    raise ValueError('無法判斷字幕格式，請確認內容是 SRT、LRC 或 VTT。')
+
+def srt_to_webvtt(content):
+    """Convert SRT timestamp separators to the WebVTT format."""
+    lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    converted = ['WEBVTT', '']
+    for line in lines:
+        if re.match(r'^\s*\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}', line):
+            line = line.replace(',', '.')
+        converted.append(line)
+    return '\n'.join(converted)
+
+def lrc_to_webvtt(content):
+    """Convert LRC minute-second tags into one WebVTT cue per timestamp."""
+    lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    converted = ['WEBVTT', '']
+    timestamp_pattern = re.compile(r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\](.*)')
+    cues = []
+    for line in lines:
+        match = timestamp_pattern.match(line.strip())
+        if not match:
+            continue
+        minutes, seconds, fraction, text = match.groups()
+        milliseconds = int((fraction or '0').ljust(3, '0')[:3])
+        start_ms = (int(minutes) * 60 + int(seconds)) * 1000 + milliseconds
+        cues.append((start_ms, text.strip()))
+    cues.sort(key=lambda cue: cue[0])
+    for index, (start_ms, text) in enumerate(cues):
+        end_ms = cues[index + 1][0] if index + 1 < len(cues) else start_ms + 4000
+        if end_ms <= start_ms:
+            end_ms = start_ms + 1000
+        converted.extend([
+            f'{format_vtt_time(start_ms)} --> {format_vtt_time(end_ms)}',
+            text,
+            '',
+        ])
+    if not cues:
+        raise ValueError('找不到有效的 LRC 時間標記')
+    return '\n'.join(converted)
+
+def format_vtt_time(milliseconds):
+    """Format milliseconds as a WebVTT HH:MM:SS.mmm timestamp."""
+    total_seconds, millis = divmod(max(0, milliseconds), 1000)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}'
+
 # ------------------------------------------
 # SocketIO 事件處理 & 待播清單
 # ------------------------------------------
 playlist_queue = []
+subtitle_visible = False
+
+def broadcast_current_song():
+    """Broadcast the current song and its subtitle visibility to all clients."""
+    filename = playlist_queue[0] if playlist_queue else ''
+    socketio.emit('current_song', {'filename': filename, 'visible': subtitle_visible})
 
 @socketio.on('connect')
 def handle_connect():
     """Send the current queue to each newly connected client."""
     emit('update_queue', playlist_queue)
+    emit('current_song', {
+        'filename': playlist_queue[0] if playlist_queue else '',
+        'visible': subtitle_visible,
+    })
 
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
+    global subtitle_visible
     filename = data['filename']
     playlist_queue.append(filename)
     
@@ -216,7 +347,23 @@ def handle_add_queue(data):
     
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
+        subtitle_visible = False
         emit('play_video', {'filename': filename, 'title': filename}, broadcast=True)
+        broadcast_current_song()
+
+@socketio.on('toggle_subtitle')
+def handle_toggle_subtitle(data):
+    """Toggle subtitles only for the song currently playing."""
+    global subtitle_visible
+    filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
+    if not playlist_queue or filename != playlist_queue[0]:
+        return
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    if not os.path.exists(subtitle_path):
+        return
+    subtitle_visible = not subtitle_visible
+    emit('subtitle_state', {'filename': filename, 'visible': subtitle_visible}, broadcast=True)
+    broadcast_current_song()
 
 @socketio.on('remove_from_queue')
 def handle_remove_from_queue(data):
@@ -232,18 +379,22 @@ def handle_remove_from_queue(data):
 
 @socketio.on('song_ended')
 def handle_song_ended():
+    global subtitle_visible
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0) 
+        subtitle_visible = False
         emit('update_queue', playlist_queue, broadcast=True)
         
         # 檢查是否還有下一首
         if len(playlist_queue) > 0:
             next_song = playlist_queue[0]
             emit('play_video', {'filename': next_song, 'title': next_song}, broadcast=True)
+            broadcast_current_song()
         else:
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
+            broadcast_current_song()
 
 @socketio.on('control')
 def handle_control(action):
@@ -306,6 +457,14 @@ def handle_start_download(data):
     url = data.get('url')
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
+    subtitle_content = data.get('subtitle_content', '')
+    subtitle_extension = str(data.get('subtitle_extension', '')).lower().lstrip('.')
+    if subtitle_content:
+        try:
+            subtitle_extension = detect_subtitle_format(subtitle_content, subtitle_extension)
+        except ValueError as error:
+            broadcast_log(f"❌ {error}")
+            return
     if ai_engine not in ('spleeter', 'mdxnet'):
         broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
         return
@@ -319,9 +478,15 @@ def handle_start_download(data):
         socketio.emit('task_status', {'status': 'busy'})
         
         processor = KTVProcessor(log_cb=broadcast_log)
-        success = processor.process_song(url, title, ai_engine)
+        output_filename = processor.process_song(url, title, ai_engine)
         
-        if success:
+        if output_filename:
+            if subtitle_content:
+                try:
+                    save_subtitle(output_filename, subtitle_content, subtitle_extension)
+                    broadcast_log(f"✅ 字幕已儲存為 {os.path.splitext(output_filename)[0]}.vtt")
+                except (OSError, ValueError) as error:
+                    broadcast_log(f"⚠️ 歌曲已完成，但字幕轉換失敗：{error}")
             socketio.emit('refresh_list')
         
         is_processing = False
@@ -457,14 +622,14 @@ class KTVProcessor:
             shutil.move(temp_output, final)
             
             self.log("✅ 製作完成！已自動同步至歌單。")
-            return True
+            return os.path.basename(final)
 
         except subprocess.CalledProcessError as e:
             self.log(f"❌ 執行失敗 (Code {e.returncode})")
-            return False
+            return None
         except Exception as e:
             self.log(f"❌ 錯誤: {e}")
-            return False
+            return None
         finally:
             if job_temp_dir and os.path.exists(job_temp_dir):
                 try:
