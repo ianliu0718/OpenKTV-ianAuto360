@@ -8,13 +8,13 @@
         body { background: #1a1a1a; color: white; font-family: "Microsoft JhengHei", sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
         #player-container { flex: 0 0 45vh; background: #000; position: relative; display: flex; justify-content: center; align-items: center; }
-        #remote-container { flex: 1; overflow-y: auto; padding: 15px; background: #222; display: flex; flex-direction: column; }
+        #remote-container { flex: 1 1 auto; min-height: 0; min-width: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; padding: 15px; background: #222; display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
 
         /* 當螢幕夠寬 (例如筆電/PC) 時，自動變成左右分割模式 */
         @media (min-width: 800px) {
             body { flex-direction: row; }
             #player-container { flex: 2; height: 100vh; border-right: 2px solid #333; }
-            #remote-container { flex: 1; height: 100vh; max-width: 450px; }
+            #remote-container { flex: 1 1 0; height: 100vh; max-width: 450px; }
         }
 
         /* --- 播放器區塊 UI --- */
@@ -43,14 +43,14 @@
         .control-group { background: #333; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
         .control-label { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; color: #ccc;}
         input[type=range] { width: 100%; cursor: pointer;}
-        .queue-box { background: #111; padding: 12px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #444; flex-shrink: 0;}
+        .queue-box { background: #111; padding: 12px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #444; flex: 0 0 auto; max-height: 30vh; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
         .queue-title { color: #4CAF50; font-size: 14px; margin-bottom: 5px; font-weight: bold;}
-        #queue-list { font-size: 14px; color: #aaa; padding-left: 20px; margin: 0; }
+        #queue-list { font-size: 14px; color: #aaa; padding-left: 20px; margin: 0; min-height: 0; max-height: calc(30vh - 52px); overflow-y: auto; }
         #queue-list li { background: none; border: none; padding: 3px 0; display: list-item; list-style-type: decimal; }
 
         /* 搜尋與列表 */
         input[type=text] { width: 100%; padding: 12px; margin-bottom: 10px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 8px; font-size: 15px;}
-        ul#list { list-style: none; padding: 0; margin: 0; flex-grow: 1; overflow-y: auto; }
+        ul#list { list-style: none; padding: 0; margin: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; }
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
     </style>

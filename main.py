@@ -201,6 +201,11 @@ def get_song_list():
 # ------------------------------------------
 playlist_queue = []
 
+@socketio.on('connect')
+def handle_connect():
+    """Send the current queue to each newly connected client."""
+    emit('update_queue', playlist_queue)
+
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
     filename = data['filename']
