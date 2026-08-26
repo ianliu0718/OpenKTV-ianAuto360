@@ -60,6 +60,27 @@ OpenKTV-AI/
 
 ## 🛠️ 開發與本地執行 (適合開發者)
 
+## 📦 Windows 發佈與更新
+
+首次安裝請使用完整的 `dist\ianAutoKTV_Server\` 資料夾，並雙擊其中的 `ianAutoKTV_Server.exe`。不要使用 `dist` 根目錄的單獨 exe。
+
+建立完整主程式包：
+
+```powershell
+cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
+.\build_release.ps1
+```
+
+建立更新包：
+
+```powershell
+.\build_update.ps1
+```
+
+更新包會包含新的 `ianAutoKTV_Server.exe`、相容的 `_internal`、`templates` 與 `VERSION.txt`。請先關閉程式，再將更新包內的全部內容覆蓋到原安裝資料夾；不要只替換 exe。`_internal` 含 TensorFlow 原生 DLL，必須與 exe 來自同一次建置，否則可能出現 TensorFlow DLL 初始化錯誤。
+
+由於 PyInstaller 的 `onedir` 格式限制，若只修改網頁模板，仍會一併帶上 `_internal`；這是為了確保更新後可正常啟動。使用者原有的 `ffmpeg`、`pretrained_models`、`ktv_songs` 與 `yt-dlp.exe` 不需替換。
+
 ### 1. 環境需求
 * Python 3.8+
 * 系統需已安裝 [FFmpeg](https://ffmpeg.org/) 並加入環境變數，或將其放置於專案目錄下。
@@ -102,3 +123,6 @@ python main.py
 
 * **版權聲明**：本專案僅供程式交流與個人家庭娛樂使用，請勿將下載之版權影音用於任何商業行為。
 * **硬體需求**：AI 去人聲（Spleeter）會消耗一定的 CPU/記憶體資源，處理一首 4 分鐘的歌曲約需 1~3 分鐘不等，請耐心等候。
+* 程式啟動時不會載入 TensorFlow；只有開始下載並處理歌曲時才會載入 Spleeter。若處理歌曲時仍出現 TensorFlow DLL 錯誤，請確認使用完整主程式包，且不要只替換 exe。
+* 若啟動時出現 `Failed to load the native Tensorflow runtime`，請使用同一次建置產生的完整主程式包與更新包，不要只替換 exe。
+* 若啟動時出現 `Invalid async_mode specified`，請重新執行 `build_release.ps1` 與 `build_update.ps1`，使用新產生的完整資料夾；打包設定已固定使用 `threading` 並納入 Engine.IO driver。

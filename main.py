@@ -49,12 +49,13 @@ import time
 import webbrowser
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
-from spleeter.separator import Separator
 import multiprocessing
 
 # ==========================================
 # 設定區
 # ==========================================
+APP_VERSION = "v1.0.0"
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
 else:
@@ -98,7 +99,7 @@ if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 # ==========================================
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
 app.config['SECRET_KEY'] = 'ktv_secret'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 def get_local_ip():
     try:
@@ -386,11 +387,11 @@ class KTVProcessor:
 class ServerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("KTV 伺服器狀態")
+        self.title(f"ianAutoKTV {APP_VERSION}")
         self.geometry("450x500") # 稍微拉高一點放日誌框
         self.configure(bg="#f4f4f9")
         
-        tk.Label(self, text="🎤 KTV 系統運作中", font=("Microsoft JhengHei", 20, "bold"), fg="#4CAF50", bg="#f4f4f9").pack(pady=10)
+        tk.Label(self, text=f"🎤 KTV 系統運作中 {APP_VERSION}", font=("Microsoft JhengHei", 20, "bold"), fg="#4CAF50", bg="#f4f4f9").pack(pady=10)
         
         info_frame = tk.Frame(self, bg="white", bd=1, relief="solid")
         info_frame.pack(fill="x", padx=20, pady=5)
