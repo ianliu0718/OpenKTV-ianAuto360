@@ -56,7 +56,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.1.5"
+APP_VERSION = "v1.0.1"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 

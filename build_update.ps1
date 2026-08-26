@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
-$ReleaseVersion = "v1.0.1.5"
+$ReleaseVersion = "v1.0.1"
 $AppName = "ianAutoKTV_Server"
 $DistRoot = Join-Path $ProjectDir "dist"
 $BuildDir = Join-Path $DistRoot "ianAutoKTV_Server"
