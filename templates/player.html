@@ -51,7 +51,12 @@
             gainR = audioCtx.createGain();
             masterGain = audioCtx.createGain();
             Tone.setContext(audioCtx);
-            pitchShift = new Tone.PitchShift({ pitch: currentKey, windowSize: 0.1 }).toDestination();
+            pitchShift = new Tone.PitchShift({
+                pitch: currentKey,
+                windowSize: 0.3,
+                delayTime: 0.03,
+                feedback: 0
+            }).toDestination();
 
             source.connect(splitter);
             splitter.connect(gainL, 0); 
@@ -105,7 +110,9 @@
                 }
             }
             if (data.pitch !== undefined) {
-                currentKey = Math.max(-12, Math.min(12, Number(data.pitch)));
+                const pitch = Number(data.pitch);
+                if (!Number.isFinite(pitch)) return;
+                currentKey = Math.max(-12, Math.min(12, pitch));
                 if (pitchShift) {
                     pitchShift.pitch = currentKey;
                 }
