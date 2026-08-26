@@ -1,15 +1,19 @@
-# PyInstaller build specification for OpenKTV-AI v1.0.0.
+# PyInstaller build specification for OpenKTV-AI
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 project_dir = Path(SPECPATH)
 datas = []
 binaries = []
+scipy_special = project_dir / ".venv" / "Lib" / "site-packages" / "scipy" / "special"
+cython_special = next(scipy_special.glob("cython_special*.pyd"), None)
+if cython_special:
+    datas.append((str(cython_special), "scipy/special"))
 
 datas += collect_data_files("spleeter")
 datas.append((str(project_dir / ".venv" / "Lib" / "site-packages" / "setuptools" / "_vendor" / "jaraco" / "text" / "Lorem ipsum.txt"), "setuptools/_vendor/jaraco/text"))
 hiddenimports = collect_submodules("spleeter")
-hiddenimports += ["engineio.async_drivers.threading"]
+hiddenimports += ["engineio.async_drivers.threading", "scipy.special.cython_special"]
 
 a = Analysis(
     [str(project_dir / "main.py")],

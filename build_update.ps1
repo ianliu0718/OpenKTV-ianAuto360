@@ -3,16 +3,21 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
-$ReleaseVersion = "v1.0.0"
+$ReleaseVersion = "v1.0.1.4"
 $AppName = "ianAutoKTV_Server"
 $DistRoot = Join-Path $ProjectDir "dist"
 $BuildDir = Join-Path $DistRoot "ianAutoKTV_Server"
 $TempDistRoot = Join-Path $DistRoot "_update_build"
 $TempBuildDir = Join-Path $TempDistRoot "ianAutoKTV_Server"
 $UpdateDir = Join-Path $DistRoot "ianAutoKTV_Update_$ReleaseVersion"
+$YtDlp = Join-Path $ProjectDir "yt-dlp.exe"
 
 if (-not (Test-Path $Python)) {
     throw "Python virtual environment not found: $Python"
+}
+
+if (-not (Test-Path $YtDlp)) {
+    Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $YtDlp
 }
 
 & $Python -m pip install pyinstaller
@@ -27,6 +32,13 @@ New-Item $UpdateDir -ItemType Directory -Force | Out-Null
 Copy-Item (Join-Path $TempBuildDir "ianAutoKTV_Server.exe") $UpdateDir -Force
 Copy-Item (Join-Path $TempBuildDir "_internal") $UpdateDir -Recurse -Force
 Copy-Item (Join-Path $ProjectDir "templates") $UpdateDir -Recurse -Force
+Copy-Item $YtDlp $UpdateDir -Force
+$ScipySpecial = Join-Path $ProjectDir ".venv\Lib\site-packages\scipy\special\cython_special.cp38-win_amd64.pyd"
+if (Test-Path $ScipySpecial) {
+    $ScipyTarget = Join-Path $UpdateDir "_internal\scipy\special"
+    New-Item $ScipyTarget -ItemType Directory -Force | Out-Null
+    Copy-Item $ScipySpecial $ScipyTarget -Force
+}
 Set-Content (Join-Path $UpdateDir "VERSION.txt") $ReleaseVersion -Encoding ASCII
 Remove-Item $TempDistRoot -Recurse -Force
 

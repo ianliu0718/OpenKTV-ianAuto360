@@ -1,9 +1,9 @@
 
-# 🎤 OpenKTV-AI 智慧開源 KTV 系統
+# 🎤 ianAutoKTV 智慧開源 KTV 系統
 
-OpenKTV-AI 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統。只需輸入 YouTube 網址，系統便會自動下載影片，並利用 AI 模型（Spleeter）將「原唱」與「伴奏」音軌分離，最後透過網頁介面提供專業的 KTV 點歌與播放體驗。
+ianAutoKTV 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統。只需輸入 YouTube 網址，系統便會自動下載影片，並利用 AI 模型（Spleeter）將「原唱」與「伴奏」音軌分離，最後透過網頁介面提供專業的 KTV 點歌與播放體驗。
 
-無論是用電視大螢幕播放、手機掃碼遙控，還是用筆電單機歡唱，OpenKTV-AI 都能完美支援！
+無論是用電視大螢幕播放、手機掃碼遙控，還是用筆電單機歡唱，ianAutoKTV 都能完美支援！
 
 ---
 
@@ -34,7 +34,7 @@ OpenKTV-AI 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統
 如果你是直接下載編譯好的 Windows `.exe` 版本，請確保你的資料夾結構如下，系統才能正常運作：
 
 ```text
-OpenKTV-AI/
+ianAutoKTV/
  │
  ├── AI_KTV_Server.exe        # KTV 伺服器主程式
  ├── yt-dlp.exe               # 影音下載核心
@@ -77,7 +77,7 @@ cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
 .\build_update.ps1
 ```
 
-更新包會包含新的 `ianAutoKTV_Server.exe`、相容的 `_internal`、`templates` 與 `VERSION.txt`。請先關閉程式，再將更新包內的全部內容覆蓋到原安裝資料夾；不要只替換 exe。`_internal` 含 TensorFlow 原生 DLL，必須與 exe 來自同一次建置，否則可能出現 TensorFlow DLL 初始化錯誤。
+更新包會包含新的 `ianAutoKTV_Server.exe`、相容的 `_internal`、`templates`、官方獨立版 `yt-dlp.exe` 與 `VERSION.txt`。請先關閉程式，再將更新包內的全部內容覆蓋到原安裝資料夾；不要只替換 exe。`_internal` 含 TensorFlow 原生 DLL，必須與 exe 來自同一次建置，否則可能出現 TensorFlow DLL 初始化錯誤。
 
 由於 PyInstaller 的 `onedir` 格式限制，若只修改網頁模板，仍會一併帶上 `_internal`；這是為了確保更新後可正常啟動。使用者原有的 `ffmpeg`、`pretrained_models`、`ktv_songs` 與 `yt-dlp.exe` 不需替換。
 
@@ -123,6 +123,8 @@ python main.py
 
 * **版權聲明**：本專案僅供程式交流與個人家庭娛樂使用，請勿將下載之版權影音用於任何商業行為。
 * **硬體需求**：AI 去人聲（Spleeter）會消耗一定的 CPU/記憶體資源，處理一首 4 分鐘的歌曲約需 1~3 分鐘不等，請耐心等候。
+* `yt-dlp.exe` 必須使用官方獨立執行檔，不要使用 `.venv\Scripts\yt-dlp.exe` 這類可能綁定舊 Python 路徑的 launcher，否則下載歌曲時會回報 Code 1。
 * 程式啟動時不會載入 TensorFlow；只有開始下載並處理歌曲時才會載入 Spleeter。若處理歌曲時仍出現 TensorFlow DLL 錯誤，請確認使用完整主程式包，且不要只替換 exe。
 * 若啟動時出現 `Failed to load the native Tensorflow runtime`，請使用同一次建置產生的完整主程式包與更新包，不要只替換 exe。
 * 若啟動時出現 `Invalid async_mode specified`，請重新執行 `build_release.ps1` 與 `build_update.ps1`，使用新產生的完整資料夾；打包設定已固定使用 `threading` 並納入 Engine.IO driver。
+* 若下載成功、只有「AI 去人聲」出現 `DLL 初始化例行程序失敗`，表示程式已啟動，問題通常在使用者電腦的 TensorFlow 執行環境。請先安裝 Microsoft Visual C++ 2015-2022 Redistributable x64，確認 Windows 為 64 位元且 CPU 支援 AVX，再重新測試。若仍失敗，請提供使用者電腦的 CPU 型號與 Windows 版本。

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
-$ReleaseVersion = "v1.0.0"
+$ReleaseVersion = "v1.0.1.4"
 $AppName = "ianAutoKTV_Server"
 $DistDir = Join-Path $ProjectDir "dist\$AppName"
 $DistRoot = Join-Path $ProjectDir "dist"
@@ -25,12 +25,7 @@ if (-not (Test-Path (Join-Path $ProjectDir "ffmpeg\bin\ffmpeg.exe"))) {
 
 $YtDlp = Join-Path $ProjectDir "yt-dlp.exe"
 if (-not (Test-Path $YtDlp)) {
-    $YtDlpInVenv = Join-Path $ProjectDir ".venv\Scripts\yt-dlp.exe"
-    if (Test-Path $YtDlpInVenv) {
-        Copy-Item $YtDlpInVenv $YtDlp
-    } else {
-        throw "yt-dlp.exe not found. Place yt-dlp.exe in the project root."
-    }
+    Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $YtDlp
 }
 
 & $Python -m pip install pyinstaller
@@ -43,8 +38,14 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 Copy-Item (Join-Path $ProjectDir "templates") $DistDir -Recurse -Force
 Copy-Item (Join-Path $ProjectDir "pretrained_models") $DistDir -Recurse -Force
 Copy-Item (Join-Path $ProjectDir "ffmpeg") $DistDir -Recurse -Force
+$ScipySpecial = Join-Path $ProjectDir ".venv\Lib\site-packages\scipy\special\cython_special.cp38-win_amd64.pyd"
+if (Test-Path $ScipySpecial) {
+    $ScipyTarget = Join-Path $DistDir "_internal\scipy\special"
+    New-Item $ScipyTarget -ItemType Directory -Force | Out-Null
+    Copy-Item $ScipySpecial $ScipyTarget -Force
+}
 Copy-Item $YtDlp $DistDir -Force
 New-Item (Join-Path $DistDir "ktv_songs") -ItemType Directory -Force | Out-Null
 
 Write-Host "Build complete: $DistDir\ianAutoKTV_Server.exe" -ForegroundColor Green
-Write-Host "Publish this folder as the v1.0.0 base installation." -ForegroundColor Green
+Write-Host "Publish this folder as the $ReleaseVersion base installation." -ForegroundColor Green

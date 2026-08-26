@@ -54,7 +54,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.0"
+APP_VERSION = "v1.0.1.4"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -215,10 +215,16 @@ def _run_spleeter_process(input_path, output_dir):
     這個函式會在一個完全獨立的 Python 進程中執行。
     結束時作業系統會強制清空此進程佔用的 TensorFlow 記憶體。
     """
-    from spleeter.separator import Separator
-    # 初始化並執行分離
-    separator = Separator('spleeter:2stems')
-    separator.separate_to_file(input_path, output_dir)
+    try:
+        from spleeter.separator import Separator
+        # 初始化並執行分離
+        separator = Separator('spleeter:2stems')
+        separator.separate_to_file(input_path, output_dir)
+    except Exception:
+        import traceback
+        with open(os.path.join(output_dir, "spleeter_error.log"), "w", encoding="utf-8") as error_file:
+            error_file.write(traceback.format_exc())
+        raise
 
 
 
@@ -232,6 +238,13 @@ def handle_start_download(data):
     
     url = data.get('url')
     title = data.get('title')
+    ai_engine = data.get('ai_engine', 'spleeter')
+    if ai_engine not in ('spleeter', 'mdxnet'):
+        broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
+        return
+    if ai_engine == 'mdxnet':
+        broadcast_log("❌ MDX-Net 尚未安裝，請先使用 Spleeter，或完成 ToDo.md 的 MDX-Net 測試階段。")
+        return
     
     def run_process():
         global is_processing
@@ -239,7 +252,7 @@ def handle_start_download(data):
         socketio.emit('task_status', {'status': 'busy'})
         
         processor = KTVProcessor(log_cb=broadcast_log)
-        success = processor.process_song(url, title)
+        success = processor.process_song(url, title, ai_engine)
         
         if success:
             socketio.emit('refresh_list')
@@ -294,7 +307,7 @@ class KTVProcessor:
     def sanitize_filename(self, name):
         return "".join([c for c in name if c not in r'\/:*?"<>|'])
 
-    def process_song(self, url, manual_title):
+    def process_song(self, url, manual_title, ai_engine='spleeter'):
         job_temp_dir = None
         try:
             safe_title = self.sanitize_filename(manual_title)
@@ -324,7 +337,11 @@ class KTVProcessor:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
             )
 
-            self.log("步驟 2/4: AI 去人聲 (Spleeter)... (這需要一點時間)")
+            engine_names = {'spleeter': 'Spleeter', 'mdxnet': 'MDX-Net'}
+            engine_name = engine_names.get(ai_engine)
+            if engine_name is None:
+                raise ValueError(f"不支援的 AI 去人聲引擎：{ai_engine}")
+            self.log(f"步驟 2/4: AI 去人聲 ({engine_name})... (這需要一點時間)")
             
             # 【終極修復】PyInstaller 打包後沒有 spleeter.exe 可用 subprocess 呼叫。
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。
@@ -335,6 +352,10 @@ class KTVProcessor:
             p.join() # 等待進程執行完畢
             
             if p.exitcode != 0:
+                error_log = os.path.join(job_temp_dir, "spleeter_error.log")
+                if os.path.exists(error_log):
+                    with open(error_log, encoding="utf-8") as error_file:
+                        self.log(error_file.read())
                 raise Exception(f"Spleeter 分離失敗，子進程異常結束 (Exit code: {p.exitcode})")
             
             # Spleeter CLI 預設會建立一個以輸入檔名為名稱的資料夾，所以路徑稍微改變
