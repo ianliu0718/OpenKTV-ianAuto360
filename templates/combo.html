@@ -72,11 +72,18 @@
             <div id="waiting" onclick="initSystem()">📺 點擊此處啟動音效引擎</div>
         </div>
         
-        <video id="vid" playsinline crossorigin="anonymous" ondblclick="toggleFullScreen()"></video>
+        <video id="vid" playsinline crossorigin="anonymous" ondblclick="toggleFullScreen()">
+            <track id="subtitle-track" kind="subtitles" srclang="zh" label="字幕">
+        </video>
     </div>
 
     <div id="remote-container">
         <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌)</a>
+
+        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
+            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
+            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+        </div>
         
         <div class="grid">
             <button class="btn vocal" onclick="track('original')">🎤 原唱</button>
@@ -119,6 +126,7 @@ const socket = io();
         const waitingBtn = document.getElementById('waiting');
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
+        const subtitleTrack = document.getElementById('subtitle-track');
         
         let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
@@ -126,6 +134,7 @@ const socket = io();
         let useSoundTouch = false;
         let currentMode = 'original';
         let currentKey = 0; 
+        let currentFilename = '';
 
         /**
          * Shows the audio processor currently used by the all-in-one player.
@@ -133,6 +142,17 @@ const socket = io();
          */
         function setEngineStatus(message) {
             engineStatus.innerText = `音訊引擎：${message}`;
+        }
+
+        /**
+         * Loads the current song's matching WebVTT file and controls its visibility.
+         * @param {string} filename Current MP4 filename.
+         * @param {boolean} visible Whether subtitles should be visible.
+         */
+        function setSubtitle(filename, visible) {
+            currentFilename = filename;
+            subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            subtitleTrack.track.mode = visible ? 'showing' : 'hidden';
         }
 
         function toggleFullScreen() {
@@ -263,6 +283,7 @@ const socket = io();
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
             currentKey = 0;
+            setSubtitle(data.filename, false);
             setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             setupAudio().then(() => video.play()).then(() => {
@@ -270,6 +291,10 @@ const socket = io();
                 updateEffect(); 
                 socket.emit('control_effect', { pitch: 0 }); // 新歌自動回歸原 KEY
             }).catch(e => { overlay.innerText = "⚠️ 請點擊畫面開始播放"; });
+        });
+
+        socket.on('subtitle_state', (data) => {
+            if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
         });
 
         // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
@@ -306,6 +331,61 @@ const socket = io();
 
         // --- 遙控器邏輯 ---
         let allSongs = [];
+        let subtitleSongs = new Set();
+        let currentPlayingFilename = '';
+        let currentSubtitleVisible = false;
+
+        /**
+         * Loads the songs that have a matching subtitle file.
+         */
+        function loadSubtitleList() {
+            fetch('/api/subtitles').then(response => response.json()).then(songs => {
+                subtitleSongs = new Set(songs);
+                filter();
+                renderCurrentSongControl();
+            });
+        }
+
+        /**
+         * Renders the subtitle control for the song currently being played.
+         */
+        function renderCurrentSongControl() {
+            const control = document.getElementById('current-song-control');
+            const name = document.getElementById('current-song-name');
+            const button = document.getElementById('current-subtitle-button');
+            const hasSong = Boolean(currentPlayingFilename);
+            const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
+            control.style.display = hasSong && hasSubtitle ? 'block' : 'none';
+            if (!hasSong) return;
+            name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
+            button.textContent = currentSubtitleVisible ? '字幕：顯示中' : '字幕：隱藏';
+        }
+
+        /**
+         * Updates the fixed playback subtitle control from the server state.
+         * @param {Object} data Current playback state with filename and visible fields.
+         */
+        function updateCurrentSong(data) {
+            currentPlayingFilename = data.filename || '';
+            currentSubtitleVisible = Boolean(data.visible);
+            renderCurrentSongControl();
+        }
+
+        /**
+         * Toggles subtitles for the song currently being played.
+         */
+        function toggleCurrentSubtitle() {
+            if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
+        }
+
+        socket.on('current_song', updateCurrentSong);
+
+        socket.on('subtitle_state', (data) => {
+            if (data.filename === currentPlayingFilename) {
+                currentSubtitleVisible = Boolean(data.visible);
+                renderCurrentSongControl();
+            }
+        });
 
         function updateEffect() {
             const vol = parseFloat(document.getElementById('vol').value);
@@ -349,9 +429,16 @@ const socket = io();
             list.innerHTML = "";
             allSongs.filter(s => s.toLowerCase().includes(key)).forEach(s => {
                 const name = s.replace('.mp4', '');
-                list.innerHTML += `<li><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%; font-size:15px;">${name}</span><button class="song-btn" onclick="play(this, '${s}')">播歌</button></li>`;
+                const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                list.innerHTML += `<li><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}<button class="song-btn" onclick="play(this, '${s}')">播歌</button></span></li>`;
             });
         }
+
+        /**
+         * Requests the player to toggle subtitles for a song with an attached file.
+         * @param {string} filename Song filename used by the player.
+         */
+        function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
 
         function play(btn, filename) { 
             // 👑 修正點 3：改成發送 add_to_queue 指令，而不是 request_play
@@ -373,7 +460,8 @@ const socket = io();
         }
         
         loadList();
-        socket.on('refresh_list', loadList);
+        loadSubtitleList();
+        socket.on('refresh_list', () => { loadList(); loadSubtitleList(); });
     </script>
 </body>
 </html>

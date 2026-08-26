@@ -20,7 +20,9 @@
     <div id="overlay">等待連線...</div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="waiting" onclick="initAudioContext()">📺 KTV 準備就緒 (點我啟動音效)</div>
-    <video id="vid" playsinline crossorigin="anonymous"></video>
+    <video id="vid" playsinline crossorigin="anonymous">
+        <track id="subtitle-track" kind="subtitles" srclang="zh" label="字幕">
+    </video>
 
     <script>
         const socket = io();
@@ -28,6 +30,7 @@
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
         const engineStatus = document.getElementById('engine-status');
+        const subtitleTrack = document.getElementById('subtitle-track');
         
         let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
@@ -36,6 +39,7 @@
         let currentMode = 'stereo';
         let currentVolume = 1;
         let currentKey = 0;
+        let currentFilename = '';
 
         /**
          * Shows the audio processor currently used by the player.
@@ -43,6 +47,17 @@
          */
         function setEngineStatus(message) {
             engineStatus.innerText = `音訊引擎：${message}`;
+        }
+
+        /**
+         * Loads the current song's matching WebVTT file and controls its visibility.
+         * @param {string} filename Current MP4 filename.
+         * @param {boolean} visible Whether subtitles should be visible.
+         */
+        function setSubtitle(filename, visible) {
+            currentFilename = filename;
+            subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            subtitleTrack.track.mode = visible ? 'showing' : 'hidden';
         }
 
         function initAudioContext() {
@@ -132,6 +147,7 @@
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
             currentKey = 0;
+            setSubtitle(data.filename, false);
             setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             setupAudio().then(() => video.play()).then(() => {
@@ -139,6 +155,10 @@
             }).catch(e => {
                 overlay.innerText = "⚠️ 請點擊畫面開始播放";
             });
+        });
+
+        socket.on('subtitle_state', (data) => {
+            if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
         });
 
         socket.on('command', (cmd) => {

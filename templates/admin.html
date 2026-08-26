@@ -15,6 +15,9 @@
         .btn-update { background: #607D8B; }
         .btn-dl:disabled, .btn-update:disabled { background: #ccc; cursor: not-allowed; }
         textarea { width: 100%; height: 200px; background: #222; color: #0f0; padding: 10px; box-sizing: border-box; font-family: monospace; border-radius: 5px; resize: none; }
+        details { margin-bottom: 28px; }
+        summary { cursor: pointer; padding: 4px 0; }
+            .subtitle-converter { margin-bottom: 0; }
         
         /* 導航列樣式 */
         .nav-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -45,7 +48,14 @@
             <option value="spleeter">Spleeter (目前可用)</option>
             <option value="mdxnet" disabled>MDX-Net (準備中)</option>
         </select>
+        <label for="subtitle_file">4. 選擇字幕檔（可選，自動判斷 SRT/LRC/VTT）:</label>
+        <input type="file" id="subtitle_file" accept=".srt,.lrc,.vtt,text/vtt,application/x-subrip">
+        <details>
+            <summary>進階：直接貼上字幕文字</summary>
+            <textarea id="subtitle_text" class="subtitle-input" placeholder="請貼上 SRT、LRC 或 VTT 格式文字"></textarea>
+        </details>
         <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
+        <p id="subtitle_status"></p>
     </div>
 
     <div class="card">
@@ -58,11 +68,31 @@
         <textarea id="log" readonly></textarea>
     </div>
 
+    <div class="card subtitle-converter-card">
+        <details class="subtitle-converter">
+            <summary>進階：既有歌曲歌詞轉檔</summary>
+            <label for="converter_song">選擇既有歌曲檔案（輸出字幕會儲存在歌曲相同位置）:</label>
+            <input type="file" id="converter_song" accept=".mp4,video/mp4">
+            <label for="converter_file">選擇字幕檔（可選，自動判斷 SRT/LRC/VTT）:</label>
+            <input type="file" id="converter_file" accept=".srt,.lrc,.vtt,text/vtt,application/x-subrip">
+            <textarea id="converter_text" class="subtitle-input" placeholder="或直接貼上 SRT、LRC、VTT 格式文字"></textarea>
+            <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
+            <p id="converter_status"></p>
+        </details>
+    </div>
+
     <script>
         const socket = io();
         const logArea = document.getElementById('log');
         const btnDl = document.getElementById('btn_dl');
         const btnUpdate = document.getElementById('btn_update');
+        const subtitleFile = document.getElementById('subtitle_file');
+        const subtitleText = document.getElementById('subtitle_text');
+        const subtitleStatus = document.getElementById('subtitle_status');
+        const converterSong = document.getElementById('converter_song');
+        const converterFile = document.getElementById('converter_file');
+        const converterText = document.getElementById('converter_text');
+        const converterStatus = document.getElementById('converter_status');
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
@@ -76,6 +106,9 @@
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
+                subtitleFile.value = '';
+                subtitleText.value = '';
+                subtitleStatus.innerText = '';
             } else if (data.status === 'busy') {
                 btnDl.disabled = true;
                 btnDl.innerText = "製作中...請稍候";
@@ -83,7 +116,71 @@
             }
         });
 
-        function startDownload() {
+        /**
+         * Reads the selected subtitle file or the advanced text input.
+         * @returns {Promise<{content: string, extension: string}>} Subtitle payload.
+         */
+        async function readSubtitleInput() {
+            const [file] = subtitleFile.files;
+            const text = subtitleText.value.trim();
+            if (file && text) {
+                throw new Error('字幕檔案與進階文字請擇一輸入。');
+            }
+            if (file) {
+                const extension = file.name.split('.').pop().toLowerCase();
+                if (!['srt', 'lrc', 'vtt'].includes(extension)) {
+                    throw new Error('字幕檔格式必須是 SRT、LRC 或 VTT。');
+                }
+                return { content: await file.text(), extension };
+            }
+            return { content: text, extension: text ? detectSubtitleFormat(text) : '' };
+        }
+
+        /**
+         * Detects the subtitle format from its content without requiring a selector.
+         * @param {string} content Subtitle text to inspect.
+         * @returns {string} Detected format: srt, lrc, or vtt.
+         */
+        function detectSubtitleFormat(content) {
+            const normalized = content.trim();
+            if (/^WEBVTT(?:\s|$)/i.test(normalized)) return 'vtt';
+            if (/^\s*\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/m.test(normalized)) return 'lrc';
+            if (/\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->/.test(normalized)) return 'srt';
+            throw new Error('無法判斷字幕格式，請確認內容是 SRT、LRC 或 VTT。');
+        }
+
+        /**
+         * Converts a subtitle file or pasted text for an existing song.
+         */
+        async function convertExistingSubtitle() {
+            const [songFile] = converterSong.files;
+            const [file] = converterFile.files;
+            const text = converterText.value.trim();
+            if (!songFile || (!file && !text) || (file && text)) {
+                converterStatus.innerText = '請選擇歌曲，並輸入字幕檔或文字（擇一）。';
+                return;
+            }
+            try {
+                const formData = new FormData();
+                formData.append('song', songFile.name);
+                if (file) {
+                    formData.append('subtitle', file);
+                } else {
+                    formData.append('subtitle_content', text);
+                    formData.append('subtitle_extension', detectSubtitleFormat(text));
+                }
+                const response = await fetch('/api/subtitles/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                converterStatus.innerText = data.success ? `已儲存：${data.filename}` : data.error;
+            } catch (error) {
+                converterStatus.innerText = `轉檔失敗：${error.message}`;
+            }
+        }
+
+        /**
+         * Starts a KTV download and optionally sends subtitle content in the same task.
+         */
+        async function startDownload() {
             const url = document.getElementById('yt_url').value.trim();
             const title = document.getElementById('yt_title').value.trim();
             const aiEngine = document.getElementById('ai_engine').value;
@@ -91,7 +188,19 @@
                 alert("網址與歌名皆為必填！");
                 return;
             }
-            socket.emit('start_download', {url: url, title: title, ai_engine: aiEngine});
+            try {
+                const subtitle = await readSubtitleInput();
+                subtitleStatus.innerText = subtitle.content ? '字幕將在歌曲製作完成後轉換為同名 VTT。' : '';
+                socket.emit('start_download', {
+                    url: url,
+                    title: title,
+                    ai_engine: aiEngine,
+                    subtitle_content: subtitle.content,
+                    subtitle_extension: subtitle.extension,
+                });
+            } catch (error) {
+                subtitleStatus.innerText = error.message;
+            }
         }
 
         function updateYtDlp() {
@@ -100,6 +209,7 @@
                 socket.emit('update_ytdlp');
             }
         }
+
     </script>
 </body>
 </html>
