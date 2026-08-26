@@ -47,6 +47,8 @@ import socket
 import json
 import time
 import webbrowser
+import ipaddress
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import multiprocessing
@@ -54,7 +56,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.1.4"
+APP_VERSION = "v1.0.1.5"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -113,6 +115,49 @@ def get_local_ip():
 
 LOCAL_IP = get_local_ip()
 PORT = 5000
+TLS_CERT_PATH = os.path.join(BASE_DIR, "ktv-local.crt")
+TLS_KEY_PATH = os.path.join(BASE_DIR, "ktv-local.key")
+
+def ensure_tls_certificate():
+    """Create a reusable self-signed certificate for localhost and the LAN IP."""
+    if os.path.exists(TLS_CERT_PATH) and os.path.exists(TLS_KEY_PATH):
+        return TLS_CERT_PATH, TLS_KEY_PATH
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "ianAutoKTV Local"),
+        x509.NameAttribute(NameOID.COMMON_NAME, LOCAL_IP),
+    ])
+    san_names = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    try:
+        san_names.append(x509.IPAddress(ipaddress.ip_address(LOCAL_IP)))
+    except ValueError:
+        san_names.append(x509.DNSName(LOCAL_IP))
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=825))
+        .add_extension(x509.SubjectAlternativeName(san_names), critical=False)
+        .sign(private_key, hashes.SHA256())
+    )
+    with open(TLS_KEY_PATH, "wb") as key_file:
+        key_file.write(private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ))
+    with open(TLS_CERT_PATH, "wb") as cert_file:
+        cert_file.write(certificate.public_bytes(serialization.Encoding.PEM))
+    return TLS_CERT_PATH, TLS_KEY_PATH
 
 def broadcast_log(msg):
     # 用 print 就會自動被我們的 GUIWriter 抓走並顯示在介面上
@@ -133,6 +178,11 @@ def page_admin(): return render_template('admin.html')
 
 @app.route('/combo')  
 def page_combo(): return render_template('combo.html')
+
+@app.route('/soundtouch-prototype')
+def page_soundtouch_prototype():
+    """Serve the isolated SoundTouch KEY validation page."""
+    return send_from_directory(BASE_DIR, 'soundtouch-prototype.html')
 
 @app.route('/')
 def page_index(): return render_template('remote.html')
@@ -291,7 +341,10 @@ def run_server_thread():
         cli.show_server_banner = lambda *args, **kwargs: None  # 暴力閹割橫幅印出功能
         logging.getLogger('werkzeug').setLevel(logging.ERROR)  # 只允許印出重大錯誤
         
-        socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
+        cert_path, key_path = ensure_tls_certificate()
+        print(f"🔒 HTTPS 服務已啟用：https://{LOCAL_IP}:{PORT}")
+        socketio.run(app, host='0.0.0.0', port=PORT, debug=False,
+                 allow_unsafe_werkzeug=True, ssl_context=(cert_path, key_path))
     except Exception as e:
         import traceback
         print(f"❌ 伺服器啟動失敗: {e}")
@@ -417,10 +470,10 @@ class ServerApp(tk.Tk):
         info_frame = tk.Frame(self, bg="white", bd=1, relief="solid")
         info_frame.pack(fill="x", padx=20, pady=5)
         
-        self.create_clickable_link(info_frame, "📺 播放端 (電視用)", f"http://{LOCAL_IP}:{PORT}/player", "blue")
-        self.create_clickable_link(info_frame, "📱 遙控端 (手機用)", f"http://{LOCAL_IP}:{PORT}/remote", "#d32f2f")
-        self.create_clickable_link(info_frame, "🕹️ 一體機 (單機用)", f"http://{LOCAL_IP}:{PORT}/combo", "#9C27B0")
-        self.create_clickable_link(info_frame, "⚙️ 管理端 (加歌用)", f"http://{LOCAL_IP}:{PORT}/admin", "#F57C00")
+        self.create_clickable_link(info_frame, "📺 播放端 (電視用)", f"https://{LOCAL_IP}:{PORT}/player", "blue")
+        self.create_clickable_link(info_frame, "📱 遙控端 (手機用)", f"https://{LOCAL_IP}:{PORT}/remote", "#d32f2f")
+        self.create_clickable_link(info_frame, "🕹️ 一體機 (單機用)", f"https://{LOCAL_IP}:{PORT}/combo", "#9C27B0")
+        self.create_clickable_link(info_frame, "⚙️ 管理端 (加歌用)", f"https://{LOCAL_IP}:{PORT}/admin", "#F57C00")
 
         stat_frame = tk.Frame(self, bg="#f4f4f9")
         stat_frame.pack(fill="x", padx=20, pady=5)

@@ -26,6 +26,7 @@
         #idle-screen { text-align: center; width: 100%; }
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
+        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -54,13 +55,17 @@
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script>
+        const soundTouchModulePromise = import("https://esm.sh/@soundtouchjs/audio-worklet@2.1.1?bundle");
+        const soundTouchProcessorUrl = "https://cdn.jsdelivr.net/npm/@soundtouchjs/audio-worklet@2.1.1/.dist/soundtouch-processor.js";
+    </script>
 </head>
 <body>
     <div id="player-container">
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
+        <div id="engine-status">音訊引擎：尚未啟動</div>
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
         
         <div id="idle-screen" ondblclick="toggleFullScreen()">
@@ -113,11 +118,22 @@ const socket = io();
         const idleScreen = document.getElementById('idle-screen');
         const waitingBtn = document.getElementById('waiting');
         const playerContainer = document.getElementById('player-container');
+        const engineStatus = document.getElementById('engine-status');
         
-        let audioCtx, source, splitter, gainL, gainR, merger, masterGain, pitchShift;
+        let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
+        let audioSetupPromise;
+        let useSoundTouch = false;
         let currentMode = 'original';
         let currentKey = 0; 
+
+        /**
+         * Shows the audio processor currently used by the all-in-one player.
+         * @param {string} message Engine name and optional diagnostic detail.
+         */
+        function setEngineStatus(message) {
+            engineStatus.innerText = `音訊引擎：${message}`;
+        }
 
         function toggleFullScreen() {
             if (!document.fullscreenElement) {
@@ -138,45 +154,93 @@ const socket = io();
             waitingBtn.innerHTML = "✅ 音效已啟動<br><span style='font-size:16px;color:#888;'>請從下方/右方點歌</span>";
             waitingBtn.style.borderColor = "#4CAF50";
             waitingBtn.style.color = "#4CAF50";
+            setupAudio().catch((error) => {
+                overlay.innerText = `⚠️ 音效引擎啟動失敗：${error.message}`;
+            });
         }
 
-        function setupAudio() {
+        /**
+         * Builds the all-in-one KTV Web Audio graph with SoundTouch pitch processing.
+         * @returns {Promise<void>} Resolves after the AudioWorklet is connected.
+         */
+        async function setupAudio() {
             if(isAudioSetup) return;
+            if(audioSetupPromise) return audioSetupPromise;
             if(!audioCtx) initSystem();
-            
-            source = audioCtx.createMediaElementSource(video);
-            splitter = audioCtx.createChannelSplitter(2);
-            merger = audioCtx.createChannelMerger(2);
-            gainL = audioCtx.createGain();
-            gainR = audioCtx.createGain();
-            masterGain = audioCtx.createGain(); 
+            audioSetupPromise = (async () => {
+                source = audioCtx.createMediaElementSource(video);
+                splitter = audioCtx.createChannelSplitter(2);
+                merger = audioCtx.createChannelMerger(2);
+                gainL = audioCtx.createGain();
+                gainR = audioCtx.createGain();
+                masterGain = audioCtx.createGain();
+                useSoundTouch = Boolean(audioCtx.audioWorklet);
+                if (useSoundTouch) {
+                    const { SoundTouchNode } = await soundTouchModulePromise;
+                    await SoundTouchNode.register(audioCtx, soundTouchProcessorUrl);
+                    soundTouchNode = new SoundTouchNode({ context: audioCtx });
+                    soundTouchNode.playbackRate.value = 1;
+                    setEngineStatus('SoundTouch AudioWorklet');
+                } else {
+                    Tone.setContext(audioCtx);
+                    pitchShift = new Tone.PitchShift({ pitch: currentKey, windowSize: 0.05, delayTime: 0.01, feedback: 0 }).toDestination();
+                    pitchShift.wet.value = currentKey === 0 ? 0 : 1;
+                    setEngineStatus('Tone.js fallback（HTTP LAN）');
+                }
+                setAudioKey(currentKey);
 
-            Tone.setContext(audioCtx);
-            pitchShift = new Tone.PitchShift({
-                pitch: 0,
-                windowSize: 0.3,
-                delayTime: 0.03,
-                feedback: 0
-            }).toDestination();
-
-            source.connect(splitter);
-            splitter.connect(gainL, 0); gainL.connect(merger, 0, 0); gainL.connect(merger, 0, 1);
-            splitter.connect(gainR, 1); gainR.connect(merger, 0, 0); gainR.connect(merger, 0, 1);
-            merger.connect(masterGain);
-            
-            Tone.connect(masterGain, pitchShift);
-            
-            isAudioSetup = true;
-            setAudioMode(currentMode);
+                source.connect(splitter);
+                splitter.connect(gainL, 0); gainL.connect(merger, 0, 0); gainL.connect(merger, 0, 1);
+                splitter.connect(gainR, 1); gainR.connect(merger, 0, 0); gainR.connect(merger, 0, 1);
+                merger.connect(masterGain);
+                if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
+                else Tone.connect(masterGain, pitchShift);
+                isAudioSetup = true;
+                setAudioMode(currentMode);
+            })();
+            return audioSetupPromise;
         }
 
+        /**
+         * Applies the KTV key as a SoundTouch pitch ratio at the current audio time.
+         * @param {number} semitones Signed semitone offset from the original key.
+         */
+        function setAudioKey(semitones) {
+            const value = Number(semitones);
+            if (!Number.isFinite(value) || !audioCtx) return;
+            const bounded = Math.max(-12, Math.min(12, value));
+            if (useSoundTouch && soundTouchNode) {
+                const ratio = 2 ** (bounded / 12);
+                const now = audioCtx.currentTime;
+                soundTouchNode.pitch.setValueAtTime(ratio, now);
+                soundTouchNode.pitchSemitones.setValueAtTime(0, now);
+            } else if (pitchShift) {
+                pitchShift.pitch = bounded;
+                pitchShift.wet.rampTo(bounded === 0 ? 0 : 1, 0.03);
+            }
+        }
+
+        /**
+         * Applies a bounded KEY value to the local SoundTouch node and display.
+         * @param {number} semitones Signed semitone offset from the original key.
+         */
+        function applyKey(semitones) {
+            const value = Number(semitones);
+            if (!Number.isFinite(value)) return;
+            currentKey = Math.max(-12, Math.min(12, value));
+            setAudioKey(currentKey);
+            document.getElementById('key-val').innerText = currentKey === 0 ? "原 KEY (0)" : (currentKey > 0 ? "+" + currentKey : currentKey);
+        }
+
+        /**
+         * Changes KEY locally before broadcasting it to other connected players.
+         * @param {number} step Number of semitones to move, or zero to reset.
+         */
         function changeKey(step) {
             if (step === 0) currentKey = 0;
             else currentKey += step;
-            
-            if(currentKey > 12) currentKey = 12;
-            if(currentKey < -12) currentKey = -12;
-            
+            applyKey(currentKey);
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
             socket.emit('control_effect', { pitch: currentKey });
         }
 
@@ -186,12 +250,10 @@ const socket = io();
                 document.getElementById('vol').value = data.volume;
                 document.getElementById('vol-val').innerText = Math.round(data.volume * 100) + "%";
             }
-            if(pitchShift && data.pitch !== undefined) {
+            if(data.pitch !== undefined) {
                 const pitch = Number(data.pitch);
                 if (!Number.isFinite(pitch)) return;
-                currentKey = Math.max(-12, Math.min(12, pitch));
-                pitchShift.pitch = currentKey; 
-                document.getElementById('key-val').innerText = currentKey === 0 ? "原 KEY (0)" : (currentKey > 0 ? "+" + currentKey : currentKey);
+                applyKey(pitch);
             }
         });
 
@@ -200,9 +262,10 @@ const socket = io();
             idleScreen.style.display = 'none';
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
+            currentKey = 0;
+            setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
-            video.play().then(() => {
-                if(!isAudioSetup) setupAudio();
+            setupAudio().then(() => video.play()).then(() => {
                 setAudioMode('original'); 
                 updateEffect(); 
                 socket.emit('control_effect', { pitch: 0 }); // 新歌自動回歸原 KEY

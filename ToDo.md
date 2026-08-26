@@ -1,82 +1,60 @@
-# OpenKTV AI 去人聲遷移歷程
 
-## 目標
+# KTV 升降 KEY：SoundTouch / WSOLA 替換計畫
 
-將目前的 `Spleeter + TensorFlow 2.3` 改為 `ONNX Runtime + MDX-Net`，降低對舊 CPU AVX 指令集的依賴，讓 AMD A8-3870 使用者有機會在本機完成 AI 去人聲。
+## 評估結論
 
-> 支援條件必須以 AMD A8-3870 實機測試為準。完成打包或成功載入 ONNX Runtime，不代表完整歌曲分離流程已驗證成功。
+- [x] **先做 A/B 原型，不立即移除 Tone.js `PitchShift`。** 目前 `templates/player.html` 與 `templates/combo.html` 都是 `MediaElementSource -> 聲道增益/混音 -> masterGain -> Tone.PitchShift`；升降 KEY 只設定 `pitch`，無法確保歌曲播放速度與總長度保持不變。
+- [x] **優先驗證 SoundTouchJS（核心為 WSOLA 類時間伸縮）**：已選定 `@soundtouchjs/audio-worklet@2.1.1`，以 `pitchSemitones` 控制音高、固定來源與處理節點 `playbackRate = 1`，先驗證音高變更時歌曲時間是否保持穩定。
+- [x] **預期優點**：prototype 已以現有 MP4 成功走過 `MediaElementSource -> SoundTouchNode`，可維持來源播放速度 1.0 並在 `-12` 到 `+12` 半音範圍內控制音高；音質與 MV/歌詞長時間同步仍待實測。
+- [ ] **必須確認的代價**：SoundTouch/WSOLA 會增加 CPU 使用量、緩衝延遲與換 KEY 時的過渡處理；極端音域、鼓點、混響和快速連續調整仍可能產生 warble 或 transient artifact。
+- [ ] **替換門檻**：只有在常見歌曲的 `-6/-3/0/+3/+6/+12` 半音盲聽、播放同步、延遲與 CPU 測試都不劣於現況時，才正式取代 Tone.js；否則保留可切換的 Tone.js fallback。
 
-## 現況基線
+## 開始撰寫新功能的步驟
 
-- [x] 已確認專案架構與下載、AI 分離、FFmpeg 合成流程
-- [x] 已確認 Spleeter 2.0.2 硬性相依 `tensorflow==2.3.0`
-- [x] 已確認目前發布包包含 TensorFlow 原生檔案
-- [x] 已確認開發機 TensorFlow 2.3.0 可載入
-- [x] 已確認使用者 CPU 為 AMD A8-3870，沒有 AVX 指令集
-- [x] 已確認安裝 VC++ x64 仍無法解決問題
-- [ ] 目前仍保留 Spleeter 流程，尚未開始替換
-- [x] 管理頁加入 AI 引擎選擇欄位
-- [x] 後端接收並驗證 `ai_engine` 參數
-- [x] MDX-Net 未完成前，以停用選項與明確錯誤訊息防止誤用
-- [x] 調查升降 KEY 音質問題：確認目前使用 Tone.PitchShift 顆粒式變調
-- [x] 調整播放器與一體機的 PitchShift 顆粒參數，並驗證 pitch 輸入
+### 1. 建立可驗證的音訊基線
 
-## 遷移階段
+- [ ] 記錄現況 Tone.js 在 `player` 與 `combo` 的問題：聲音品質、切換延遲、CPU、播放時間是否漂移，以及原唱/伴奏/立體聲三種模式是否正常。
+- [ ] 準備至少三類測試歌曲：人聲與伴奏分離明顯、鼓點/瞬態密集、長時間與高混響歌曲；確認瀏覽器與 Windows 播放端版本。
+- [ ] 定義驗收條件：歌曲長度與影片時間軸誤差、換 KEY 後音高、開始播放延遲、連續調 KEY 是否爆音，以及 `-12` 到 `+12` 的邊界行為。
 
-### 1. 技術可行性驗證
+### 2. 驗證 SoundTouch/WSOLA 的瀏覽器方案
 
-- [ ] 確認 Python 3.8 可使用的 ONNX Runtime CPU 版本
-- [ ] 確認該 ONNX Runtime 版本在不支援 AVX 的 CPU 上可載入
-- [ ] 選定可合法取得且與 MDX-Net 相容的模型
-- [ ] 確認模型檔案大小、授權、記憶體需求與下載/離線部署方式
-- [ ] 建立獨立測試程式：WAV 輸入，輸出人聲與伴奏 WAV
-- [ ] 在開發機以測試音檔驗證輸出品質與處理時間
-- [ ] 在 AMD A8-3870 實機驗證 `import onnxruntime` 與完整推論
+- [x] 選定可在瀏覽器執行的 SoundTouch 實作與版本：prototype 使用 `@soundtouchjs/audio-worklet@2.1.1`，透過 ES module 與 CDN processor 載入；正式播放器仍待確認 `MediaElementSource` 即時串流的相容性。
+- [x] 先建立獨立 prototype：`soundtouch-prototype.html` 使用 `AudioBufferSourceNode` 驗證 `pitchSemitones`、固定 `playbackRate`、播放、暫停與停止，不先改正式播放器。
+- [x] 實作半音到倍率的純函式、有限值檢查與 `-12..12` 限制；目前倍率僅供測試顯示，正式接線前仍需確認 SoundTouchNode 的 pitch/tempo 語意。
+- [ ] 量測預緩衝時間、處理延遲、音訊 underrun、記憶體和 CPU；目前已完成單首 MP4 的瀏覽器播放/暫停與 `+6` KEY smoke test，普通筆電及目標 KTV 播放機仍待完整測試。
+- [ ] 用同一批測試歌曲與 Tone.js 做 A/B 錄音及盲聽，記錄結果，不以單一短片段決定方案。
 
-### 2. 建立 AI 分離抽象層
+### 3. 抽出共用播放器音訊控制層
 
-- [ ] 新增獨立的 AI 分離模組，不讓 `main.py` 直接綁定 Spleeter
-- [ ] 定義固定輸出介面：`vocals.wav` 與 `accompaniment.wav`
-- [ ] 加入模型、執行環境與輸出檔案的錯誤檢查
-- [ ] 保留 Spleeter 作為暫時回退選項
-- [ ] 將錯誤記錄改為可辨識的階段與原因
+- [ ] 將 `player.html` 與 `combo.html` 重複的音訊初始化、聲道模式、音量、KEY 狀態與新歌重置邏輯整理成共用模組；`remote.html` 只保留 Socket.IO 控制與狀態同步。
+- [ ] 定義清楚的音訊處理介面，例如 `initAudio()`, `setKey(semitones)`, `setVolume(value)`, `setTrackMode(mode)`, `resetForNewSong()`；所有新函式與公開方法加入清楚的 JSDoc。
+- [ ] 讓 KEY 引擎可配置為 `soundtouch` 或 `tone` fallback，避免把演算法細節散落在 Socket.IO callback。
+- [ ] 確保 SoundTouch 節點接在現有聲道選擇與 `masterGain` 的正確位置，維持原唱/伴奏/立體聲的左右聲道行為。
 
-### 3. 整合 KTV 製作流程
+### 4. 實作正式 SoundTouch KEY 引擎
 
-- [ ] 將 `process_song` 的步驟 2 改用 MDX-Net 分離器
-- [ ] 維持現有下載、檔名處理、FFmpeg L/R 合成與歌單同步行為
-- [ ] 確認處理失敗時暫存檔會清理，且不產生半成品歌曲
-- [ ] 確認重複歌曲、特殊字元與長歌曲仍可處理
-- [ ] 更新管理介面顯示文字與處理進度
+- [x] 將 prototype 的處理流程接到正式播放端：`templates/player.html` 與 `templates/combo.html` 已改用 `SoundTouchNode`，處理器在播放前非同步初始化，並保留歌曲切換、pause/resume、stop、seek、影片 `onended` 的既有流程。
+- [ ] 以平滑 ramp 或短 crossfade 處理 `setKey()`，避免換 KEY 瞬間 click、爆音或短暫靜音；快速連按按鈕時只套用最新值。
+- [x] 加入初始化失敗、瀏覽器不支援、buffer underrun 和例外狀況的 fallback/錯誤狀態：HTTP LAN 因不具 secure context 會自動使用 Tone.js，HTTPS/localhost 使用 SoundTouch AudioWorklet；已修正 combo KEY 按鍵為本機立即套用，避免等待 Socket.IO 回傳造成「按鍵無反應」假象。
+- [x] 移除 Tone.js CDN 與相關程式前，先確認沒有其他模板或打包產物依賴它；目前因 HTTP LAN 的 AudioWorklet 限制保留 Tone.js fallback，並以 `useSoundTouch` 自動分流。
 
-### 4. 打包與部署
+### 5. 整合驗證與發佈
 
-- [ ] 更新依賴與建置設定，移除不再需要的 TensorFlow/Spleeter 打包內容
-- [ ] 將 ONNX Runtime 原生 DLL 與 MDX-Net 模型納入 onedir 發布包
-- [ ] 更新 `build_release.ps1` 與 `build_update.ps1`
-- [ ] 建立發布前自動檢查：模型存在、runtime 可載入、輸出檔案可產生
-- [ ] 以全新資料夾測試完整發布包，不混用舊 `_internal`
-- [ ] 更新 README 的需求、安裝、模型與故障排除說明
+- [ ] 測試 `/player`、`/combo`、`/remote` 多裝置同步：`/player` 與 `/combo` 已完成實際 MP4 播放 smoke test，`/combo` 已驗證 `+1 -> 0` KEY 控制；多裝置、音量和切換原唱/伴奏仍待完整回歸。
+- [ ] 測試 `-12/-6/-1/0/+1/+6/+12`、連續升降、暫停後調 KEY、切歌中調 KEY、重新整理頁面與瀏覽器 autoplay 限制；已驗證 LAN `/combo` 在 HTTP fallback 下可播放，按 `[降]` 可立即由 `原 KEY (0)` 更新為 `-1`，播放中的影片仍持續播放。
+- [ ] 在目標 Windows 環境執行長時間播放與完整回歸測試，確認不累積延遲、不記憶體洩漏、不造成音畫失步。
+- [ ] 更新 README 的音訊處理說明、依賴/載入方式與 fallback 設定，再使用 `build_update.ps1 -FrontendOnly` 建立前端更新包。
+- [ ] 完成現場測試後才決定是否加入或保留 Tone.js fallback；目前正式模板已移除 Tone.js，若品質或效能不達標，需依測試結果恢復可切換 fallback。
 
-### 5. 驗收標準
+## 建議的第一個實作切片
 
-- [ ] AMD A8-3870 可啟動發布版
-- [ ] AMD A8-3870 可完成一首短測試音檔的 vocal/accompaniment 分離
-- [ ] YouTube 下載後可完成完整四步驟製作
-- [ ] 產出的 MP4 可正常播放，且 L/R 原唱與伴奏切換正常
-- [ ] 記錄實際處理時間、峰值記憶體與輸出品質
-- [ ] 至少使用兩首不同類型歌曲測試
-- [ ] 若 MDX-Net 仍不相容，改採區域網路遠端 AI 處理方案
+- [x] 先新增獨立 `soundtouch-prototype.html` A/B 測試頁，不改動正式 `player.html` / `combo.html`；Flask 可由 `/soundtouch-prototype` 開啟。
+- [ ] prototype 通過音質、同步、延遲與 CPU 門檻後，再抽共用音訊控制層並接入 `/player`，最後同步整合 `/combo`；目前已完成瀏覽器載入、MP4 播放與 `+3` KEY 互動 smoke test。
 
-## 決策紀錄
+## LAN 部署注意事項
 
-### 2026-08-26
-
-- 目前 TensorFlow 方案在 AMD A8-3870 上因缺少 AVX 而失敗；安裝 VC++ x64 後仍無法解決。
-- 不採用直接升級/降級 TensorFlow，因 Spleeter 2.0.2 鎖定 TensorFlow 2.3.0。
-- 優先評估 ONNX Runtime + MDX-Net；必須先通過舊 CPU 的獨立推論測試，再整合到主程式。
-- 若本機 ONNX Runtime 或模型仍要求 AVX，改用另一台支援 AVX 的電腦提供 AI 分離服務。
-
-## 目前工作
-
-- [ ] 下一步：建立 ONNX Runtime + MDX-Net 的最小可行性測試環境
+- [x] 確認 HTTP `192.168.x.x` 不提供 `AudioContext.audioWorklet`；正式程式已加入相容性分流，避免 SoundTouch 初始化失敗導致影片無法播放。
+- [x] 已讓 Flask 自動產生包含 LAN IP 的自簽 HTTPS 憑證，並以 `https://` 啟動服務；`curl -k` TLS handshake 與 `/soundtouch-prototype` HTTP 200 已通過。每台播放裝置仍需第一次手動接受自簽憑證警告。
+- [x] prototype、`/combo` 與 `/player` 已加入實際引擎狀態顯示；HTTPS 初始化成功時顯示 `SoundTouch AudioWorklet`，HTTP fallback 時顯示 `Tone.js fallback（HTTP LAN）`。
+- [ ] 若要免除瀏覽器憑證警告，改用區域網路可信任 CA 或正式網域憑證，並重新驗證所有播放裝置。
