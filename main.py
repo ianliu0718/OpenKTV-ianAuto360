@@ -218,6 +218,18 @@ def handle_add_queue(data):
     if len(playlist_queue) == 1:
         emit('play_video', {'filename': filename, 'title': filename}, broadcast=True)
 
+@socketio.on('remove_from_queue')
+def handle_remove_from_queue(data):
+    """Remove a queued song by index while protecting the currently playing song."""
+    try:
+        queue_index = int(data.get('index', -1))
+    except (AttributeError, TypeError, ValueError):
+        return
+    if queue_index <= 0 or queue_index >= len(playlist_queue):
+        return
+    playlist_queue.pop(queue_index)
+    emit('update_queue', playlist_queue, broadcast=True)
+
 @socketio.on('song_ended')
 def handle_song_ended():
     if len(playlist_queue) > 0:

@@ -329,14 +329,19 @@ const socket = io();
                 qList.innerHTML = "<li>(無)</li>";
             } else {
                 playlist.forEach((s, index) => {
-                    if (index === 0) {
-                        qList.innerHTML += `<li style="color:#4CAF50; font-weight:bold;">🎵 播放中：${s.replace('.mp4', '')}</li>`;
-                    } else {
-                        qList.innerHTML += `<li>${s.replace('.mp4', '')}</li>`;
-                    }
+                    const name = index === 0 ? `🎵 播放中：${s.replace('.mp4', '')}` : s.replace('.mp4', '');
+                    qList.innerHTML += `<li${index === 0 ? ' style="color:#4CAF50; font-weight:bold;"' : ''}><span>${name}</span>${index === 0 ? '' : `<button class="song-btn" onclick="removeQueuedSong(${index})">刪除</button>`}</li>`;
                 });
             }
         });
+
+        /**
+         * Requests removal of one waiting song from the server queue.
+         * @param {number} queueIndex Zero-based queue index; index zero is protected.
+         */
+        function removeQueuedSong(queueIndex) {
+            socket.emit('remove_from_queue', { index: queueIndex });
+        }
 
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();

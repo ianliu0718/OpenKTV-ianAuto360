@@ -85,10 +85,27 @@
             }
             playlist.forEach((filename, index) => {
                 const item = document.createElement('li');
-                item.textContent = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
-                if (index === 0) item.style.color = '#4CAF50';
+                const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
+                item.innerHTML = `<span>${name}</span>`;
+                if (index === 0) {
+                    item.style.color = '#4CAF50';
+                } else {
+                    const removeButton = document.createElement('button');
+                    removeButton.className = 'song-btn';
+                    removeButton.textContent = '刪除';
+                    removeButton.addEventListener('click', () => removeQueuedSong(index));
+                    item.appendChild(removeButton);
+                }
                 queueList.appendChild(item);
             });
+        }
+
+        /**
+         * Requests removal of one waiting song from the server queue.
+         * @param {number} queueIndex Zero-based queue index; index zero is protected.
+         */
+        function removeQueuedSong(queueIndex) {
+            socket.emit('remove_from_queue', { index: queueIndex });
         }
 
         socket.on('update_queue', renderQueue);
