@@ -8,6 +8,7 @@
         .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h3 { margin-top: 0; color: #333; }
         input { width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+        select { width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; background: white; }
         button { padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; color: white; width: 100%; margin-bottom: 10px; }
         
         .btn-dl { background: #FF9800; }
@@ -39,6 +40,11 @@
         <input type="text" id="yt_url" placeholder="https://www.youtube.com/watch?v=...">
         <label>2. 設定歌名 (必填):</label>
         <input type="text" id="yt_title" placeholder="例如：告五人 - 披星戴月的想你">
+        <label for="ai_engine">3. AI 去人聲引擎:</label>
+        <select id="ai_engine">
+            <option value="spleeter">Spleeter (目前可用)</option>
+            <option value="mdxnet" disabled>MDX-Net (準備中)</option>
+        </select>
         <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
     </div>
 
@@ -80,11 +86,12 @@
         function startDownload() {
             const url = document.getElementById('yt_url').value.trim();
             const title = document.getElementById('yt_title').value.trim();
+            const aiEngine = document.getElementById('ai_engine').value;
             if(!url || !title) {
                 alert("網址與歌名皆為必填！");
                 return;
             }
-            socket.emit('start_download', {url: url, title: title});
+            socket.emit('start_download', {url: url, title: title, ai_engine: aiEngine});
         }
 
         function updateYtDlp() {

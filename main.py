@@ -1,5 +1,6 @@
 import sys
 import os
+import glob
 import queue
 
 # ==========================================
@@ -46,14 +47,17 @@ import socket
 import json
 import time
 import webbrowser
+import ipaddress
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
-from spleeter.separator import Separator
 import multiprocessing
 
 # ==========================================
 # 設定區
 # ==========================================
+APP_VERSION = "v1.0.1"
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
 else:
@@ -63,8 +67,27 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
 
-if os.path.exists(FFMPEG_DIR):
-    os.environ["PATH"] += os.pathsep + FFMPEG_DIR
+def get_ytdlp_command():
+    if os.path.exists(YT_DLP_PATH):
+        return [YT_DLP_PATH]
+    if not getattr(sys, 'frozen', False) and shutil.which("py"):
+        return ["py", "-3.10", "-m", "yt_dlp"]
+    return [sys.executable, "-m", "yt_dlp"]
+
+def get_ffmpeg_location():
+    if os.path.isdir(FFMPEG_DIR):
+        return FFMPEG_DIR
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return os.path.dirname(ffmpeg_path)
+    winget_ffmpeg = glob.glob(os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\**\ffmpeg.exe"
+    ), recursive=True)
+    return os.path.dirname(winget_ffmpeg[0]) if winget_ffmpeg else None
+
+ffmpeg_location = get_ffmpeg_location()
+if ffmpeg_location:
+    os.environ["PATH"] += os.pathsep + ffmpeg_location
 os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
@@ -78,7 +101,7 @@ if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 # ==========================================
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
 app.config['SECRET_KEY'] = 'ktv_secret'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 def get_local_ip():
     try:
@@ -92,6 +115,49 @@ def get_local_ip():
 
 LOCAL_IP = get_local_ip()
 PORT = 5000
+TLS_CERT_PATH = os.path.join(BASE_DIR, "ktv-local.crt")
+TLS_KEY_PATH = os.path.join(BASE_DIR, "ktv-local.key")
+
+def ensure_tls_certificate():
+    """Create a reusable self-signed certificate for localhost and the LAN IP."""
+    if os.path.exists(TLS_CERT_PATH) and os.path.exists(TLS_KEY_PATH):
+        return TLS_CERT_PATH, TLS_KEY_PATH
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "ianAutoKTV Local"),
+        x509.NameAttribute(NameOID.COMMON_NAME, LOCAL_IP),
+    ])
+    san_names = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+    try:
+        san_names.append(x509.IPAddress(ipaddress.ip_address(LOCAL_IP)))
+    except ValueError:
+        san_names.append(x509.DNSName(LOCAL_IP))
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=825))
+        .add_extension(x509.SubjectAlternativeName(san_names), critical=False)
+        .sign(private_key, hashes.SHA256())
+    )
+    with open(TLS_KEY_PATH, "wb") as key_file:
+        key_file.write(private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ))
+    with open(TLS_CERT_PATH, "wb") as cert_file:
+        cert_file.write(certificate.public_bytes(serialization.Encoding.PEM))
+    return TLS_CERT_PATH, TLS_KEY_PATH
 
 def broadcast_log(msg):
     # 用 print 就會自動被我們的 GUIWriter 抓走並顯示在介面上
@@ -113,6 +179,11 @@ def page_admin(): return render_template('admin.html')
 @app.route('/combo')  
 def page_combo(): return render_template('combo.html')
 
+@app.route('/soundtouch-prototype')
+def page_soundtouch_prototype():
+    """Serve the isolated SoundTouch KEY validation page."""
+    return send_from_directory(BASE_DIR, 'soundtouch-prototype.html')
+
 @app.route('/')
 def page_index(): return render_template('remote.html')
 
@@ -130,6 +201,11 @@ def get_song_list():
 # ------------------------------------------
 playlist_queue = []
 
+@socketio.on('connect')
+def handle_connect():
+    """Send the current queue to each newly connected client."""
+    emit('update_queue', playlist_queue)
+
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
     filename = data['filename']
@@ -141,6 +217,18 @@ def handle_add_queue(data):
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
         emit('play_video', {'filename': filename, 'title': filename}, broadcast=True)
+
+@socketio.on('remove_from_queue')
+def handle_remove_from_queue(data):
+    """Remove a queued song by index while protecting the currently playing song."""
+    try:
+        queue_index = int(data.get('index', -1))
+    except (AttributeError, TypeError, ValueError):
+        return
+    if queue_index <= 0 or queue_index >= len(playlist_queue):
+        return
+    playlist_queue.pop(queue_index)
+    emit('update_queue', playlist_queue, broadcast=True)
 
 @socketio.on('song_ended')
 def handle_song_ended():
@@ -194,10 +282,16 @@ def _run_spleeter_process(input_path, output_dir):
     這個函式會在一個完全獨立的 Python 進程中執行。
     結束時作業系統會強制清空此進程佔用的 TensorFlow 記憶體。
     """
-    from spleeter.separator import Separator
-    # 初始化並執行分離
-    separator = Separator('spleeter:2stems')
-    separator.separate_to_file(input_path, output_dir)
+    try:
+        from spleeter.separator import Separator
+        # 初始化並執行分離
+        separator = Separator('spleeter:2stems')
+        separator.separate_to_file(input_path, output_dir)
+    except Exception:
+        import traceback
+        with open(os.path.join(output_dir, "spleeter_error.log"), "w", encoding="utf-8") as error_file:
+            error_file.write(traceback.format_exc())
+        raise
 
 
 
@@ -211,6 +305,13 @@ def handle_start_download(data):
     
     url = data.get('url')
     title = data.get('title')
+    ai_engine = data.get('ai_engine', 'spleeter')
+    if ai_engine not in ('spleeter', 'mdxnet'):
+        broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
+        return
+    if ai_engine == 'mdxnet':
+        broadcast_log("❌ MDX-Net 尚未安裝，請先使用 Spleeter，或完成 ToDo.md 的 MDX-Net 測試階段。")
+        return
     
     def run_process():
         global is_processing
@@ -218,7 +319,7 @@ def handle_start_download(data):
         socketio.emit('task_status', {'status': 'busy'})
         
         processor = KTVProcessor(log_cb=broadcast_log)
-        success = processor.process_song(url, title)
+        success = processor.process_song(url, title, ai_engine)
         
         if success:
             socketio.emit('refresh_list')
@@ -235,9 +336,7 @@ def handle_update_ytdlp():
         socketio.emit('task_status', {'status': 'busy'})
         broadcast_log("開始更新 yt-dlp 核心...")
         try:
-            cmd = ["yt-dlp", "-U"]
-            if os.path.exists(YT_DLP_PATH):
-                cmd = [YT_DLP_PATH, "-U"]
+            cmd = get_ytdlp_command() + ["-U"]
             result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
             broadcast_log(result.stdout)
             if result.stderr: broadcast_log(result.stderr)
@@ -259,7 +358,10 @@ def run_server_thread():
         cli.show_server_banner = lambda *args, **kwargs: None  # 暴力閹割橫幅印出功能
         logging.getLogger('werkzeug').setLevel(logging.ERROR)  # 只允許印出重大錯誤
         
-        socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
+        cert_path, key_path = ensure_tls_certificate()
+        print(f"🔒 HTTPS 服務已啟用：https://{LOCAL_IP}:{PORT}")
+        socketio.run(app, host='0.0.0.0', port=PORT, debug=False,
+                 allow_unsafe_werkzeug=True, ssl_context=(cert_path, key_path))
     except Exception as e:
         import traceback
         print(f"❌ 伺服器啟動失敗: {e}")
@@ -275,7 +377,7 @@ class KTVProcessor:
     def sanitize_filename(self, name):
         return "".join([c for c in name if c not in r'\/:*?"<>|'])
 
-    def process_song(self, url, manual_title):
+    def process_song(self, url, manual_title, ai_engine='spleeter'):
         job_temp_dir = None
         try:
             safe_title = self.sanitize_filename(manual_title)
@@ -289,9 +391,10 @@ class KTVProcessor:
             temp_output = os.path.join(job_temp_dir, "output.mp4")
 
             self.log("步驟 1/4: 下載影片...")
-            cmd_dl = [
-                "yt-dlp", 
-                "--ffmpeg-location", FFMPEG_DIR, 
+            ffmpeg_location = get_ffmpeg_location()
+            cmd_dl = get_ytdlp_command() + ([
+                "--ffmpeg-location", ffmpeg_location
+            ] if ffmpeg_location else []) + [
                 "--force-overwrites",  
                 "--no-playlist",       
                 "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", 
@@ -304,7 +407,11 @@ class KTVProcessor:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
             )
 
-            self.log("步驟 2/4: AI 去人聲 (Spleeter)... (這需要一點時間)")
+            engine_names = {'spleeter': 'Spleeter', 'mdxnet': 'MDX-Net'}
+            engine_name = engine_names.get(ai_engine)
+            if engine_name is None:
+                raise ValueError(f"不支援的 AI 去人聲引擎：{ai_engine}")
+            self.log(f"步驟 2/4: AI 去人聲 ({engine_name})... (這需要一點時間)")
             
             # 【終極修復】PyInstaller 打包後沒有 spleeter.exe 可用 subprocess 呼叫。
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。
@@ -315,6 +422,10 @@ class KTVProcessor:
             p.join() # 等待進程執行完畢
             
             if p.exitcode != 0:
+                error_log = os.path.join(job_temp_dir, "spleeter_error.log")
+                if os.path.exists(error_log):
+                    with open(error_log, encoding="utf-8") as error_file:
+                        self.log(error_file.read())
                 raise Exception(f"Spleeter 分離失敗，子進程異常結束 (Exit code: {p.exitcode})")
             
             # Spleeter CLI 預設會建立一個以輸入檔名為名稱的資料夾，所以路徑稍微改變
@@ -367,19 +478,19 @@ class KTVProcessor:
 class ServerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("KTV 伺服器狀態")
+        self.title(f"ianAutoKTV {APP_VERSION}")
         self.geometry("450x500") # 稍微拉高一點放日誌框
         self.configure(bg="#f4f4f9")
         
-        tk.Label(self, text="🎤 KTV 系統運作中", font=("Microsoft JhengHei", 20, "bold"), fg="#4CAF50", bg="#f4f4f9").pack(pady=10)
+        tk.Label(self, text=f"🎤 KTV 系統運作中 {APP_VERSION}", font=("Microsoft JhengHei", 20, "bold"), fg="#4CAF50", bg="#f4f4f9").pack(pady=10)
         
         info_frame = tk.Frame(self, bg="white", bd=1, relief="solid")
         info_frame.pack(fill="x", padx=20, pady=5)
         
-        self.create_clickable_link(info_frame, "📺 播放端 (電視用)", f"http://{LOCAL_IP}:{PORT}/player", "blue")
-        self.create_clickable_link(info_frame, "📱 遙控端 (手機用)", f"http://{LOCAL_IP}:{PORT}/remote", "#d32f2f")
-        self.create_clickable_link(info_frame, "🕹️ 一體機 (單機用)", f"http://{LOCAL_IP}:{PORT}/combo", "#9C27B0")
-        self.create_clickable_link(info_frame, "⚙️ 管理端 (加歌用)", f"http://{LOCAL_IP}:{PORT}/admin", "#F57C00")
+        self.create_clickable_link(info_frame, "📺 播放端 (電視用)", f"https://{LOCAL_IP}:{PORT}/player", "blue")
+        self.create_clickable_link(info_frame, "📱 遙控端 (手機用)", f"https://{LOCAL_IP}:{PORT}/remote", "#d32f2f")
+        self.create_clickable_link(info_frame, "🕹️ 一體機 (單機用)", f"https://{LOCAL_IP}:{PORT}/combo", "#9C27B0")
+        self.create_clickable_link(info_frame, "⚙️ 管理端 (加歌用)", f"https://{LOCAL_IP}:{PORT}/admin", "#F57C00")
 
         stat_frame = tk.Frame(self, bg="#f4f4f9")
         stat_frame.pack(fill="x", padx=20, pady=5)
@@ -437,7 +548,7 @@ if __name__ == "__main__":
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
 
-    if shutil.which("ffmpeg") is None and not os.path.exists(FFMPEG_DIR):
+    if get_ffmpeg_location() is None:
         try:
             messagebox.showerror("錯誤", "找不到 FFmpeg\n請將 ffmpeg 資料夾放在程式同一目錄")
         except:

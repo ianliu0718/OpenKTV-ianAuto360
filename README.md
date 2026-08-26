@@ -1,9 +1,9 @@
 
-# 🎤 OpenKTV-AI 智慧開源 KTV 系統
+# 🎤 ianAutoKTV 智慧開源 KTV 系統
 
-OpenKTV-AI 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統。只需輸入 YouTube 網址，系統便會自動下載影片，並利用 AI 模型（Spleeter）將「原唱」與「伴奏」音軌分離，最後透過網頁介面提供專業的 KTV 點歌與播放體驗。
+ianAutoKTV 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統。只需輸入 YouTube 網址，系統便會自動下載影片，並利用 AI 模型（Spleeter）將「原唱」與「伴奏」音軌分離，最後透過網頁介面提供專業的 KTV 點歌與播放體驗。
 
-無論是用電視大螢幕播放、手機掃碼遙控，還是用筆電單機歡唱，OpenKTV-AI 都能完美支援！
+無論是用電視大螢幕播放、手機掃碼遙控，還是用筆電單機歡唱，ianAutoKTV 都能完美支援！
 
 ---
 
@@ -11,7 +11,7 @@ OpenKTV-AI 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統
 
 * **🤖 AI 智慧去人聲**：內建 Spleeter 引擎，一鍵將 YouTube 影片轉換為高水準的 KTV 伴唱帶。
 * **📱 手機掃碼遙控器**：無需安裝 App，手機掃描 QR Code 即可化身點歌機，支援搜尋、切歌、音量控制。
-* **🎛️ 即時原唱/伴奏切換**：透過 Web Audio API，在播放中無縫切換左聲道（原唱）與右聲道（伴奏）。
+* **🎛️ 即時原唱/伴奏與升降 KEY**：透過 Web Audio API，在播放中切換左聲道（原唱）、右聲道（伴奏），並依瀏覽器環境使用 SoundTouch AudioWorklet 或 HTTP LAN 相容的 Tone.js fallback。
 * **📺 多螢幕聯動支援**：
     * `播放端`：適合放在客廳電視或第二螢幕全螢幕顯示。
     * `遙控端`：適合多支手機同時連線點歌。
@@ -34,9 +34,9 @@ OpenKTV-AI 是一個基於 Python 與 Web 技術打造的區域網路 KTV 系統
 如果你是直接下載編譯好的 Windows `.exe` 版本，請確保你的資料夾結構如下，系統才能正常運作：
 
 ```text
-OpenKTV-AI/
+ianAutoKTV/
  │
- ├── AI_KTV_Server.exe        # KTV 伺服器主程式
+ ├── ianAutoKTV_Server.exe    # KTV 伺服器主程式
  ├── yt-dlp.exe               # 影音下載核心
  │
  ├── ffmpeg/                  # FFmpeg 工具包
@@ -53,28 +53,69 @@ OpenKTV-AI/
      └── 2stems/
          ├── checkpoint
          ├── model.data-00000-of-00001
-         └── model.index
+         ├── model.index
+         └── model.meta
 ```
 
 ---
 
 ## 🛠️ 開發與本地執行 (適合開發者)
 
+## 📦 Windows 發佈與更新
+
+首次安裝請使用完整的 `dist\ianAutoKTV_Server\` 資料夾，並雙擊其中的 `ianAutoKTV_Server.exe`。不要使用 `dist` 根目錄的單獨 exe。
+
+建立完整主程式包：
+
+```powershell
+cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
+.\build_release.ps1
+```
+
+建立更新包：
+
+```powershell
+.\build_update.ps1
+```
+
+如果這次只修改 `templates` 內的網頁檔案，使用純前端更新模式，可避免重新打包與下載大型 `_internal`：
+
+```powershell
+.\build_update.ps1 -FrontendOnly
+```
+
+純前端更新包只包含 `templates` 與 `VERSION.txt`，不包含 EXE、TensorFlow `_internal`、FFmpeg、模型或 `yt-dlp.exe`。如果修改了 `main.py`、spec、執行環境或任何需要重新打包的內容，仍必須使用一般的 `.\build_update.ps1` 完整更新模式。
+
+更新包會包含新的 `ianAutoKTV_Server.exe`、相容的 `_internal`、`templates`、官方獨立版 `yt-dlp.exe` 與 `VERSION.txt`。請先關閉程式，再將更新包內的全部內容覆蓋到原安裝資料夾；不要只替換 exe。`_internal` 含 TensorFlow 原生 DLL，必須與 exe 來自同一次建置，否則可能出現 TensorFlow DLL 初始化錯誤。
+
+完整更新模式會重新建立並攜帶與 EXE 同一次建置產生的 `_internal`，以避免 TensorFlow 原生 DLL 與 EXE 版本不一致。若只修改網頁模板，請使用 `-FrontendOnly` 純前端更新模式；此模式不會更新 EXE 或 `_internal`。使用者原有的 `ffmpeg`、`pretrained_models`、`ktv_songs` 與 `yt-dlp.exe` 不需替換。
+
 ### 1. 環境需求
-* Python 3.8+
+* Python 3.8 64 位元（Spleeter 2.0.2 搭配 TensorFlow 2.3.0）
 * 系統需已安裝 [FFmpeg](https://ffmpeg.org/) 並加入環境變數，或將其放置於專案目錄下。
 
 ### 2. 安裝依賴套件
 打開終端機，執行以下指令安裝必要套件：
 ```bash
-pip install flask flask-socketio flask-cors spleeter yt-dlp
+python -m pip install flask flask-socketio flask-cors spleeter yt-dlp
 ```
 
 ### 3. 啟動伺服器
+請在專案資料夾開啟 PowerShell，先啟用虛擬環境：
+```powershell
+cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
+.\.venv\Scripts\Activate.ps1
+```
+
+看到命令列前方出現 `(.venv)` 後，再執行：
 ```bash
 python main.py
 ```
-啟動後，本機將會彈出「伺服器狀態監控器」，並顯示可供連線的區域網路網址（例如 `http://192.168.1.X:5000/...`）。
+若不想啟用虛擬環境，也可以直接執行：
+```powershell
+& "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360\.venv\Scripts\python.exe" "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360\main.py"
+```
+啟動後，本機將會彈出「伺服器狀態監控器」，並顯示可供連線的 HTTPS 區域網路網址（例如 `https://192.168.1.X:5000/...`）。第一次在每台裝置開啟時，瀏覽器會顯示自簽憑證警告，請選擇進階後繼續前往；接受後才能啟用 SoundTouch AudioWorklet。
 
 ---
 
@@ -84,6 +125,7 @@ python main.py
 * **/remote**：遙控器端。請用手機瀏覽器開啟，負責點歌、控制音量、切換原唱/伴奏。
 * **/admin**：管理後台。負責貼上 YouTube 網址來製作新歌，並提供系統底層日誌監控。
 * **/combo**：雙合一控制台。適合使用單台寬螢幕電腦遊玩，同時整合播放與控制介面。
+* **/soundtouch-prototype**：SoundTouch/WSOLA 音訊處理驗證頁，供測試音高、播放同步與瀏覽器相容性。
 
 ---
 
@@ -91,3 +133,9 @@ python main.py
 
 * **版權聲明**：本專案僅供程式交流與個人家庭娛樂使用，請勿將下載之版權影音用於任何商業行為。
 * **硬體需求**：AI 去人聲（Spleeter）會消耗一定的 CPU/記憶體資源，處理一首 4 分鐘的歌曲約需 1~3 分鐘不等，請耐心等候。
+* **升降 KEY**：播放服務現在以自簽 HTTPS 啟動，播放端使用 SoundTouch AudioWorklet。每台裝置第一次連線需先接受憑證警告；若仍使用舊的 `http://192.168.x.x` 網址，瀏覽器會無法啟用 AudioWorklet。
+* `yt-dlp.exe` 必須使用官方獨立執行檔，不要使用 `.venv\Scripts\yt-dlp.exe` 這類可能綁定舊 Python 路徑的 launcher，否則下載歌曲時會回報 Code 1。
+* 程式啟動時不會載入 TensorFlow；只有開始下載並處理歌曲時才會載入 Spleeter。若處理歌曲時仍出現 TensorFlow DLL 錯誤，請確認使用完整主程式包，且不要只替換 exe。
+* 若啟動時出現 `Failed to load the native Tensorflow runtime`，請使用同一次建置產生的完整主程式包與更新包，不要只替換 exe。
+* 若啟動時出現 `Invalid async_mode specified`，請重新執行 `build_release.ps1` 與 `build_update.ps1`，使用新產生的完整資料夾；打包設定已固定使用 `threading` 並納入 Engine.IO driver。
+* 若下載成功、只有「AI 去人聲」出現 `DLL 初始化例行程序失敗`，表示程式已啟動，問題通常在使用者電腦的 TensorFlow 執行環境。請先安裝 Microsoft Visual C++ 2015-2022 Redistributable x64，確認 Windows 為 64 位元且 CPU 支援 AVX，再重新測試。若仍失敗，請提供使用者電腦的 CPU 型號與 Windows 版本。
