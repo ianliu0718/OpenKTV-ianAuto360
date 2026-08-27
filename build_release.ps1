@@ -45,6 +45,7 @@ if (Test-Path $ScipySpecial) {
     Copy-Item $ScipySpecial $ScipyTarget -Force
 }
 Copy-Item $YtDlp $DistDir -Force
+Copy-Item (Join-Path $ProjectDir "optimize_existing_video.ps1") $DistDir -Force
 New-Item (Join-Path $DistDir "ktv_songs") -ItemType Directory -Force | Out-Null
 
 Write-Host "Build complete: $DistDir\ianAutoKTV_Server.exe" -ForegroundColor Green

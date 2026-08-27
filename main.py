@@ -240,6 +240,49 @@ def upload_subtitle():
     except (UnicodeDecodeError, OSError, ValueError) as error:
         return json.dumps({'error': f'字幕檔處理失敗：{error}'}), 400
 
+@app.route('/api/videos/optimize', methods=['POST'])
+def optimize_video():
+    """Convert an uploaded MP4 to H.264 up to 1080p and replace its song file."""
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要轉檔的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'video_optimize_{time.time_ns()}')
+    source_path = os.path.join(job_dir, filename)
+    output_path = os.path.join(job_dir, f'{os.path.splitext(filename)[0]}.optimized.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    try:
+        video_file.save(source_path)
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            return json.dumps({'error': '找不到 FFmpeg'}), 500
+        command = [
+            ffmpeg_path, '-y', '-i', source_path,
+            '-map', '0:v:0', '-map', '0:a?',
+            '-vf', "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+            '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart',
+            output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            return json.dumps({'error': '影片轉檔失敗，請查看系統日誌'}), 400
+        shutil.move(output_path, final_path)
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, ValueError) as error:
+        return json.dumps({'error': f'影片轉檔失敗：{error}'}), 400
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
     converted_content = convert_to_webvtt(content, subtitle_extension)
@@ -562,7 +605,7 @@ class KTVProcessor:
             ] if ffmpeg_location else []) + [
                 "--force-overwrites",  
                 "--no-playlist",       
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", 
+                "-f", "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+best[ext=mp4][height<=1080]/best",
                 "-o", temp_input, 
                 url
             ]

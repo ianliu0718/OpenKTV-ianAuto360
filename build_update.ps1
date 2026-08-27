@@ -18,6 +18,7 @@ $YtDlp = Join-Path $ProjectDir "yt-dlp.exe"
 Remove-Item $UpdateDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $UpdateDir -ItemType Directory -Force | Out-Null
 Copy-Item (Join-Path $ProjectDir "templates") $UpdateDir -Recurse -Force
+Copy-Item (Join-Path $ProjectDir "optimize_existing_video.ps1") $UpdateDir -Force
 
 if (-not $FrontendOnly) {
     $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
