@@ -21,6 +21,8 @@
         #queue-list { max-height: calc(30vh - 52px); margin: 0; padding-left: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
         #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
+        .song-btn.added { background: #607d8b; cursor: wait; }
+        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
     </style>
@@ -93,6 +95,7 @@
         let currentKey = 0;
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
 
         /**
@@ -257,15 +260,36 @@
                     && (!selectedLanguage || metadata.language === selectedLanguage);
             }).forEach(s => {
                 const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                const isPending = pendingSongs.has(s);
+                const playButton = isPending
+                    ? '<button class="song-btn added" disabled>已加入</button>'
+                    : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
-                    <li>
+                    <li class="${isPending ? 'song-added' : ''}">
                         <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${s}</span>
-                        <span>${subtitleButton}<button class="song-btn" onclick="play('${s}')">播歌</button></span>
+                        <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
         }
 
-        function play(filename) { socket.emit('add_to_queue', {filename: filename}); }
+        /**
+         * Sends a song to the queue and keeps visible feedback during the request window.
+         * @param {HTMLButtonElement} button Clicked play button.
+         * @param {string} filename Song filename to queue.
+         */
+        function play(button, filename) {
+            if (pendingSongs.has(filename)) return;
+            pendingSongs.add(filename);
+            button.disabled = true;
+            button.classList.add('added');
+            button.textContent = '已加入';
+            button.closest('li').classList.add('song-added');
+            socket.emit('add_to_queue', {filename: filename});
+            setTimeout(() => {
+                pendingSongs.delete(filename);
+                filter();
+            }, 1500);
+        }
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 

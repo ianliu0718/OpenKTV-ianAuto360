@@ -60,6 +60,8 @@
         ul#list { list-style: none; padding: 0; margin: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; }
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
+        .song-btn.added { background: #607d8b; cursor: wait; }
+        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
     </style>
@@ -411,6 +413,7 @@ const socket = io();
         let subtitleSongs = new Set();
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        const pendingSongs = new Set();
 
         /**
          * Loads the songs that have a matching subtitle file.
@@ -547,7 +550,11 @@ const socket = io();
             }).forEach(s => {
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
-                list.innerHTML += `<li><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}<button class="song-btn" onclick="play(this, '${s}')">播歌</button></span></li>`;
+                const isPending = pendingSongs.has(s);
+                const playButton = isPending
+                    ? '<button class="song-btn added" disabled>已加入</button>'
+                    : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
+                list.innerHTML += `<li class="${isPending ? 'song-added' : ''}"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}${playButton}</span></li>`;
             });
         }
 
@@ -557,16 +564,23 @@ const socket = io();
          */
         function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
 
-        function play(btn, filename) { 
-            // 👑 修正點 3：改成發送 add_to_queue 指令，而不是 request_play
+        /**
+         * Sends a song to the queue and keeps visible feedback during the request window.
+         * @param {HTMLButtonElement} button Clicked play button.
+         * @param {string} filename Song filename to queue.
+         */
+        function play(button, filename) {
+            if (pendingSongs.has(filename)) return;
+            pendingSongs.add(filename);
+            button.disabled = true;
+            button.classList.add('added');
+            button.textContent = '已加入';
+            button.closest('li').classList.add('song-added');
             socket.emit('add_to_queue', {filename: filename}); 
-            const originalText = btn.innerText;
-            btn.innerText = "已點";
-            btn.style.background = "#555";
             setTimeout(() => {
-                btn.innerText = originalText;
-                btn.style.background = "#009688";
-            }, 1000);
+                pendingSongs.delete(filename);
+                filter();
+            }, 1500);
         }
 
         function cmd(action) { socket.emit('control', action); }
