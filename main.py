@@ -57,7 +57,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.3"
+APP_VERSION = "v1.0.4"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -85,6 +85,29 @@ def get_ffmpeg_location():
         r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\**\ffmpeg.exe"
     ), recursive=True)
     return os.path.dirname(winget_ffmpeg[0]) if winget_ffmpeg else None
+
+def get_ffprobe_path(ffmpeg_path):
+    """Return the FFprobe executable beside FFmpeg or from PATH."""
+    sibling_path = os.path.join(os.path.dirname(ffmpeg_path), 'ffprobe.exe')
+    return sibling_path if os.path.exists(sibling_path) else shutil.which('ffprobe')
+
+def get_audio_channel_count(filename):
+    """Return the first audio stream channel count for a song, or zero when unavailable."""
+    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffprobe_path or not os.path.exists(song_path):
+        return 0
+    result = subprocess.run(
+        [ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
+         '-show_entries', 'stream=channels', '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    try:
+        return int(result.stdout.strip())
+    except (TypeError, ValueError):
+        return 0
 
 ffmpeg_location = get_ffmpeg_location()
 if ffmpeg_location:
@@ -193,6 +216,14 @@ def page_index(): return render_template('remote.html')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
+def _play_video_payload(filename):
+    """Build a playback event payload with server-confirmed audio metadata."""
+    return {
+        'filename': filename,
+        'title': filename,
+        'audio_channels': get_audio_channel_count(filename),
+    }
+
 @app.route('/subtitles/<path:filename>')
 def serve_subtitle(filename):
     """Serve a stored WebVTT subtitle file for a song."""
@@ -219,18 +250,18 @@ def upload_subtitle():
     song_filename = os.path.basename(request.form.get('song', ''))
     subtitle_file = request.files.get('subtitle')
     if not song_filename.lower().endswith('.mp4') or not os.path.exists(os.path.join(SONGS_DIR, song_filename)):
-        return json.dumps({'error': '請選擇有效的歌曲'}), 400
+        return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
     subtitle_text = request.form.get('subtitle_content', '').strip()
     if subtitle_file and subtitle_file.filename and subtitle_text:
-        return json.dumps({'error': '字幕檔案與文字內容請擇一輸入'}), 400
+        return json.dumps({'success': False, 'error': '字幕檔案與文字內容請擇一輸入'}), 400
     if subtitle_file and subtitle_file.filename:
         subtitle_extension = os.path.splitext(subtitle_file.filename)[1].lower().lstrip('.')
         if subtitle_extension not in SUBTITLE_EXTENSIONS:
-            return json.dumps({'error': '只支援 .srt、.lrc 或 .vtt 字幕檔'}), 400
+            return json.dumps({'success': False, 'error': '只支援 .srt、.lrc 或 .vtt 字幕檔'}), 400
     elif subtitle_text:
         subtitle_extension = str(request.form.get('subtitle_extension', '')).lower().lstrip('.')
     else:
-        return json.dumps({'error': '請選擇字幕檔或輸入字幕文字'}), 400
+        return json.dumps({'success': False, 'error': '請選擇字幕檔或輸入字幕文字'}), 400
     try:
         content = subtitle_file.read().decode('utf-8-sig') if subtitle_file else subtitle_text
         subtitle_extension = detect_subtitle_format(content, subtitle_extension)
@@ -238,16 +269,58 @@ def upload_subtitle():
         socketio.emit('refresh_list')
         return json.dumps({'success': True, 'filename': output_name}, ensure_ascii=False)
     except (UnicodeDecodeError, OSError, ValueError) as error:
-        return json.dumps({'error': f'字幕檔處理失敗：{error}'}), 400
+        return json.dumps({'success': False, 'error': f'字幕檔處理失敗：{error}'}), 400
+
+@app.route('/api/subtitles/manual', methods=['POST'])
+def save_manual_subtitle():
+    """Validate timed lyric cues and save them as the selected song's VTT file."""
+    data = request.get_json(silent=True) or {}
+    song_filename = os.path.basename(str(data.get('song', '')))
+    cues = data.get('cues', [])
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
+    if not isinstance(cues, list) or not cues:
+        return json.dumps({'success': False, 'error': '請至少建立一句歌詞'}), 400
+    normalized_cues = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            return json.dumps({'success': False, 'error': '歌詞資料格式錯誤'}), 400
+        text = str(cue.get('text', '')).strip()
+        try:
+            start = float(cue.get('start'))
+            end = float(cue.get('end'))
+        except (TypeError, ValueError):
+            return json.dumps({'success': False, 'error': '歌詞時間格式錯誤'}), 400
+        if not text or start < 0 or end <= start:
+            return json.dumps({'success': False, 'error': '歌詞內容或時間範圍無效'}), 400
+        normalized_cues.append((start, end, text))
+    normalized_cues.sort(key=lambda cue: cue[0])
+    for index in range(1, len(normalized_cues)):
+        if normalized_cues[index][0] < normalized_cues[index - 1][1]:
+            return json.dumps({'success': False, 'error': '歌詞時間不可重疊'}), 400
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
+    output_path = os.path.join(SONGS_DIR, output_name)
+    try:
+        with open(output_path, 'w', encoding='utf-8', newline='\n') as output_file:
+            output_file.write('WEBVTT\n\n')
+            for start, end, text in normalized_cues:
+                output_file.write(f'{format_vtt_time(round(start * 1000))} --> {format_vtt_time(round(end * 1000))}\n{text}\n\n')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': output_name}, ensure_ascii=False)
+    except OSError as error:
+        return json.dumps({'success': False, 'error': f'歌詞儲存失敗：{error}'}), 400
 
 @app.route('/api/videos/optimize', methods=['POST'])
 def optimize_video():
     """Convert an uploaded MP4 to H.264 up to 1080p and replace its song file."""
     video_file = request.files.get('video')
     if not video_file or not video_file.filename:
+        broadcast_log('❌ 影片最佳化失敗：未選擇 MP4 檔案。')
         return json.dumps({'error': '請選擇要轉檔的 MP4 影片'}), 400
     filename = os.path.basename(video_file.filename)
     if not filename.lower().endswith('.mp4'):
+        broadcast_log(f'❌ 影片最佳化失敗：檔案不是 MP4（{filename}）。')
         return json.dumps({'error': '影片檔必須是 .mp4'}), 400
 
     job_dir = os.path.join(TEMP_BASE_DIR, f'video_optimize_{time.time_ns()}')
@@ -256,11 +329,16 @@ def optimize_video():
     final_path = os.path.join(SONGS_DIR, filename)
     os.makedirs(job_dir, exist_ok=True)
     try:
+        broadcast_log(f'=== 開始影片效能最佳化：{filename} ===')
         video_file.save(source_path)
+        broadcast_log(f'📥 已接收影片：{filename}（{os.path.getsize(source_path):,} bytes）')
         ffmpeg_dir = get_ffmpeg_location()
         ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
         if not ffmpeg_path:
+            broadcast_log('❌ 影片最佳化失敗：找不到 FFmpeg。')
             return json.dumps({'error': '找不到 FFmpeg'}), 500
+        broadcast_log(f'🔧 使用 FFmpeg：{ffmpeg_path}')
+        broadcast_log('⏳ 正在重新編碼為 H.264 / 最高 1080p，請稍候...')
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
@@ -270,22 +348,74 @@ def optimize_video():
             output_path,
         ]
         result = subprocess.run(
-            command, capture_output=True, text=True,
+            command, capture_output=True, text=True, encoding='utf-8', errors='replace',
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
         if result.returncode != 0 or not os.path.exists(output_path):
-            return json.dumps({'error': '影片轉檔失敗，請查看系統日誌'}), 400
+            detail = result.stderr.strip()[-500:] if result.stderr else 'FFmpeg 未產生輸出檔案'
+            broadcast_log(f'❌ FFmpeg 轉檔失敗（return code {result.returncode}）：{detail}')
+            return json.dumps({'success': False, 'error': f'影片轉檔失敗：{detail}'}, ensure_ascii=False), 400
+        if os.path.getsize(output_path) == 0:
+            broadcast_log('❌ FFmpeg 轉檔失敗：輸出檔案為空。')
+            return json.dumps({'success': False, 'error': '影片轉檔失敗：輸出檔案為空'}), 400
+        broadcast_log(f'✅ FFmpeg 轉檔完成：輸出 {os.path.getsize(output_path):,} bytes。')
         shutil.move(output_path, final_path)
+        broadcast_log(f'✅ 已取代原始影片：{filename}')
         socketio.emit('refresh_list')
+        broadcast_log(f'=== 影片效能最佳化成功：{filename} ===')
         return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
     except (OSError, ValueError) as error:
-        return json.dumps({'error': f'影片轉檔失敗：{error}'}), 400
+        broadcast_log(f'❌ 影片最佳化發生例外：{error}')
+        return json.dumps({'success': False, 'error': f'影片轉檔失敗：{error}'}, ensure_ascii=False), 400
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
+def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
+    """Create one MP4 with original, guide, and instrumental stereo pairs."""
+    loudnorm = 'loudnorm=I=-16:TP=-1.5:LRA=11,' if normalize_volume else ''
+    audio_filter = (
+        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.25,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
+        f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment];'
+        '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+        f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
+        '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
+        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
+        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
+        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]amerge=inputs=6,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+    )
+    command = [
+        ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
+        '-filter_complex', audio_filter,
+        '-map', '0:v:0', '-map', '[audio]',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k', '-movflags', '+faststart',
+        '-metadata:s:a:0', 'title=原聲、導唱、伴奏（六聲道）', output_path,
+    ]
+    subprocess.run(
+        command, check=True, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    probe_command = [
+        ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
+        '-show_entries', 'stream=channels', '-of', 'default=noprint_wrappers=1:nokey=1', output_path,
+    ]
+    probe_result = subprocess.run(
+        probe_command, check=True, capture_output=True, text=True,
+        encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    if probe_result.stdout.strip() != '6':
+        raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
+
 @app.route('/api/videos/ai-vocal-remove', methods=['POST'])
 def ai_vocal_remove_video():
-    """Separate vocals from an uploaded MP4 and replace it with L/R KTV audio."""
+    """Separate an uploaded MP4 into one six-channel KTV audio stream."""
     global is_processing
     if is_processing:
         return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
@@ -319,20 +449,15 @@ def ai_vocal_remove_video():
         ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
         if not ffmpeg_path:
             raise RuntimeError('找不到 FFmpeg')
-        command = [
-            ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
-            '-filter_complex',
-            '[1:a]pan=mono|c0=0.5*FL+0.5*FR[V];[2:a]pan=mono|c0=0.5*FL+0.5*FR[A];[V][A]join=inputs=2:channel_layout=stereo[a]',
-            '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', output_path,
-        ]
-        result = subprocess.run(
-            command, capture_output=True, text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        ffprobe_path = get_ffprobe_path(ffmpeg_path)
+        if not ffprobe_path:
+            raise RuntimeError('找不到 FFprobe，無法驗證六聲道輸出')
+        _create_six_channel_mp4(
+            ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path,
+            output_path, normalize_volume=False,
         )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            raise RuntimeError('FFmpeg 合成失敗')
         shutil.move(output_path, final_path)
-        broadcast_log(f'✅ AI 去人聲完成：{filename}')
+        broadcast_log(f'✅ AI 去人聲完成：{filename}（六聲道：原聲 / 導唱 / 伴奏）')
         socketio.emit('refresh_list')
         return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
     except (OSError, RuntimeError) as error:
@@ -518,7 +643,7 @@ def handle_add_queue(data):
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
         subtitle_visible = False
-        emit('play_video', {'filename': filename, 'title': filename}, broadcast=True)
+        emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
 
 @socketio.on('toggle_subtitle')
@@ -581,7 +706,7 @@ def handle_song_ended():
         # 檢查是否還有下一首
         if len(playlist_queue) > 0:
             next_song = playlist_queue[0]
-            emit('play_video', {'filename': next_song, 'title': next_song}, broadcast=True)
+            emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
             # 沒歌了，停止畫面並回到待機狀態
@@ -591,7 +716,6 @@ def handle_song_ended():
 @socketio.on('control')
 def handle_control(action):
     if action == 'cut':
-        # 按下切歌時，等於強迫觸發「歌曲結束」事件，讓系統自動播下一首
         handle_song_ended()
     else:
         # 其他指令 (例如 pause) 照常發送
@@ -650,14 +774,6 @@ def handle_start_download(data):
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
     normalize_volume = data.get('normalize_volume', True) is not False
-    subtitle_content = data.get('subtitle_content', '')
-    subtitle_extension = str(data.get('subtitle_extension', '')).lower().lstrip('.')
-    if subtitle_content:
-        try:
-            subtitle_extension = detect_subtitle_format(subtitle_content, subtitle_extension)
-        except ValueError as error:
-            broadcast_log(f"❌ {error}")
-            return
     if ai_engine not in ('spleeter', 'mdxnet'):
         broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
         return
@@ -674,12 +790,6 @@ def handle_start_download(data):
         output_filename = processor.process_song(url, title, ai_engine, normalize_volume)
         
         if output_filename:
-            if subtitle_content:
-                try:
-                    save_subtitle(output_filename, subtitle_content, subtitle_extension)
-                    broadcast_log(f"✅ 字幕已儲存為 {os.path.splitext(output_filename)[0]}.vtt")
-                except (OSError, ValueError) as error:
-                    broadcast_log(f"⚠️ 歌曲已完成，但字幕轉換失敗：{error}")
             socketio.emit('refresh_list')
         
         is_processing = False
@@ -687,6 +797,55 @@ def handle_start_download(data):
 
     broadcast_log("=== 開始新任務 ===")
     threading.Thread(target=run_process, daemon=True).start()
+
+@socketio.on('start_batch_download')
+def handle_start_batch_download(data):
+    """Validate and process a batch of URL/title download jobs sequentially."""
+    global is_processing
+    if is_processing:
+        broadcast_log("⚠️ 系統正在處理其他歌曲，請稍候。")
+        return
+    jobs = data.get('jobs', []) if isinstance(data, dict) else []
+    ai_engine = data.get('ai_engine', 'spleeter') if isinstance(data, dict) else 'spleeter'
+    normalize_volume = data.get('normalize_volume', True) is not False if isinstance(data, dict) else True
+    if ai_engine not in ('spleeter', 'mdxnet'):
+        broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
+        return
+    if ai_engine == 'mdxnet':
+        broadcast_log("❌ MDX-Net 尚未安裝，請先使用 Spleeter，或完成 ToDo.md 的 MDX-Net 測試階段。")
+        return
+    valid_jobs = [
+        {'url': str(job.get('url', '')).strip(), 'title': str(job.get('title', '')).strip()}
+        for job in jobs if isinstance(job, dict)
+    ]
+    invalid_jobs = [index + 1 for index, job in enumerate(valid_jobs) if not job['url'] or not job['title']]
+    if not valid_jobs or invalid_jobs:
+        detail = f"第 {', '.join(map(str, invalid_jobs))} 筆缺少網址或歌名。" if invalid_jobs else "批次清單不可為空。"
+        broadcast_log(f"❌ 批量新增格式錯誤：{detail}")
+        return
+
+    def run_batch_process():
+        global is_processing
+        is_processing = True
+        socketio.emit('task_status', {'status': 'busy', 'batch': True, 'total': len(valid_jobs)})
+        success_count = 0
+        try:
+            processor = KTVProcessor(log_cb=broadcast_log)
+            for index, job in enumerate(valid_jobs, start=1):
+                broadcast_log(f"=== 批量任務 {index}/{len(valid_jobs)}：{job['title']} ===")
+                output_filename = processor.process_song(job['url'], job['title'], ai_engine, normalize_volume)
+                if output_filename:
+                    success_count += 1
+                    socketio.emit('refresh_list')
+                else:
+                    broadcast_log(f"⚠️ 批量任務 {index}/{len(valid_jobs)} 失敗，繼續處理下一首。")
+            broadcast_log(f"✅ 批量新增完成：成功 {success_count} 首，失敗 {len(valid_jobs) - success_count} 首。")
+        finally:
+            is_processing = False
+            socketio.emit('task_status', {'status': 'idle', 'batch': True})
+
+    broadcast_log(f"=== 開始批量新增：共 {len(valid_jobs)} 首 ===")
+    threading.Thread(target=run_batch_process, daemon=True).start()
 
 @socketio.on('update_ytdlp')
 def handle_update_ytdlp():
@@ -794,22 +953,14 @@ class KTVProcessor:
             if not os.path.exists(voc_path) or not os.path.exists(acc_path):
                 raise Exception("Spleeter 分離失敗，找不到音軌檔")
 
-            self.log("步驟 3/4: 合成 L/R 聲道 (L:原曲 R:伴奏)...")
-            audio_filter = '[L][R]join=inputs=2:channel_layout=stereo[a]'
-            if normalize_volume:
-                audio_filter += ';[a]loudnorm=I=-16:TP=-1.5:LRA=11[normalized]'
-                audio_map = '[normalized]'
-            else:
-                audio_map = '[a]'
-            cmd_ffmpeg = (
-                f'ffmpeg -y -i "{temp_input}" -i "{voc_path}" -i "{acc_path}" '
-                f'-filter_complex "[1:a]pan=mono|c0=0.5*FL+0.5*FR[L];[2:a]pan=mono|c0=0.5*FL+0.5*FR[R];{audio_filter}" '
-                f'-map 0:v -map "{audio_map}" -c:v copy -c:a aac "{temp_output}"'
-            )
-            
-            subprocess.run(
-                cmd_ffmpeg, shell=True, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
+            self.log("步驟 3/4: 合成六聲道（原聲 / 導唱 / 伴奏）...")
+            ffmpeg_path = os.path.join(ffmpeg_location, 'ffmpeg.exe') if ffmpeg_location else shutil.which('ffmpeg')
+            ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+            if not ffmpeg_path or not ffprobe_path:
+                raise Exception("找不到 FFmpeg 或 FFprobe")
+            _create_six_channel_mp4(
+                ffmpeg_path, ffprobe_path, temp_input, voc_path, acc_path,
+                temp_output, normalize_volume,
             )
 
             self.log(f"步驟 4/4: 儲存為 {safe_title}.mp4")
@@ -820,7 +971,7 @@ class KTVProcessor:
 
             shutil.move(temp_output, final)
             
-            self.log("✅ 製作完成！已自動同步至歌單。")
+            self.log("✅ 製作完成！已自動同步至歌單（六聲道：原聲 / 導唱 / 伴奏）。")
             return os.path.basename(final)
 
         except subprocess.CalledProcessError as e:

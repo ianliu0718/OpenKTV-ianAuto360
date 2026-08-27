@@ -15,6 +15,17 @@
         .btn-update { background: #607D8B; }
         .btn-dl:disabled, .btn-update:disabled { background: #ccc; cursor: not-allowed; }
         textarea { width: 100%; height: 200px; background: #222; color: #0f0; padding: 10px; box-sizing: border-box; font-family: monospace; border-radius: 5px; resize: none; }
+        .batch-input { height: 140px; margin-top: 10px; }
+        .lyric-editor { display: grid; gap: 10px; margin-top: 10px; }
+        .lyric-editor video { width: 100%; background: #000; border-radius: 5px; }
+        .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .lyric-time { font-family: monospace; color: #607D8B; }
+        #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+        #manual_lyrics_list li { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+        #manual_lyrics_list li.active { border-color: #FF9800; background: #fff8e8; }
+        .lyric-line-time { font-family: monospace; color: #607D8B; }
+        .lyric-line-actions { display: flex; gap: 4px; }
+        .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -37,6 +48,11 @@
     </div>
 
     <div class="card">
+        <h3>📝 系統日誌</h3>
+        <textarea id="log" readonly></textarea>
+    </div>
+
+    <div class="card">
         <h3>📥 新增 KTV 歌曲</h3>
         <label>1. YouTube 網址:</label>
         <input type="text" id="yt_url" placeholder="https://www.youtube.com/watch?v=...">
@@ -51,18 +67,16 @@
             <input type="checkbox" id="normalize_volume" checked style="width:auto; margin:0;">
             製作完成後自動平衡歌曲音量
         </label>
-        <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
+            <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作（原聲 / 導唱 / 伴奏）</button>
         <p id="subtitle_status"></p>
     </div>
 
     <div class="card">
-        <h3>⚙️ 系統維護</h3>
-        <button id="btn_update" class="btn-update" onclick="updateYtDlp()">🔄 手動更新 yt-dlp 核心</button>
-    </div>
-
-    <div class="card">
-        <h3>📝 系統日誌</h3>
-        <textarea id="log" readonly></textarea>
+        <h3>📥 批量新增 KTV 歌曲</h3>
+        <label for="batch_downloads">每行輸入一首，格式：YouTube 網址 | 歌名</label>
+        <textarea id="batch_downloads" class="batch-input" placeholder="https://www.youtube.com/watch?v=... | 歌曲名稱&#10;https://www.youtube.com/watch?v=... | 第二首歌曲"></textarea>
+        <button id="btn_batch_dl" class="btn-dl" onclick="startBatchDownload()">開始批量製作（原聲 / 導唱 / 伴奏）</button>
+        <p id="batch_download_status"></p>
     </div>
 
     <div class="card subtitle-converter-card">
@@ -76,6 +90,23 @@
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
             <p id="converter_status"></p>
         </details>
+        <details class="manual-lyric-editor">
+            <summary>進階：手動製作歌詞檔</summary>
+            <div class="lyric-editor">
+                <label for="manual_lyric_song">選擇歌曲：</label>
+                <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
+                <video id="manual_lyric_video" controls preload="metadata"></video>
+                <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
+                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="請在這裡貼上完整歌詞，每行一句"></textarea>
+                <div class="lyric-actions">
+                    <button class="btn-update" onclick="toggleManualLyricPlayback()">播放 / 暫停</button>
+                    <button class="btn-update" onclick="buildManualLyricLines()">建立歌詞行</button>
+                </div>
+                <ol id="manual_lyrics_list"><li>請先貼上完整歌詞並建立歌詞行</li></ol>
+                <button id="btn_save_manual_lyrics" class="btn-update" onclick="saveManualLyrics()">儲存歌詞檔</button>
+                <p id="manual_lyric_status"></p>
+            </div>
+        </details>
         <details class="video-converter">
             <summary>進階：既有影片效能最佳化</summary>
             <label for="video_file">選擇要轉檔的 MP4（輸出會儲存在歌曲資料夾）:</label>
@@ -87,7 +118,7 @@
             <summary>進階：既有影片 AI 去人聲</summary>
             <label for="ai_vocal_video_file">選擇要處理的 MP4（輸出會儲存在歌曲資料夾）:</label>
             <input type="file" id="ai_vocal_video_file" accept=".mp4,video/mp4">
-            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（L:原唱 / R:伴奏）</button>
+            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（原聲 / 導唱 / 伴奏）</button>
             <p id="ai_vocal_status"></p>
         </details>
         <details class="audio-normalizer">
@@ -97,6 +128,10 @@
             <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-16 LUFS）</button>
             <p id="normalize_audio_status"></p>
         </details>
+        <details class="system-maintenance">
+            <summary>進階：系統維護</summary>
+            <button id="btn_update" class="btn-update" onclick="updateYtDlp()">🔄 手動更新 yt-dlp 核心</button>
+        </details>
     </div>
 
     <script>
@@ -104,9 +139,6 @@
         const logArea = document.getElementById('log');
         const btnDl = document.getElementById('btn_dl');
         const btnUpdate = document.getElementById('btn_update');
-        const subtitleFile = document.getElementById('subtitle_file');
-        const subtitleText = document.getElementById('subtitle_text');
-        const subtitleStatus = document.getElementById('subtitle_status');
         const converterSong = document.getElementById('converter_song');
         const converterFile = document.getElementById('converter_file');
         const converterText = document.getElementById('converter_text');
@@ -120,6 +152,113 @@
         const normalizeAudioFile = document.getElementById('normalize_audio_file');
         const normalizeAudioButton = document.getElementById('btn_normalize_audio');
         const normalizeAudioStatus = document.getElementById('normalize_audio_status');
+        const batchDownloads = document.getElementById('batch_downloads');
+        const batchDownloadButton = document.getElementById('btn_batch_dl');
+        const batchDownloadStatus = document.getElementById('batch_download_status');
+        const manualLyricSong = document.getElementById('manual_lyric_song');
+        const manualLyricVideo = document.getElementById('manual_lyric_video');
+        const manualLyricText = document.getElementById('manual_lyric_text');
+        const manualLyricTime = document.getElementById('manual_lyric_time');
+        const manualLyricsList = document.getElementById('manual_lyrics_list');
+        const manualLyricStatus = document.getElementById('manual_lyric_status');
+        let manualLyricLines = [];
+
+        /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
+        function formatManualLyricTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainder = (seconds % 60).toFixed(3).padStart(6, '0');
+            return `${String(minutes).padStart(2, '0')}:${remainder}`;
+        }
+
+        /** Escapes lyric text before it is rendered into the timing list. @param {string} text @returns {string} */
+        function escapeManualLyricHtml(text) {
+            return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+        }
+
+        /** Refreshes the manual lyric song selector from the server song list. */
+        function loadManualLyricSongs() {
+            fetch('/api/list').then((response) => response.json()).then((songs) => {
+                manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${song}">${song}</option>`).join('');
+            });
+        }
+
+        /** Clears the complete lyric text and timing rows when the selected song changes. */
+        function resetManualLyricEditor() {
+            manualLyricLines = [];
+            manualLyricText.value = '';
+            manualLyricStatus.innerText = '';
+            manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
+        }
+
+        /** Toggles playback of the selected song in the manual lyric editor. */
+        function toggleManualLyricPlayback() {
+            if (!manualLyricSong.value) return;
+            if (manualLyricVideo.paused) manualLyricVideo.play();
+            else manualLyricVideo.pause();
+        }
+
+        /** Builds editable lyric rows from the complete lyric text. */
+        function buildManualLyricLines() {
+            const text = manualLyricText.value.trim();
+            if (!manualLyricSong.value || !text) {
+                manualLyricStatus.innerText = '請選擇歌曲並貼上完整歌詞。';
+                return;
+            }
+            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null })).filter((line) => line.text);
+            renderManualLyricLines();
+            manualLyricStatus.innerText = `已建立 ${manualLyricLines.length} 行，播放時可逐行加入時間碼。`;
+        }
+
+        /** Renders lyric rows with their current timestamp state and controls. */
+        function renderManualLyricLines() {
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><span>${escapeManualLyricHtml(line.text)}</span><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+        }
+
+        /** Adds or removes the current playback time from one lyric row. @param {number} index */
+        function toggleManualLyricTimestamp(index) {
+            if (!manualLyricLines[index]) return;
+            manualLyricLines[index].start = manualLyricLines[index].start === null ? manualLyricVideo.currentTime : null;
+            renderManualLyricLines();
+        }
+
+        /** Highlights the lyric row whose timestamp currently contains the playback time. */
+        function highlightManualLyricLine() {
+            const currentTime = manualLyricVideo.currentTime;
+            manualLyricLines.forEach((line, index) => {
+                const next = manualLyricLines.slice(index + 1).find((candidate) => candidate.start !== null);
+                const active = line.start !== null && currentTime >= line.start && (!next || currentTime < next.start);
+                const element = manualLyricsList.querySelector(`[data-lyric-index="${index}"]`);
+                if (element) element.classList.toggle('active', active);
+            });
+        }
+
+        /** Saves timestamped lyric rows as the selected song's VTT file. */
+        async function saveManualLyrics() {
+            const timestampedLines = manualLyricLines.filter((line) => line.start !== null).sort((first, second) => first.start - second.start);
+            if (!timestampedLines.length) {
+                manualLyricStatus.innerText = '請至少加入一句歌詞的時間碼。';
+                return;
+            }
+            const finalEnd = manualLyricVideo.duration || (timestampedLines[timestampedLines.length - 1].start + 4);
+            const cues = timestampedLines.map((line, index) => ({
+                text: line.text,
+                start: line.start,
+                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : finalEnd,
+            }));
+            const response = await fetch('/api/subtitles/manual', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ song: manualLyricSong.value, cues }),
+            });
+            const data = await response.json();
+            manualLyricStatus.innerText = data.success ? `已儲存：${data.filename}` : data.error;
+        }
+
+        manualLyricSong.addEventListener('change', () => {
+            resetManualLyricEditor();
+            manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
+        });
+        manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
+        loadManualLyricSongs();
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
@@ -129,39 +268,20 @@
         socket.on('task_status', (data) => {
             if(data.status === 'idle') {
                 btnDl.disabled = false;
-                btnDl.innerText = "開始製作 (L:原唱 / R:伴奏)";
+                btnDl.innerText = "開始製作（原聲 / 導唱 / 伴奏）";
+                batchDownloadButton.disabled = false;
+                batchDownloadButton.innerText = "開始批量製作（原聲 / 導唱 / 伴奏）";
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
-                if (subtitleFile) subtitleFile.value = '';
-                if (subtitleText) subtitleText.value = '';
-                subtitleStatus.innerText = '';
             } else if (data.status === 'busy') {
                 btnDl.disabled = true;
                 btnDl.innerText = "製作中...請稍候";
+                batchDownloadButton.disabled = true;
+                batchDownloadButton.innerText = data.batch ? "批量製作中...請稍候" : "系統處理中...請稍候";
                 btnUpdate.disabled = true;
             }
         });
-
-        /**
-         * Reads the selected subtitle file or the advanced text input.
-         * @returns {Promise<{content: string, extension: string}>} Subtitle payload.
-         */
-        async function readSubtitleInput() {
-            const [file] = subtitleFile.files;
-            const text = subtitleText.value.trim();
-            if (file && text) {
-                throw new Error('字幕檔案與進階文字請擇一輸入。');
-            }
-            if (file) {
-                const extension = file.name.split('.').pop().toLowerCase();
-                if (!['srt', 'lrc', 'vtt'].includes(extension)) {
-                    throw new Error('字幕檔格式必須是 SRT、LRC 或 VTT。');
-                }
-                return { content: await file.text(), extension };
-            }
-            return { content: text, extension: text ? detectSubtitleFormat(text) : '' };
-        }
 
         /**
          * Detects the subtitle format from its content without requiring a selector.
@@ -198,7 +318,11 @@
                 }
                 const response = await fetch('/api/subtitles/upload', { method: 'POST', body: formData });
                 const data = await response.json();
-                converterStatus.innerText = data.success ? `已儲存：${data.filename}` : data.error;
+                if (response.ok && data.success === true) {
+                    converterStatus.innerText = `已儲存：${data.filename}`;
+                } else {
+                    converterStatus.innerText = data.error || `轉檔失敗（HTTP ${response.status}）`;
+                }
             } catch (error) {
                 converterStatus.innerText = `轉檔失敗：${error.message}`;
             }
@@ -220,7 +344,11 @@
                 formData.append('video', file);
                 const response = await fetch('/api/videos/optimize', { method: 'POST', body: formData });
                 const data = await response.json();
-                videoConverterStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+                if (response.ok && data.success === true) {
+                    videoConverterStatus.innerText = `已完成：${data.filename}，請查看系統日誌確認流程。`;
+                } else {
+                    videoConverterStatus.innerText = `失敗：${data.error || `影片轉檔失敗（HTTP ${response.status}）`}，請查看系統日誌。`;
+                }
             } catch (error) {
                 videoConverterStatus.innerText = `轉檔失敗：${error.message}`;
             } finally {
@@ -229,7 +357,7 @@
         }
 
         /**
-         * Uploads an existing MP4 for Spleeter vocal separation and KTV mixing.
+         * Uploads an existing MP4 for Spleeter separation and six-channel KTV mixing.
          */
         async function aiRemoveVocals() {
             const [file] = aiVocalVideoFile.files;
@@ -244,7 +372,7 @@
                 formData.append('video', file);
                 const response = await fetch('/api/videos/ai-vocal-remove', { method: 'POST', body: formData });
                 const data = await response.json();
-                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}（原聲 / 導唱 / 伴奏）` : data.error;
             } catch (error) {
                 aiVocalStatus.innerText = `AI 去人聲失敗：${error.message}`;
             } finally {
@@ -289,19 +417,40 @@
                 return;
             }
             try {
-                const subtitle = await readSubtitleInput();
-                subtitleStatus.innerText = subtitle.content ? '字幕將在歌曲製作完成後轉換為同名 VTT。' : '';
                 socket.emit('start_download', {
                     url: url,
                     title: title,
                     ai_engine: aiEngine,
                     normalize_volume: normalizeVolume,
-                    subtitle_content: subtitle.content,
-                    subtitle_extension: subtitle.extension,
                 });
             } catch (error) {
-                subtitleStatus.innerText = error.message;
+                alert(error.message);
             }
+        }
+
+        /**
+         * Parses and starts sequential batch download jobs from the multiline editor.
+         */
+        function startBatchDownload() {
+            const jobs = batchDownloads.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const separatorIndex = line.indexOf('|');
+                if (separatorIndex < 0) return { url: '', title: '' };
+                return {
+                    url: line.slice(0, separatorIndex).trim(),
+                    title: line.slice(separatorIndex + 1).trim(),
+                };
+            });
+            if (!jobs.length || jobs.some((job) => !job.url || !job.title)) {
+                batchDownloadStatus.innerText = '請確認每行格式都是：YouTube 網址 | 歌名';
+                return;
+            }
+            batchDownloadButton.disabled = true;
+            batchDownloadStatus.innerText = `已送出 ${jobs.length} 首，系統將依序製作；詳細進度請查看系統日誌。`;
+            socket.emit('start_batch_download', {
+                jobs,
+                ai_engine: document.getElementById('ai_engine').value,
+                normalize_volume: document.getElementById('normalize_volume').checked,
+            });
         }
 
         function updateYtDlp() {
