@@ -271,6 +271,46 @@ def upload_subtitle():
     except (UnicodeDecodeError, OSError, ValueError) as error:
         return json.dumps({'success': False, 'error': f'字幕檔處理失敗：{error}'}), 400
 
+@app.route('/api/subtitles/manual', methods=['POST'])
+def save_manual_subtitle():
+    """Validate timed lyric cues and save them as the selected song's VTT file."""
+    data = request.get_json(silent=True) or {}
+    song_filename = os.path.basename(str(data.get('song', '')))
+    cues = data.get('cues', [])
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
+    if not isinstance(cues, list) or not cues:
+        return json.dumps({'success': False, 'error': '請至少建立一句歌詞'}), 400
+    normalized_cues = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            return json.dumps({'success': False, 'error': '歌詞資料格式錯誤'}), 400
+        text = str(cue.get('text', '')).strip()
+        try:
+            start = float(cue.get('start'))
+            end = float(cue.get('end'))
+        except (TypeError, ValueError):
+            return json.dumps({'success': False, 'error': '歌詞時間格式錯誤'}), 400
+        if not text or start < 0 or end <= start:
+            return json.dumps({'success': False, 'error': '歌詞內容或時間範圍無效'}), 400
+        normalized_cues.append((start, end, text))
+    normalized_cues.sort(key=lambda cue: cue[0])
+    for index in range(1, len(normalized_cues)):
+        if normalized_cues[index][0] < normalized_cues[index - 1][1]:
+            return json.dumps({'success': False, 'error': '歌詞時間不可重疊'}), 400
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
+    output_path = os.path.join(SONGS_DIR, output_name)
+    try:
+        with open(output_path, 'w', encoding='utf-8', newline='\n') as output_file:
+            output_file.write('WEBVTT\n\n')
+            for start, end, text in normalized_cues:
+                output_file.write(f'{format_vtt_time(round(start * 1000))} --> {format_vtt_time(round(end * 1000))}\n{text}\n\n')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': output_name}, ensure_ascii=False)
+    except OSError as error:
+        return json.dumps({'success': False, 'error': f'歌詞儲存失敗：{error}'}), 400
+
 @app.route('/api/videos/optimize', methods=['POST'])
 def optimize_video():
     """Convert an uploaded MP4 to H.264 up to 1080p and replace its song file."""

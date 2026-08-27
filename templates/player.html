@@ -49,6 +49,8 @@
         const video = document.getElementById('vid');
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
+            /** Notifies the server when the current song reaches its natural end. */
+            video.onended = function() { socket.emit('song_ended'); };
         const engineStatus = document.getElementById('engine-status');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');

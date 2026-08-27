@@ -16,6 +16,16 @@
         .btn-dl:disabled, .btn-update:disabled { background: #ccc; cursor: not-allowed; }
         textarea { width: 100%; height: 200px; background: #222; color: #0f0; padding: 10px; box-sizing: border-box; font-family: monospace; border-radius: 5px; resize: none; }
         .batch-input { height: 140px; margin-top: 10px; }
+        .lyric-editor { display: grid; gap: 10px; margin-top: 10px; }
+        .lyric-editor video { width: 100%; background: #000; border-radius: 5px; }
+        .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .lyric-time { font-family: monospace; color: #607D8B; }
+        #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+        #manual_lyrics_list li { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+        #manual_lyrics_list li.active { border-color: #FF9800; background: #fff8e8; }
+        .lyric-line-time { font-family: monospace; color: #607D8B; }
+        .lyric-line-actions { display: flex; gap: 4px; }
+        .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -80,6 +90,23 @@
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
             <p id="converter_status"></p>
         </details>
+        <details class="manual-lyric-editor">
+            <summary>進階：手動製作歌詞檔</summary>
+            <div class="lyric-editor">
+                <label for="manual_lyric_song">選擇歌曲：</label>
+                <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
+                <video id="manual_lyric_video" controls preload="metadata"></video>
+                <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
+                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="請在這裡貼上完整歌詞，每行一句"></textarea>
+                <div class="lyric-actions">
+                    <button class="btn-update" onclick="toggleManualLyricPlayback()">播放 / 暫停</button>
+                    <button class="btn-update" onclick="buildManualLyricLines()">建立歌詞行</button>
+                </div>
+                <ol id="manual_lyrics_list"><li>請先貼上完整歌詞並建立歌詞行</li></ol>
+                <button id="btn_save_manual_lyrics" class="btn-update" onclick="saveManualLyrics()">儲存歌詞檔</button>
+                <p id="manual_lyric_status"></p>
+            </div>
+        </details>
         <details class="video-converter">
             <summary>進階：既有影片效能最佳化</summary>
             <label for="video_file">選擇要轉檔的 MP4（輸出會儲存在歌曲資料夾）:</label>
@@ -128,6 +155,110 @@
         const batchDownloads = document.getElementById('batch_downloads');
         const batchDownloadButton = document.getElementById('btn_batch_dl');
         const batchDownloadStatus = document.getElementById('batch_download_status');
+        const manualLyricSong = document.getElementById('manual_lyric_song');
+        const manualLyricVideo = document.getElementById('manual_lyric_video');
+        const manualLyricText = document.getElementById('manual_lyric_text');
+        const manualLyricTime = document.getElementById('manual_lyric_time');
+        const manualLyricsList = document.getElementById('manual_lyrics_list');
+        const manualLyricStatus = document.getElementById('manual_lyric_status');
+        let manualLyricLines = [];
+
+        /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
+        function formatManualLyricTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainder = (seconds % 60).toFixed(3).padStart(6, '0');
+            return `${String(minutes).padStart(2, '0')}:${remainder}`;
+        }
+
+        /** Escapes lyric text before it is rendered into the timing list. @param {string} text @returns {string} */
+        function escapeManualLyricHtml(text) {
+            return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+        }
+
+        /** Refreshes the manual lyric song selector from the server song list. */
+        function loadManualLyricSongs() {
+            fetch('/api/list').then((response) => response.json()).then((songs) => {
+                manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${song}">${song}</option>`).join('');
+            });
+        }
+
+        /** Clears the complete lyric text and timing rows when the selected song changes. */
+        function resetManualLyricEditor() {
+            manualLyricLines = [];
+            manualLyricText.value = '';
+            manualLyricStatus.innerText = '';
+            manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
+        }
+
+        /** Toggles playback of the selected song in the manual lyric editor. */
+        function toggleManualLyricPlayback() {
+            if (!manualLyricSong.value) return;
+            if (manualLyricVideo.paused) manualLyricVideo.play();
+            else manualLyricVideo.pause();
+        }
+
+        /** Builds editable lyric rows from the complete lyric text. */
+        function buildManualLyricLines() {
+            const text = manualLyricText.value.trim();
+            if (!manualLyricSong.value || !text) {
+                manualLyricStatus.innerText = '請選擇歌曲並貼上完整歌詞。';
+                return;
+            }
+            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null })).filter((line) => line.text);
+            renderManualLyricLines();
+            manualLyricStatus.innerText = `已建立 ${manualLyricLines.length} 行，播放時可逐行加入時間碼。`;
+        }
+
+        /** Renders lyric rows with their current timestamp state and controls. */
+        function renderManualLyricLines() {
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><span>${escapeManualLyricHtml(line.text)}</span><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+        }
+
+        /** Adds or removes the current playback time from one lyric row. @param {number} index */
+        function toggleManualLyricTimestamp(index) {
+            if (!manualLyricLines[index]) return;
+            manualLyricLines[index].start = manualLyricLines[index].start === null ? manualLyricVideo.currentTime : null;
+            renderManualLyricLines();
+        }
+
+        /** Highlights the lyric row whose timestamp currently contains the playback time. */
+        function highlightManualLyricLine() {
+            const currentTime = manualLyricVideo.currentTime;
+            manualLyricLines.forEach((line, index) => {
+                const next = manualLyricLines.slice(index + 1).find((candidate) => candidate.start !== null);
+                const active = line.start !== null && currentTime >= line.start && (!next || currentTime < next.start);
+                const element = manualLyricsList.querySelector(`[data-lyric-index="${index}"]`);
+                if (element) element.classList.toggle('active', active);
+            });
+        }
+
+        /** Saves timestamped lyric rows as the selected song's VTT file. */
+        async function saveManualLyrics() {
+            const timestampedLines = manualLyricLines.filter((line) => line.start !== null).sort((first, second) => first.start - second.start);
+            if (!timestampedLines.length) {
+                manualLyricStatus.innerText = '請至少加入一句歌詞的時間碼。';
+                return;
+            }
+            const finalEnd = manualLyricVideo.duration || (timestampedLines[timestampedLines.length - 1].start + 4);
+            const cues = timestampedLines.map((line, index) => ({
+                text: line.text,
+                start: line.start,
+                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : finalEnd,
+            }));
+            const response = await fetch('/api/subtitles/manual', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ song: manualLyricSong.value, cues }),
+            });
+            const data = await response.json();
+            manualLyricStatus.innerText = data.success ? `已儲存：${data.filename}` : data.error;
+        }
+
+        manualLyricSong.addEventListener('change', () => {
+            resetManualLyricEditor();
+            manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
+        });
+        manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
+        loadManualLyricSongs();
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
