@@ -475,6 +475,7 @@ def format_vtt_time(milliseconds):
 # ------------------------------------------
 playlist_queue = []
 subtitle_visible = False
+qr_visible = True
 
 def broadcast_current_song():
     """Broadcast the current song and its subtitle visibility to all clients."""
@@ -489,6 +490,14 @@ def handle_connect():
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
     })
+    emit('qr_visibility', {'visible': qr_visible})
+
+@socketio.on('set_qr_visibility')
+def handle_qr_visibility(data):
+    """Update and broadcast whether playback screens show the remote QR Code."""
+    global qr_visible
+    qr_visible = bool(data.get('visible')) if isinstance(data, dict) else True
+    emit('qr_visibility', {'visible': qr_visible}, broadcast=True)
 
 @socketio.on('add_to_queue')
 def handle_add_queue(data):

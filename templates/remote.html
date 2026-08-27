@@ -37,6 +37,13 @@
         <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
     </div>
 
+    <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
+        <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
+            <input type="checkbox" id="qr-visibility" checked style="width:auto;">
+            顯示播放端 QR Code
+        </label>
+    </div>
+
     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
         <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
         <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
@@ -79,6 +86,7 @@
         let currentKey = 0;
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        const qrVisibility = document.getElementById('qr-visibility');
 
         /**
          * Renders the server's current queue for the remote control screen.
@@ -168,6 +176,24 @@
         }
 
         socket.on('current_song', updateCurrentSong);
+
+        /**
+         * Updates the remote control's QR Code switch from the server state.
+         * @param {Object} data QR Code visibility state with a visible field.
+         */
+        function updateQrVisibility(data) {
+            qrVisibility.checked = Boolean(data.visible);
+        }
+
+        /**
+         * Requests all playback screens to show or hide the remote QR Code.
+         */
+        function setQrVisibility() {
+            socket.emit('set_qr_visibility', { visible: qrVisibility.checked });
+        }
+
+        qrVisibility.addEventListener('change', setQrVisibility);
+        socket.on('qr_visibility', updateQrVisibility);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {

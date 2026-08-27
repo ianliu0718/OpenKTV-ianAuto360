@@ -27,6 +27,9 @@
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
         #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+        #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
+        #remote-qr-label { font-size: 12px; font-weight: bold; }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -56,6 +59,7 @@
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         const soundTouchModulePromise = import("https://esm.sh/@soundtouchjs/audio-worklet@2.1.1?bundle");
         const soundTouchProcessorUrl = "https://cdn.jsdelivr.net/npm/@soundtouchjs/audio-worklet@2.1.1/.dist/soundtouch-processor.js";
@@ -66,6 +70,7 @@
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
+        <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
         
         <div id="idle-screen" ondblclick="toggleFullScreen()">
@@ -127,6 +132,8 @@ const socket = io();
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
         const subtitleTrack = document.getElementById('subtitle-track');
+        const remoteQr = document.getElementById('remote-qr');
+        const remoteQrCode = document.getElementById('remote-qr-code');
         
         let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
@@ -135,6 +142,32 @@ const socket = io();
         let currentMode = 'original';
         let currentKey = 0; 
         let currentFilename = '';
+
+        /**
+         * Creates the QR Code that opens the current server's remote control page.
+         */
+        function createRemoteQrCode() {
+            if (typeof QRCode === 'undefined') return;
+            new QRCode(remoteQrCode, {
+                text: `${window.location.origin}/remote`,
+                width: 120,
+                height: 120,
+                colorDark: '#111111',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M,
+            });
+        }
+
+        /**
+         * Applies the server's QR Code visibility state to the all-in-one screen.
+         * @param {Object} data QR Code visibility state with a visible field.
+         */
+        function updateRemoteQrVisibility(data) {
+            remoteQr.style.display = data.visible ? 'block' : 'none';
+        }
+
+        createRemoteQrCode();
+        socket.on('qr_visibility', updateRemoteQrVisibility);
 
         /**
          * Shows the audio processor currently used by the all-in-one player.
