@@ -21,6 +21,10 @@
         #queue-list { max-height: calc(30vh - 52px); margin: 0; padding-left: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
         #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
+        .song-btn.added { background: #607d8b; cursor: wait; }
+        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
+        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+        .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -35,11 +39,26 @@
     <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
         <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
         <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+        <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+            <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:5px;">
+            <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+            <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+            <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+        </div>
+    </div>
+
+    <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
+        <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
+            <input type="checkbox" id="qr-visibility" checked style="width:auto;">
+            顯示播放端 QR Code
+        </label>
     </div>
 
     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
         <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
-        <button class="btn stop" onclick="cmd('stop')">⏹ 切歌</button>
+        <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
         <button class="btn vocal" onclick="track('original')">🎤 原唱</button>
         <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
     </div>
@@ -70,6 +89,11 @@
     <hr style="border-color: #333;">
     
     <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
+    <div class="category-filters">
+        <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
+        <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
+        <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
+    </div>
     <ul id="list"></ul>
 
     <script>
@@ -79,6 +103,9 @@
         let currentKey = 0;
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        let currentSubtitleFontSize = 200;
+        const pendingSongs = new Set();
+        const qrVisibility = document.getElementById('qr-visibility');
 
         /**
          * Renders the server's current queue for the remote control screen.
@@ -121,6 +148,7 @@
         // --- 歌單與基本控制 ---
         socket.on('update_list', (songs) => {
             allSongs = songs;
+            renderCategoryFilters();
             filter();
         });
 
@@ -133,6 +161,37 @@
                 filter();
                 renderCurrentSongControl();
             });
+        }
+
+        /**
+         * Parses the fixed song filename format into classification fields.
+         * @param {string} filename Song filename in song-singer-language-id.mp4 format.
+         * @returns {Object} Song metadata with title, singer, language, and length fields.
+         */
+        function parseSongMetadata(filename) {
+            const name = filename.replace(/\.mp4$/i, '');
+            const parts = name.split('-');
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            const title = parts[0];
+            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+        }
+
+        /**
+         * Rebuilds category selectors from the currently loaded song list.
+         */
+        function renderCategoryFilters() {
+            const lengthFilter = document.getElementById('song-length-filter');
+            const singerFilter = document.getElementById('singer-filter');
+            const languageFilter = document.getElementById('language-filter');
+            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
+            const metadata = allSongs.map(parseSongMetadata);
+            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
+            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
+            singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
+            languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
+            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
         }
 
         /**
@@ -157,6 +216,7 @@
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
+            currentSubtitleFontSize = Number(data.font_size) || 200;
             renderCurrentSongControl();
         }
 
@@ -167,31 +227,105 @@
             if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
         }
 
+        /**
+         * Sets the shared subtitle font size for all playback screens.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function setSubtitleFontSize(fontSize) {
+            if (![80, 100, 120].includes(fontSize)) return;
+            currentSubtitleFontSize = fontSize;
+            renderSubtitleFontSizeControl();
+            socket.emit('set_subtitle_font_size', { font_size: fontSize });
+        }
+
+        /**
+         * Updates the remote control label and selected subtitle size button.
+         */
+        function renderSubtitleFontSizeControl() {
+            const labels = { 80: '小字（80%）', 100: '標準（100%）', 120: '大字（120%）', 200: '預設（200%）' };
+            document.getElementById('subtitle-size-label').textContent = labels[currentSubtitleFontSize] || labels[200];
+            [80, 100, 120].forEach((size) => {
+                const button = document.getElementById({ 80: 'subtitle-size-small', 100: 'subtitle-size-normal', 120: 'subtitle-size-large' }[size]);
+                button.setAttribute('aria-pressed', String(size === currentSubtitleFontSize));
+                button.style.background = size === currentSubtitleFontSize ? '#2aa894' : '#536d7a';
+            });
+        }
+
         socket.on('current_song', updateCurrentSong);
+
+        /**
+         * Updates the remote control's QR Code switch from the server state.
+         * @param {Object} data QR Code visibility state with a visible field.
+         */
+        function updateQrVisibility(data) {
+            qrVisibility.checked = Boolean(data.visible);
+        }
+
+        /**
+         * Requests all playback screens to show or hide the remote QR Code.
+         */
+        function setQrVisibility() {
+            socket.emit('set_qr_visibility', { visible: qrVisibility.checked });
+        }
+
+        qrVisibility.addEventListener('change', setQrVisibility);
+        socket.on('qr_visibility', updateQrVisibility);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
                 currentSubtitleVisible = Boolean(data.visible);
+                currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
+                renderSubtitleFontSizeControl();
                 renderCurrentSongControl();
             }
         });
 
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
+            const selectedLength = document.getElementById('song-length-filter').value;
+            const selectedSinger = document.getElementById('singer-filter').value;
+            const selectedLanguage = document.getElementById('language-filter').value;
             const list = document.getElementById('list');
             list.innerHTML = "";
             
-            allSongs.filter(s => s.toLowerCase().includes(key)).forEach(s => {
+            allSongs.filter(s => {
+                const metadata = parseSongMetadata(s);
+                return s.toLowerCase().includes(key)
+                    && (!selectedLength || metadata.length === selectedLength)
+                    && (!selectedSinger || metadata.singer === selectedSinger)
+                    && (!selectedLanguage || metadata.language === selectedLanguage);
+            }).forEach(s => {
                 const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                const isPending = pendingSongs.has(s);
+                const playButton = isPending
+                    ? '<button class="song-btn added" disabled>已加入</button>'
+                    : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
-                    <li>
+                    <li class="${isPending ? 'song-added' : ''}">
                         <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${s}</span>
-                        <span>${subtitleButton}<button class="song-btn" onclick="play('${s}')">播歌</button></span>
+                        <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
         }
 
-        function play(filename) { socket.emit('add_to_queue', {filename: filename}); }
+        /**
+         * Sends a song to the queue and keeps visible feedback during the request window.
+         * @param {HTMLButtonElement} button Clicked play button.
+         * @param {string} filename Song filename to queue.
+         */
+        function play(button, filename) {
+            if (pendingSongs.has(filename)) return;
+            pendingSongs.add(filename);
+            button.disabled = true;
+            button.classList.add('added');
+            button.textContent = '已加入';
+            button.closest('li').classList.add('song-added');
+            socket.emit('add_to_queue', {filename: filename});
+            setTimeout(() => {
+                pendingSongs.delete(filename);
+                filter();
+            }, 1500);
+        }
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
@@ -204,6 +338,7 @@
         function loadList() {
             fetch('/api/list').then(r => r.json()).then(data => {
                 allSongs = data;
+                renderCategoryFilters();
                 filter();
             });
         }

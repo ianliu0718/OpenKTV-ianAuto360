@@ -27,6 +27,21 @@
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
         #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+        #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
+        #remote-qr-label { font-size: 12px; font-weight: bold; }
+        #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 25; width: min(82%, 720px); padding: 14px 22px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(20px, 3vw, 36px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        #song-announcement.visible { opacity: 1; }
+        #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        #queue-add-announcement.visible { opacity: 1; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
+        #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
+        #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
+        #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
+        #ktv-subtitle .subtitle-char { display: inline-block; animation: ktv-char-pop 360ms cubic-bezier(.2, 1.5, .4, 1) both; animation-delay: calc(var(--char-index) * 38ms); }
+        @keyframes ktv-char-pop { 0% { opacity: 0; transform: scale(.72) translateY(10px); } 70% { transform: scale(1.12) translateY(-2px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -53,9 +68,14 @@
         ul#list { list-style: none; padding: 0; margin: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; }
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
+        .song-btn.added { background: #607d8b; cursor: wait; }
+        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
+        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+        .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         const soundTouchModulePromise = import("https://esm.sh/@soundtouchjs/audio-worklet@2.1.1?bundle");
         const soundTouchProcessorUrl = "https://cdn.jsdelivr.net/npm/@soundtouchjs/audio-worklet@2.1.1/.dist/soundtouch-processor.js";
@@ -65,7 +85,11 @@
     <div id="player-container">
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
+        <div id="song-announcement"></div>
+        <div id="queue-add-announcement"></div>
+        <div id="ktv-subtitle" aria-live="polite"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
+        <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
         
         <div id="idle-screen" ondblclick="toggleFullScreen()">
@@ -83,6 +107,14 @@
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+                <span>字幕字體大小</span><span id="subtitle-size-label">標準（100%）</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:5px;">
+                <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+                <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+                <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+            </div>
         </div>
         
         <div class="grid">
@@ -112,6 +144,11 @@
         </div>
 
         <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
+        <div class="category-filters">
+            <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
+            <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
+            <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
+        </div>
         <ul id="list"></ul>
     </div>
 
@@ -127,6 +164,11 @@ const socket = io();
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
         const subtitleTrack = document.getElementById('subtitle-track');
+        const ktvSubtitle = document.getElementById('ktv-subtitle');
+        const songAnnouncement = document.getElementById('song-announcement');
+        const queueAddAnnouncement = document.getElementById('queue-add-announcement');
+        const remoteQr = document.getElementById('remote-qr');
+        const remoteQrCode = document.getElementById('remote-qr-code');
         
         let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
@@ -135,6 +177,56 @@ const socket = io();
         let currentMode = 'original';
         let currentKey = 0; 
         let currentFilename = '';
+        let announcementTimer;
+        let queueAddAnnouncementTimer;
+
+        /**
+         * Shows the filename that was successfully added to the all-in-one queue.
+         * @param {string} filename Newly queued song filename.
+         */
+        function showQueueAddAnnouncement(filename) {
+            clearTimeout(queueAddAnnouncementTimer);
+            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.classList.add('visible');
+            queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
+        }
+
+        /**
+         * Shows the playing filename in the center of the all-in-one screen for ten seconds.
+         * @param {string} filename Current song filename.
+         */
+        function showSongAnnouncement(filename) {
+            clearTimeout(announcementTimer);
+            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.classList.add('visible');
+            announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
+        }
+
+        /**
+         * Creates the QR Code that opens the current server's remote control page.
+         */
+        function createRemoteQrCode() {
+            if (typeof QRCode === 'undefined') return;
+            new QRCode(remoteQrCode, {
+                text: `${window.location.origin}/remote`,
+                width: 120,
+                height: 120,
+                colorDark: '#111111',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M,
+            });
+        }
+
+        /**
+         * Applies the server's QR Code visibility state to the all-in-one screen.
+         * @param {Object} data QR Code visibility state with a visible field.
+         */
+        function updateRemoteQrVisibility(data) {
+            remoteQr.style.display = data.visible ? 'block' : 'none';
+        }
+
+        createRemoteQrCode();
+        socket.on('qr_visibility', updateRemoteQrVisibility);
 
         /**
          * Shows the audio processor currently used by the all-in-one player.
@@ -152,8 +244,60 @@ const socket = io();
         function setSubtitle(filename, visible) {
             currentFilename = filename;
             subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.track.mode = visible ? 'showing' : 'hidden';
+            subtitleTrack.track.mode = 'hidden';
+            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.replaceChildren();
         }
+
+        /**
+         * Applies the shared subtitle font size sent by the remote control.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function applySubtitleFontSize(fontSize) {
+            const size = Number(fontSize);
+            if (![80, 100, 120].includes(size)) return;
+            ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+        }
+
+        /**
+         * Wraps subtitle text in animated characters for the KTV entrance effect.
+         * @param {string} text Subtitle line text.
+         * @returns {HTMLSpanElement} Rendered subtitle text layer.
+         */
+        function createSubtitleTextLayer(text) {
+            const layer = document.createElement('span');
+            layer.className = 'subtitle-text-layer';
+            Array.from(text).forEach((character, index) => {
+                const characterElement = document.createElement('span');
+                characterElement.className = 'subtitle-char';
+                characterElement.style.setProperty('--char-index', String(index));
+                characterElement.textContent = character;
+                layer.appendChild(characterElement);
+            });
+            return layer;
+        }
+
+        /**
+         * Renders the active WebVTT cue as at most two KTV subtitle lines.
+         */
+        function renderKtvSubtitle() {
+            const activeCues = subtitleTrack.track.activeCues;
+            ktvSubtitle.replaceChildren();
+            if (!activeCues || !activeCues.length) return;
+            const lines = String(activeCues[0].text || '')
+                .replace(/<[^>]*>/g, '')
+                .split(/\r?\n/)
+                .filter(Boolean)
+                .slice(0, 2);
+            lines.forEach((line) => {
+                const lineElement = document.createElement('span');
+                lineElement.className = 'subtitle-line';
+                lineElement.appendChild(createSubtitleTextLayer(line));
+                ktvSubtitle.appendChild(lineElement);
+            });
+        }
+
+        subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
 
         function toggleFullScreen() {
             if (!document.fullscreenElement) {
@@ -282,6 +426,7 @@ const socket = io();
             idleScreen.style.display = 'none';
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
+            showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);
             setAudioKey(0);
@@ -293,8 +438,13 @@ const socket = io();
             }).catch(e => { overlay.innerText = "⚠️ 請點擊畫面開始播放"; });
         });
 
+        socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
+
         socket.on('subtitle_state', (data) => {
-            if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
+            if (data.filename === currentFilename) {
+                setSubtitle(data.filename, data.visible);
+                applySubtitleFontSize(data.font_size);
+            }
         });
 
         // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
@@ -306,6 +456,8 @@ const socket = io();
             video.pause(); video.src = ""; video.style.display = 'none';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
             nextInfo.style.display = 'none';
+            songAnnouncement.classList.remove('visible');
+            clearTimeout(announcementTimer);
         });
 
         socket.on('command', (cmd) => {
@@ -334,6 +486,7 @@ const socket = io();
         let subtitleSongs = new Set();
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        const pendingSongs = new Set();
 
         /**
          * Loads the songs that have a matching subtitle file.
@@ -344,6 +497,37 @@ const socket = io();
                 filter();
                 renderCurrentSongControl();
             });
+        }
+
+        /**
+         * Parses the fixed song filename format into classification fields.
+         * @param {string} filename Song filename in song-singer-language-id.mp4 format.
+         * @returns {Object} Song metadata with title, singer, language, and length fields.
+         */
+        function parseSongMetadata(filename) {
+            const name = filename.replace(/\.mp4$/i, '');
+            const parts = name.split('-');
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            const title = parts[0];
+            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+        }
+
+        /**
+         * Rebuilds category selectors from the currently loaded song list.
+         */
+        function renderCategoryFilters() {
+            const lengthFilter = document.getElementById('song-length-filter');
+            const singerFilter = document.getElementById('singer-filter');
+            const languageFilter = document.getElementById('language-filter');
+            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
+            const metadata = allSongs.map(parseSongMetadata);
+            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
+            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
+            singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
+            languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
+            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
         }
 
         /**
@@ -368,6 +552,7 @@ const socket = io();
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
+            applySubtitleFontSize(data.font_size);
             renderCurrentSongControl();
         }
 
@@ -378,11 +563,41 @@ const socket = io();
             if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
         }
 
+        /**
+         * Sets the shared subtitle font size for all playback screens.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function setSubtitleFontSize(fontSize) {
+            if (![80, 100, 120].includes(fontSize)) return;
+            applySubtitleFontSize(fontSize);
+            renderSubtitleFontSizeControl(fontSize);
+            socket.emit('set_subtitle_font_size', { font_size: fontSize });
+        }
+
+        /**
+         * Updates the all-in-one subtitle size label and selected button.
+         * @param {number} fontSize Current subtitle size percentage.
+         */
+        function renderSubtitleFontSizeControl(fontSize) {
+            const labels = { 80: '小字（80%）', 100: '標準（100%）', 120: '大字（120%）' };
+            const buttonIds = { 80: 'subtitle-size-small', 100: 'subtitle-size-normal', 120: 'subtitle-size-large' };
+            document.getElementById('subtitle-size-label').textContent = labels[fontSize] || labels[100];
+            Object.entries(buttonIds).forEach(([size, buttonId]) => {
+                const button = document.getElementById(buttonId);
+                const selected = Number(size) === fontSize;
+                button.setAttribute('aria-pressed', String(selected));
+                button.style.background = selected ? '#2aa894' : '#536d7a';
+            });
+        }
+
         socket.on('current_song', updateCurrentSong);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
                 currentSubtitleVisible = Boolean(data.visible);
+                if (data.font_size !== undefined) {
+                    renderSubtitleFontSizeControl(Number(data.font_size));
+                }
                 renderCurrentSongControl();
             }
         });
@@ -393,7 +608,7 @@ const socket = io();
             socket.emit('control_effect', { volume: vol });
         }
 
-        socket.on('update_list', (songs) => { allSongs = songs; filter(); });
+        socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
 
         socket.on('update_queue', (playlist) => {
             if(playlist.length > 1) {
@@ -425,12 +640,25 @@ const socket = io();
 
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
+            const selectedLength = document.getElementById('song-length-filter').value;
+            const selectedSinger = document.getElementById('singer-filter').value;
+            const selectedLanguage = document.getElementById('language-filter').value;
             const list = document.getElementById('list');
             list.innerHTML = "";
-            allSongs.filter(s => s.toLowerCase().includes(key)).forEach(s => {
+            allSongs.filter(s => {
+                const metadata = parseSongMetadata(s);
+                return s.toLowerCase().includes(key)
+                    && (!selectedLength || metadata.length === selectedLength)
+                    && (!selectedSinger || metadata.singer === selectedSinger)
+                    && (!selectedLanguage || metadata.language === selectedLanguage);
+            }).forEach(s => {
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
-                list.innerHTML += `<li><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}<button class="song-btn" onclick="play(this, '${s}')">播歌</button></span></li>`;
+                const isPending = pendingSongs.has(s);
+                const playButton = isPending
+                    ? '<button class="song-btn added" disabled>已加入</button>'
+                    : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
+                list.innerHTML += `<li class="${isPending ? 'song-added' : ''}"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}${playButton}</span></li>`;
             });
         }
 
@@ -440,23 +668,30 @@ const socket = io();
          */
         function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
 
-        function play(btn, filename) { 
-            // 👑 修正點 3：改成發送 add_to_queue 指令，而不是 request_play
+        /**
+         * Sends a song to the queue and keeps visible feedback during the request window.
+         * @param {HTMLButtonElement} button Clicked play button.
+         * @param {string} filename Song filename to queue.
+         */
+        function play(button, filename) {
+            if (pendingSongs.has(filename)) return;
+            pendingSongs.add(filename);
+            button.disabled = true;
+            button.classList.add('added');
+            button.textContent = '已加入';
+            button.closest('li').classList.add('song-added');
             socket.emit('add_to_queue', {filename: filename}); 
-            const originalText = btn.innerText;
-            btn.innerText = "已點";
-            btn.style.background = "#555";
             setTimeout(() => {
-                btn.innerText = originalText;
-                btn.style.background = "#009688";
-            }, 1000);
+                pendingSongs.delete(filename);
+                filter();
+            }, 1500);
         }
 
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
         function loadList() {
-            fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; filter(); });
+            fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; renderCategoryFilters(); filter(); });
         }
         
         loadList();

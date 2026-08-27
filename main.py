@@ -57,7 +57,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.2"
+APP_VERSION = "v1.0.3"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -240,6 +240,160 @@ def upload_subtitle():
     except (UnicodeDecodeError, OSError, ValueError) as error:
         return json.dumps({'error': f'字幕檔處理失敗：{error}'}), 400
 
+@app.route('/api/videos/optimize', methods=['POST'])
+def optimize_video():
+    """Convert an uploaded MP4 to H.264 up to 1080p and replace its song file."""
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要轉檔的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'video_optimize_{time.time_ns()}')
+    source_path = os.path.join(job_dir, filename)
+    output_path = os.path.join(job_dir, f'{os.path.splitext(filename)[0]}.optimized.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    try:
+        video_file.save(source_path)
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            return json.dumps({'error': '找不到 FFmpeg'}), 500
+        command = [
+            ffmpeg_path, '-y', '-i', source_path,
+            '-map', '0:v:0', '-map', '0:a?',
+            '-vf', "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+            '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart',
+            output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            return json.dumps({'error': '影片轉檔失敗，請查看系統日誌'}), 400
+        shutil.move(output_path, final_path)
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, ValueError) as error:
+        return json.dumps({'error': f'影片轉檔失敗：{error}'}), 400
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+@app.route('/api/videos/ai-vocal-remove', methods=['POST'])
+def ai_vocal_remove_video():
+    """Separate vocals from an uploaded MP4 and replace it with L/R KTV audio."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要處理的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'ai_vocal_remove_{time.time_ns()}')
+    source_path = os.path.join(job_dir, 'input.mp4')
+    output_path = os.path.join(job_dir, 'output.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
+    try:
+        video_file.save(source_path)
+        broadcast_log(f'=== 開始 AI 去人聲：{filename} ===')
+        p = multiprocessing.Process(target=_run_spleeter_process, args=(source_path, job_dir))
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            raise RuntimeError('Spleeter 分離失敗')
+        vocal_path = os.path.join(job_dir, 'input', 'vocals.wav')
+        accompaniment_path = os.path.join(job_dir, 'input', 'accompaniment.wav')
+        if not os.path.exists(vocal_path) or not os.path.exists(accompaniment_path):
+            raise RuntimeError('找不到 Spleeter 產生的音軌檔')
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            raise RuntimeError('找不到 FFmpeg')
+        command = [
+            ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
+            '-filter_complex',
+            '[1:a]pan=mono|c0=0.5*FL+0.5*FR[V];[2:a]pan=mono|c0=0.5*FL+0.5*FR[A];[V][A]join=inputs=2:channel_layout=stereo[a]',
+            '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            raise RuntimeError('FFmpeg 合成失敗')
+        shutil.move(output_path, final_path)
+        broadcast_log(f'✅ AI 去人聲完成：{filename}')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, RuntimeError) as error:
+        broadcast_log(f'❌ AI 去人聲失敗：{error}')
+        return json.dumps({'error': str(error)}, ensure_ascii=False), 400
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+@app.route('/api/videos/normalize-audio', methods=['POST'])
+def normalize_video_audio():
+    """Normalize an uploaded MP4 audio track to the shared KTV loudness target."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要處理的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'normalize_audio_{time.time_ns()}')
+    source_path = os.path.join(job_dir, 'input.mp4')
+    output_path = os.path.join(job_dir, 'output.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
+    try:
+        video_file.save(source_path)
+        broadcast_log(f'=== 開始平衡音量：{filename} ===')
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            raise RuntimeError('找不到 FFmpeg')
+        command = [
+            ffmpeg_path, '-y', '-i', source_path,
+            '-map', '0:v:0', '-map', '0:a?',
+            '-c:v', 'copy', '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+            '-c:a', 'aac', '-movflags', '+faststart', output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            raise RuntimeError('FFmpeg 音量平衡失敗')
+        shutil.move(output_path, final_path)
+        broadcast_log(f'✅ 音量平衡完成：{filename}')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, RuntimeError) as error:
+        broadcast_log(f'❌ 音量平衡失敗：{error}')
+        return json.dumps({'error': str(error)}, ensure_ascii=False), 400
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
     converted_content = convert_to_webvtt(content, subtitle_extension)
@@ -321,11 +475,17 @@ def format_vtt_time(milliseconds):
 # ------------------------------------------
 playlist_queue = []
 subtitle_visible = False
+subtitle_font_size = 100
+qr_visible = True
 
 def broadcast_current_song():
-    """Broadcast the current song and its subtitle visibility to all clients."""
+    """Broadcast the current song and its subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
-    socketio.emit('current_song', {'filename': filename, 'visible': subtitle_visible})
+    socketio.emit('current_song', {
+        'filename': filename,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    })
 
 @socketio.on('connect')
 def handle_connect():
@@ -334,7 +494,16 @@ def handle_connect():
     emit('current_song', {
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
     })
+    emit('qr_visibility', {'visible': qr_visible})
+
+@socketio.on('set_qr_visibility')
+def handle_qr_visibility(data):
+    """Update and broadcast whether playback screens show the remote QR Code."""
+    global qr_visible
+    qr_visible = bool(data.get('visible')) if isinstance(data, dict) else True
+    emit('qr_visibility', {'visible': qr_visible}, broadcast=True)
 
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
@@ -344,6 +513,7 @@ def handle_add_queue(data):
     
     # 廣播更新所有設備上的歌單畫面
     emit('update_queue', playlist_queue, broadcast=True)
+    emit('queue_song_added', {'filename': filename}, broadcast=True)
     
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
@@ -362,7 +532,29 @@ def handle_toggle_subtitle(data):
     if not os.path.exists(subtitle_path):
         return
     subtitle_visible = not subtitle_visible
-    emit('subtitle_state', {'filename': filename, 'visible': subtitle_visible}, broadcast=True)
+    emit('subtitle_state', {
+        'filename': filename,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    }, broadcast=True)
+    broadcast_current_song()
+
+@socketio.on('set_subtitle_font_size')
+def handle_set_subtitle_font_size(data):
+    """Update and broadcast the shared subtitle font size in percent."""
+    global subtitle_font_size
+    try:
+        requested_size = int(data.get('font_size', 100)) if isinstance(data, dict) else 100
+    except (TypeError, ValueError):
+        return
+    if requested_size not in {80, 100, 120}:
+        return
+    subtitle_font_size = requested_size
+    emit('subtitle_state', {
+        'filename': playlist_queue[0] if playlist_queue else '',
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    }, broadcast=True)
     broadcast_current_song()
 
 @socketio.on('remove_from_queue')
@@ -457,6 +649,7 @@ def handle_start_download(data):
     url = data.get('url')
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
+    normalize_volume = data.get('normalize_volume', True) is not False
     subtitle_content = data.get('subtitle_content', '')
     subtitle_extension = str(data.get('subtitle_extension', '')).lower().lstrip('.')
     if subtitle_content:
@@ -478,7 +671,7 @@ def handle_start_download(data):
         socketio.emit('task_status', {'status': 'busy'})
         
         processor = KTVProcessor(log_cb=broadcast_log)
-        output_filename = processor.process_song(url, title, ai_engine)
+        output_filename = processor.process_song(url, title, ai_engine, normalize_volume)
         
         if output_filename:
             if subtitle_content:
@@ -542,7 +735,7 @@ class KTVProcessor:
     def sanitize_filename(self, name):
         return "".join([c for c in name if c not in r'\/:*?"<>|'])
 
-    def process_song(self, url, manual_title, ai_engine='spleeter'):
+    def process_song(self, url, manual_title, ai_engine='spleeter', normalize_volume=True):
         job_temp_dir = None
         try:
             safe_title = self.sanitize_filename(manual_title)
@@ -562,7 +755,7 @@ class KTVProcessor:
             ] if ffmpeg_location else []) + [
                 "--force-overwrites",  
                 "--no-playlist",       
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", 
+                "-f", "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+best[ext=mp4][height<=1080]/best",
                 "-o", temp_input, 
                 url
             ]
@@ -602,10 +795,16 @@ class KTVProcessor:
                 raise Exception("Spleeter 分離失敗，找不到音軌檔")
 
             self.log("步驟 3/4: 合成 L/R 聲道 (L:原曲 R:伴奏)...")
+            audio_filter = '[L][R]join=inputs=2:channel_layout=stereo[a]'
+            if normalize_volume:
+                audio_filter += ';[a]loudnorm=I=-16:TP=-1.5:LRA=11[normalized]'
+                audio_map = '[normalized]'
+            else:
+                audio_map = '[a]'
             cmd_ffmpeg = (
                 f'ffmpeg -y -i "{temp_input}" -i "{voc_path}" -i "{acc_path}" '
-                '-filter_complex "[0:a]pan=mono|c0=0.5*FL+0.5*FR[L];[2:a]pan=mono|c0=0.5*FL+0.5*FR[R];[L][R]join=inputs=2:channel_layout=stereo[a]" '
-                f'-map 0:v -map "[a]" -c:v copy -c:a aac "{temp_output}"'
+                f'-filter_complex "[1:a]pan=mono|c0=0.5*FL+0.5*FR[L];[2:a]pan=mono|c0=0.5*FL+0.5*FR[R];{audio_filter}" '
+                f'-map 0:v -map "{audio_map}" -c:v copy -c:a aac "{temp_output}"'
             )
             
             subprocess.run(

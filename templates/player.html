@@ -8,9 +8,25 @@
         #overlay { position: absolute; top: 20px; left: 20px; font-size: 24px; text-shadow: 2px 2px 4px #000; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px;}
         #waiting { font-size: 50px; color: #555; cursor: pointer; }
         #engine-status { position: absolute; bottom: 15px; left: 20px; z-index: 10; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+        #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
+        #remote-qr-label { font-size: 14px; font-weight: bold; }
+        #queue-add-announcement { position: absolute; top: 20px; left: 50%; z-index: 14; max-width: 80%; padding: 10px 18px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        #queue-add-announcement.visible { opacity: 1; }
+        #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 15; max-width: 80%; padding: 18px 28px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(24px, 4vw, 48px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        #song-announcement.visible { opacity: 1; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
+        #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
+        #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
+        #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
+        #ktv-subtitle .subtitle-char { display: inline-block; animation: ktv-char-pop 360ms cubic-bezier(.2, 1.5, .4, 1) both; animation-delay: calc(var(--char-index) * 38ms); }
+        @keyframes ktv-char-pop { 0% { opacity: 0; transform: scale(.72) translateY(10px); } 70% { transform: scale(1.12) translateY(-2px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         const soundTouchModulePromise = import("https://esm.sh/@soundtouchjs/audio-worklet@2.1.1?bundle");
         const soundTouchProcessorUrl = "https://cdn.jsdelivr.net/npm/@soundtouchjs/audio-worklet@2.1.1/.dist/soundtouch-processor.js";
@@ -18,7 +34,11 @@
 </head>
 <body>
     <div id="overlay">等待連線...</div>
+    <div id="queue-add-announcement"></div>
+    <div id="song-announcement"></div>
+    <div id="ktv-subtitle" aria-live="polite"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
+    <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
     <div id="waiting" onclick="initAudioContext()">📺 KTV 準備就緒 (點我啟動音效)</div>
     <video id="vid" playsinline crossorigin="anonymous">
         <track id="subtitle-track" kind="subtitles" srclang="zh" label="字幕">
@@ -30,7 +50,12 @@
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
         const engineStatus = document.getElementById('engine-status');
+        const songAnnouncement = document.getElementById('song-announcement');
+        const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const subtitleTrack = document.getElementById('subtitle-track');
+        const ktvSubtitle = document.getElementById('ktv-subtitle');
+        const remoteQr = document.getElementById('remote-qr');
+        const remoteQrCode = document.getElementById('remote-qr-code');
         
         let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
@@ -40,6 +65,56 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let announcementTimer;
+        let queueAddAnnouncementTimer;
+
+        /**
+         * Shows the filename that was successfully added to the playback queue.
+         * @param {string} filename Newly queued song filename.
+         */
+        function showQueueAddAnnouncement(filename) {
+            clearTimeout(queueAddAnnouncementTimer);
+            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.classList.add('visible');
+            queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
+        }
+
+        /**
+         * Shows the playing filename in the center of the playback screen for ten seconds.
+         * @param {string} filename Current song filename.
+         */
+        function showSongAnnouncement(filename) {
+            clearTimeout(announcementTimer);
+            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.classList.add('visible');
+            announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
+        }
+
+        /**
+         * Creates the QR Code that opens the current server's remote control page.
+         */
+        function createRemoteQrCode() {
+            if (typeof QRCode === 'undefined') return;
+            new QRCode(remoteQrCode, {
+                text: `${window.location.origin}/remote`,
+                width: 150,
+                height: 150,
+                colorDark: '#111111',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M,
+            });
+        }
+
+        /**
+         * Applies the server's QR Code visibility state to the playback screen.
+         * @param {Object} data QR Code visibility state with a visible field.
+         */
+        function updateRemoteQrVisibility(data) {
+            remoteQr.style.display = data.visible ? 'block' : 'none';
+        }
+
+        createRemoteQrCode();
+        socket.on('qr_visibility', updateRemoteQrVisibility);
 
         /**
          * Shows the audio processor currently used by the player.
@@ -57,8 +132,59 @@
         function setSubtitle(filename, visible) {
             currentFilename = filename;
             subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.track.mode = visible ? 'showing' : 'hidden';
+            subtitleTrack.track.mode = 'hidden';
+            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.replaceChildren();
         }
+
+        /**
+         * Applies the shared subtitle font size sent by the remote control.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function applySubtitleFontSize(fontSize) {
+            const size = Number(fontSize);
+            if (![80, 100, 120, 200].includes(size)) return;
+            ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+        }
+
+        /**
+         * Wraps subtitle text in animated characters for the KTV entrance effect.
+         * @param {string} text Subtitle line text.
+         * @returns {HTMLSpanElement} Rendered subtitle text layer.
+         */
+        function createSubtitleTextLayer(text) {
+            const layer = document.createElement('span');
+            layer.className = 'subtitle-text-layer';
+            Array.from(text).forEach((character, index) => {
+                const characterElement = document.createElement('span');
+                characterElement.className = 'subtitle-char';
+                characterElement.style.setProperty('--char-index', String(index));
+                characterElement.textContent = character;
+                layer.appendChild(characterElement);
+            });
+            return layer;
+        }
+
+        /**
+         * Renders the active VTT cue as up to two KTV-style subtitle lines.
+         */
+        function renderKtvSubtitle() {
+            const activeCues = subtitleTrack.track.activeCues;
+            ktvSubtitle.replaceChildren();
+            if (!activeCues || !activeCues.length) return;
+            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean).slice(0, 2);
+            lines.forEach(line => {
+                const lineElement = document.createElement('span');
+                lineElement.className = 'subtitle-line';
+                lineElement.appendChild(createSubtitleTextLayer(line));
+                ktvSubtitle.appendChild(lineElement);
+            });
+        }
+
+        /**
+         * Connects VTT cue changes to the custom KTV subtitle renderer.
+         */
+        subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
 
         function initAudioContext() {
             if(!audioCtx) {
@@ -146,6 +272,7 @@
         socket.on('play_video', (data) => {
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
+            showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);
             setAudioKey(0);
@@ -157,9 +284,16 @@
             });
         });
 
+        socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
+
         socket.on('subtitle_state', (data) => {
-            if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
+            if (data.filename === currentFilename) {
+                setSubtitle(data.filename, data.visible);
+                applySubtitleFontSize(data.font_size);
+            }
         });
+
+        socket.on('current_song', (data) => applySubtitleFontSize(data.font_size));
 
         socket.on('command', (cmd) => {
             if (cmd === 'pause') video.paused ? video.play() : video.pause();
@@ -168,6 +302,8 @@
                 video.src = "";
                 waiting.style.display = 'block';
                 overlay.innerText = "⏹ 已停止";
+                songAnnouncement.classList.remove('visible');
+                clearTimeout(announcementTimer);
             }
         });
 

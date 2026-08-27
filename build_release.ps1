@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
-$ReleaseVersion = "v1.0.2"
+$ReleaseVersion = "v1.0.3"
 $AppName = "ianAutoKTV_Server"
 $DistDir = Join-Path $ProjectDir "dist\$AppName"
 $DistRoot = Join-Path $ProjectDir "dist"
@@ -45,6 +45,7 @@ if (Test-Path $ScipySpecial) {
     Copy-Item $ScipySpecial $ScipyTarget -Force
 }
 Copy-Item $YtDlp $DistDir -Force
+Copy-Item (Join-Path $ProjectDir "optimize_existing_video.ps1") $DistDir -Force
 New-Item (Join-Path $DistDir "ktv_songs") -ItemType Directory -Force | Out-Null
 
 Write-Host "Build complete: $DistDir\ianAutoKTV_Server.exe" -ForegroundColor Green

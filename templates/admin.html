@@ -15,7 +15,6 @@
         .btn-update { background: #607D8B; }
         .btn-dl:disabled, .btn-update:disabled { background: #ccc; cursor: not-allowed; }
         textarea { width: 100%; height: 200px; background: #222; color: #0f0; padding: 10px; box-sizing: border-box; font-family: monospace; border-radius: 5px; resize: none; }
-        details { margin-bottom: 28px; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -48,12 +47,10 @@
             <option value="spleeter">Spleeter (目前可用)</option>
             <option value="mdxnet" disabled>MDX-Net (準備中)</option>
         </select>
-        <label for="subtitle_file">4. 選擇字幕檔（可選，自動判斷 SRT/LRC/VTT）:</label>
-        <input type="file" id="subtitle_file" accept=".srt,.lrc,.vtt,text/vtt,application/x-subrip">
-        <details>
-            <summary>進階：直接貼上字幕文字</summary>
-            <textarea id="subtitle_text" class="subtitle-input" placeholder="請貼上 SRT、LRC 或 VTT 格式文字"></textarea>
-        </details>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:15px;">
+            <input type="checkbox" id="normalize_volume" checked style="width:auto; margin:0;">
+            製作完成後自動平衡歌曲音量
+        </label>
         <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
         <p id="subtitle_status"></p>
     </div>
@@ -79,6 +76,27 @@
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
             <p id="converter_status"></p>
         </details>
+        <details class="video-converter">
+            <summary>進階：既有影片效能最佳化</summary>
+            <label for="video_file">選擇要轉檔的 MP4（輸出會儲存在歌曲資料夾）:</label>
+            <input type="file" id="video_file" accept=".mp4,video/mp4">
+            <button id="btn_video_convert" class="btn-update" onclick="optimizeExistingVideo()">轉成 H.264 / 1080p</button>
+            <p id="video_converter_status"></p>
+        </details>
+        <details class="ai-vocal-converter">
+            <summary>進階：既有影片 AI 去人聲</summary>
+            <label for="ai_vocal_video_file">選擇要處理的 MP4（輸出會儲存在歌曲資料夾）:</label>
+            <input type="file" id="ai_vocal_video_file" accept=".mp4,video/mp4">
+            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（L:原唱 / R:伴奏）</button>
+            <p id="ai_vocal_status"></p>
+        </details>
+        <details class="audio-normalizer">
+            <summary>進階：既有歌曲音訊平衡</summary>
+            <label for="normalize_audio_file">選擇要平衡音量的 MP4（輸出會儲存在歌曲資料夾）:</label>
+            <input type="file" id="normalize_audio_file" accept=".mp4,video/mp4">
+            <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-16 LUFS）</button>
+            <p id="normalize_audio_status"></p>
+        </details>
     </div>
 
     <script>
@@ -93,6 +111,15 @@
         const converterFile = document.getElementById('converter_file');
         const converterText = document.getElementById('converter_text');
         const converterStatus = document.getElementById('converter_status');
+        const videoFile = document.getElementById('video_file');
+        const videoConvertButton = document.getElementById('btn_video_convert');
+        const videoConverterStatus = document.getElementById('video_converter_status');
+        const aiVocalVideoFile = document.getElementById('ai_vocal_video_file');
+        const aiVocalConvertButton = document.getElementById('btn_ai_vocal_convert');
+        const aiVocalStatus = document.getElementById('ai_vocal_status');
+        const normalizeAudioFile = document.getElementById('normalize_audio_file');
+        const normalizeAudioButton = document.getElementById('btn_normalize_audio');
+        const normalizeAudioStatus = document.getElementById('normalize_audio_status');
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
@@ -106,8 +133,8 @@
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
-                subtitleFile.value = '';
-                subtitleText.value = '';
+                if (subtitleFile) subtitleFile.value = '';
+                if (subtitleText) subtitleText.value = '';
                 subtitleStatus.innerText = '';
             } else if (data.status === 'busy') {
                 btnDl.disabled = true;
@@ -178,12 +205,85 @@
         }
 
         /**
+         * Uploads an existing MP4 and replaces it with an H.264 1080p version.
+         */
+        async function optimizeExistingVideo() {
+            const [file] = videoFile.files;
+            if (!file) {
+                videoConverterStatus.innerText = '請選擇要轉檔的 MP4 影片。';
+                return;
+            }
+            videoConvertButton.disabled = true;
+            videoConverterStatus.innerText = '影片轉檔中，請稍候...';
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                const response = await fetch('/api/videos/optimize', { method: 'POST', body: formData });
+                const data = await response.json();
+                videoConverterStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+            } catch (error) {
+                videoConverterStatus.innerText = `轉檔失敗：${error.message}`;
+            } finally {
+                videoConvertButton.disabled = false;
+            }
+        }
+
+        /**
+         * Uploads an existing MP4 for Spleeter vocal separation and KTV mixing.
+         */
+        async function aiRemoveVocals() {
+            const [file] = aiVocalVideoFile.files;
+            if (!file) {
+                aiVocalStatus.innerText = '請選擇要處理的 MP4 影片。';
+                return;
+            }
+            aiVocalConvertButton.disabled = true;
+            aiVocalStatus.innerText = 'AI 去人聲處理中，請稍候；此工作會暫時使用較高 CPU。';
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                const response = await fetch('/api/videos/ai-vocal-remove', { method: 'POST', body: formData });
+                const data = await response.json();
+                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+            } catch (error) {
+                aiVocalStatus.innerText = `AI 去人聲失敗：${error.message}`;
+            } finally {
+                aiVocalConvertButton.disabled = false;
+            }
+        }
+
+        /**
+         * Uploads an existing MP4 and normalizes only its audio track.
+         */
+        async function normalizeExistingAudio() {
+            const [file] = normalizeAudioFile.files;
+            if (!file) {
+                normalizeAudioStatus.innerText = '請選擇要平衡音量的 MP4 影片。';
+                return;
+            }
+            normalizeAudioButton.disabled = true;
+            normalizeAudioStatus.innerText = '音量平衡處理中，請稍候...';
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                const response = await fetch('/api/videos/normalize-audio', { method: 'POST', body: formData });
+                const data = await response.json();
+                normalizeAudioStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+            } catch (error) {
+                normalizeAudioStatus.innerText = `音量平衡失敗：${error.message}`;
+            } finally {
+                normalizeAudioButton.disabled = false;
+            }
+        }
+
+        /**
          * Starts a KTV download and optionally sends subtitle content in the same task.
          */
         async function startDownload() {
             const url = document.getElementById('yt_url').value.trim();
             const title = document.getElementById('yt_title').value.trim();
             const aiEngine = document.getElementById('ai_engine').value;
+            const normalizeVolume = document.getElementById('normalize_volume').checked;
             if(!url || !title) {
                 alert("網址與歌名皆為必填！");
                 return;
@@ -195,6 +295,7 @@
                     url: url,
                     title: title,
                     ai_engine: aiEngine,
+                    normalize_volume: normalizeVolume,
                     subtitle_content: subtitle.content,
                     subtitle_extension: subtitle.extension,
                 });
