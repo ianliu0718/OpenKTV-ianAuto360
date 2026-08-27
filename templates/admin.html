@@ -47,12 +47,6 @@
             <option value="spleeter">Spleeter (目前可用)</option>
             <option value="mdxnet" disabled>MDX-Net (準備中)</option>
         </select>
-        <label for="subtitle_file">4. 選擇字幕檔（可選，自動判斷 SRT/LRC/VTT）:</label>
-        <input type="file" id="subtitle_file" accept=".srt,.lrc,.vtt,text/vtt,application/x-subrip">
-        <details>
-            <summary>進階：直接貼上字幕文字</summary>
-            <textarea id="subtitle_text" class="subtitle-input" placeholder="請貼上 SRT、LRC 或 VTT 格式文字"></textarea>
-        </details>
         <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
         <p id="subtitle_status"></p>
     </div>
