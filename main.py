@@ -650,14 +650,6 @@ def handle_start_download(data):
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
     normalize_volume = data.get('normalize_volume', True) is not False
-    subtitle_content = data.get('subtitle_content', '')
-    subtitle_extension = str(data.get('subtitle_extension', '')).lower().lstrip('.')
-    if subtitle_content:
-        try:
-            subtitle_extension = detect_subtitle_format(subtitle_content, subtitle_extension)
-        except ValueError as error:
-            broadcast_log(f"❌ {error}")
-            return
     if ai_engine not in ('spleeter', 'mdxnet'):
         broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
         return
@@ -674,12 +666,6 @@ def handle_start_download(data):
         output_filename = processor.process_song(url, title, ai_engine, normalize_volume)
         
         if output_filename:
-            if subtitle_content:
-                try:
-                    save_subtitle(output_filename, subtitle_content, subtitle_extension)
-                    broadcast_log(f"✅ 字幕已儲存為 {os.path.splitext(output_filename)[0]}.vtt")
-                except (OSError, ValueError) as error:
-                    broadcast_log(f"⚠️ 歌曲已完成，但字幕轉換失敗：{error}")
             socketio.emit('refresh_list')
         
         is_processing = False

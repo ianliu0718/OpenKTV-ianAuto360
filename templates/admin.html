@@ -104,9 +104,6 @@
         const logArea = document.getElementById('log');
         const btnDl = document.getElementById('btn_dl');
         const btnUpdate = document.getElementById('btn_update');
-        const subtitleFile = document.getElementById('subtitle_file');
-        const subtitleText = document.getElementById('subtitle_text');
-        const subtitleStatus = document.getElementById('subtitle_status');
         const converterSong = document.getElementById('converter_song');
         const converterFile = document.getElementById('converter_file');
         const converterText = document.getElementById('converter_text');
@@ -133,35 +130,12 @@
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
-                if (subtitleFile) subtitleFile.value = '';
-                if (subtitleText) subtitleText.value = '';
-                subtitleStatus.innerText = '';
             } else if (data.status === 'busy') {
                 btnDl.disabled = true;
                 btnDl.innerText = "製作中...請稍候";
                 btnUpdate.disabled = true;
             }
         });
-
-        /**
-         * Reads the selected subtitle file or the advanced text input.
-         * @returns {Promise<{content: string, extension: string}>} Subtitle payload.
-         */
-        async function readSubtitleInput() {
-            const [file] = subtitleFile.files;
-            const text = subtitleText.value.trim();
-            if (file && text) {
-                throw new Error('字幕檔案與進階文字請擇一輸入。');
-            }
-            if (file) {
-                const extension = file.name.split('.').pop().toLowerCase();
-                if (!['srt', 'lrc', 'vtt'].includes(extension)) {
-                    throw new Error('字幕檔格式必須是 SRT、LRC 或 VTT。');
-                }
-                return { content: await file.text(), extension };
-            }
-            return { content: text, extension: text ? detectSubtitleFormat(text) : '' };
-        }
 
         /**
          * Detects the subtitle format from its content without requiring a selector.
@@ -289,18 +263,14 @@
                 return;
             }
             try {
-                const subtitle = await readSubtitleInput();
-                subtitleStatus.innerText = subtitle.content ? '字幕將在歌曲製作完成後轉換為同名 VTT。' : '';
                 socket.emit('start_download', {
                     url: url,
                     title: title,
                     ai_engine: aiEngine,
                     normalize_volume: normalizeVolume,
-                    subtitle_content: subtitle.content,
-                    subtitle_extension: subtitle.extension,
                 });
             } catch (error) {
-                subtitleStatus.innerText = error.message;
+                alert(error.message);
             }
         }
 
