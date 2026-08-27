@@ -58,6 +58,8 @@
         ul#list { list-style: none; padding: 0; margin: 0; min-height: 0; flex: 1 1 auto; overflow-y: auto; }
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
+        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+        .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -120,6 +122,11 @@
         </div>
 
         <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
+        <div class="category-filters">
+            <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
+            <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
+            <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
+        </div>
         <ul id="list"></ul>
     </div>
 
@@ -399,6 +406,37 @@ const socket = io();
         }
 
         /**
+         * Parses the fixed song filename format into classification fields.
+         * @param {string} filename Song filename in song-singer-language-id.mp4 format.
+         * @returns {Object} Song metadata with title, singer, language, and length fields.
+         */
+        function parseSongMetadata(filename) {
+            const name = filename.replace(/\.mp4$/i, '');
+            const parts = name.split('-');
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            const title = parts[0];
+            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+        }
+
+        /**
+         * Rebuilds category selectors from the currently loaded song list.
+         */
+        function renderCategoryFilters() {
+            const lengthFilter = document.getElementById('song-length-filter');
+            const singerFilter = document.getElementById('singer-filter');
+            const languageFilter = document.getElementById('language-filter');
+            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
+            const metadata = allSongs.map(parseSongMetadata);
+            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
+            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
+            singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
+            languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
+            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
+        }
+
+        /**
          * Renders the subtitle control for the song currently being played.
          */
         function renderCurrentSongControl() {
@@ -445,7 +483,7 @@ const socket = io();
             socket.emit('control_effect', { volume: vol });
         }
 
-        socket.on('update_list', (songs) => { allSongs = songs; filter(); });
+        socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
 
         socket.on('update_queue', (playlist) => {
             if(playlist.length > 1) {
@@ -477,9 +515,18 @@ const socket = io();
 
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
+            const selectedLength = document.getElementById('song-length-filter').value;
+            const selectedSinger = document.getElementById('singer-filter').value;
+            const selectedLanguage = document.getElementById('language-filter').value;
             const list = document.getElementById('list');
             list.innerHTML = "";
-            allSongs.filter(s => s.toLowerCase().includes(key)).forEach(s => {
+            allSongs.filter(s => {
+                const metadata = parseSongMetadata(s);
+                return s.toLowerCase().includes(key)
+                    && (!selectedLength || metadata.length === selectedLength)
+                    && (!selectedSinger || metadata.singer === selectedSinger)
+                    && (!selectedLanguage || metadata.language === selectedLanguage);
+            }).forEach(s => {
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
                 list.innerHTML += `<li><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}<button class="song-btn" onclick="play(this, '${s}')">播歌</button></span></li>`;
@@ -508,7 +555,7 @@ const socket = io();
         function track(mode) { socket.emit('change_track', mode); }
 
         function loadList() {
-            fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; filter(); });
+            fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; renderCategoryFilters(); filter(); });
         }
         
         loadList();
