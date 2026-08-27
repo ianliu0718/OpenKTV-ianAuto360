@@ -79,6 +79,13 @@
             <button id="btn_video_convert" class="btn-update" onclick="optimizeExistingVideo()">轉成 H.264 / 1080p</button>
             <p id="video_converter_status"></p>
         </details>
+        <details class="ai-vocal-converter">
+            <summary>進階：既有影片 AI 去人聲</summary>
+            <label for="ai_vocal_video_file">選擇要處理的 MP4（輸出會儲存在歌曲資料夾）:</label>
+            <input type="file" id="ai_vocal_video_file" accept=".mp4,video/mp4">
+            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（L:原唱 / R:伴奏）</button>
+            <p id="ai_vocal_status"></p>
+        </details>
     </div>
 
     <script>
@@ -96,6 +103,9 @@
         const videoFile = document.getElementById('video_file');
         const videoConvertButton = document.getElementById('btn_video_convert');
         const videoConverterStatus = document.getElementById('video_converter_status');
+        const aiVocalVideoFile = document.getElementById('ai_vocal_video_file');
+        const aiVocalConvertButton = document.getElementById('btn_ai_vocal_convert');
+        const aiVocalStatus = document.getElementById('ai_vocal_status');
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
@@ -201,6 +211,30 @@
                 videoConverterStatus.innerText = `轉檔失敗：${error.message}`;
             } finally {
                 videoConvertButton.disabled = false;
+            }
+        }
+
+        /**
+         * Uploads an existing MP4 for Spleeter vocal separation and KTV mixing.
+         */
+        async function aiRemoveVocals() {
+            const [file] = aiVocalVideoFile.files;
+            if (!file) {
+                aiVocalStatus.innerText = '請選擇要處理的 MP4 影片。';
+                return;
+            }
+            aiVocalConvertButton.disabled = true;
+            aiVocalStatus.innerText = 'AI 去人聲處理中，請稍候；此工作會暫時使用較高 CPU。';
+            try {
+                const formData = new FormData();
+                formData.append('video', file);
+                const response = await fetch('/api/videos/ai-vocal-remove', { method: 'POST', body: formData });
+                const data = await response.json();
+                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+            } catch (error) {
+                aiVocalStatus.innerText = `AI 去人聲失敗：${error.message}`;
+            } finally {
+                aiVocalConvertButton.disabled = false;
             }
         }
 

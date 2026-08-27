@@ -283,6 +283,66 @@ def optimize_video():
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
+@app.route('/api/videos/ai-vocal-remove', methods=['POST'])
+def ai_vocal_remove_video():
+    """Separate vocals from an uploaded MP4 and replace it with L/R KTV audio."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要處理的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'ai_vocal_remove_{time.time_ns()}')
+    source_path = os.path.join(job_dir, 'input.mp4')
+    output_path = os.path.join(job_dir, 'output.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
+    try:
+        video_file.save(source_path)
+        broadcast_log(f'=== 開始 AI 去人聲：{filename} ===')
+        p = multiprocessing.Process(target=_run_spleeter_process, args=(source_path, job_dir))
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            raise RuntimeError('Spleeter 分離失敗')
+        vocal_path = os.path.join(job_dir, 'input', 'vocals.wav')
+        accompaniment_path = os.path.join(job_dir, 'input', 'accompaniment.wav')
+        if not os.path.exists(vocal_path) or not os.path.exists(accompaniment_path):
+            raise RuntimeError('找不到 Spleeter 產生的音軌檔')
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            raise RuntimeError('找不到 FFmpeg')
+        command = [
+            ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
+            '-filter_complex',
+            '[1:a]pan=mono|c0=0.5*FL+0.5*FR[V];[2:a]pan=mono|c0=0.5*FL+0.5*FR[A];[V][A]join=inputs=2:channel_layout=stereo[a]',
+            '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            raise RuntimeError('FFmpeg 合成失敗')
+        shutil.move(output_path, final_path)
+        broadcast_log(f'✅ AI 去人聲完成：{filename}')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, RuntimeError) as error:
+        broadcast_log(f'❌ AI 去人聲失敗：{error}')
+        return json.dumps({'error': str(error)}, ensure_ascii=False), 400
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
     converted_content = convert_to_webvtt(content, subtitle_extension)
