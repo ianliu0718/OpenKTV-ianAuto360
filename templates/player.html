@@ -277,7 +277,9 @@
             currentKey = 0;
             setSubtitle(data.filename, false);
             setAudioKey(0);
+            video.pause();
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
+            video.load();
             setupAudio().then(() => video.play()).then(() => {
                 isSixChannelAudio = Number(data.audio_channels) >= 6;
                 setAudioMode('original'); 
@@ -307,6 +309,15 @@
                 songAnnouncement.classList.remove('visible');
                 clearTimeout(announcementTimer);
             }
+        });
+
+        socket.on('stop_video', () => {
+            video.pause();
+            video.src = "";
+            waiting.style.display = 'block';
+            overlay.innerText = "⏹ 已停止";
+            songAnnouncement.classList.remove('visible');
+            clearTimeout(announcementTimer);
         });
 
         socket.on('set_audio', (mode) => {

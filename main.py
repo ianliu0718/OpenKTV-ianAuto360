@@ -676,7 +676,6 @@ def handle_song_ended():
 @socketio.on('control')
 def handle_control(action):
     if action == 'cut':
-        # 按下切歌時，等於強迫觸發「歌曲結束」事件，讓系統自動播下一首
         handle_song_ended()
     else:
         # 其他指令 (例如 pause) 照常發送
@@ -758,6 +757,55 @@ def handle_start_download(data):
 
     broadcast_log("=== 開始新任務 ===")
     threading.Thread(target=run_process, daemon=True).start()
+
+@socketio.on('start_batch_download')
+def handle_start_batch_download(data):
+    """Validate and process a batch of URL/title download jobs sequentially."""
+    global is_processing
+    if is_processing:
+        broadcast_log("⚠️ 系統正在處理其他歌曲，請稍候。")
+        return
+    jobs = data.get('jobs', []) if isinstance(data, dict) else []
+    ai_engine = data.get('ai_engine', 'spleeter') if isinstance(data, dict) else 'spleeter'
+    normalize_volume = data.get('normalize_volume', True) is not False if isinstance(data, dict) else True
+    if ai_engine not in ('spleeter', 'mdxnet'):
+        broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
+        return
+    if ai_engine == 'mdxnet':
+        broadcast_log("❌ MDX-Net 尚未安裝，請先使用 Spleeter，或完成 ToDo.md 的 MDX-Net 測試階段。")
+        return
+    valid_jobs = [
+        {'url': str(job.get('url', '')).strip(), 'title': str(job.get('title', '')).strip()}
+        for job in jobs if isinstance(job, dict)
+    ]
+    invalid_jobs = [index + 1 for index, job in enumerate(valid_jobs) if not job['url'] or not job['title']]
+    if not valid_jobs or invalid_jobs:
+        detail = f"第 {', '.join(map(str, invalid_jobs))} 筆缺少網址或歌名。" if invalid_jobs else "批次清單不可為空。"
+        broadcast_log(f"❌ 批量新增格式錯誤：{detail}")
+        return
+
+    def run_batch_process():
+        global is_processing
+        is_processing = True
+        socketio.emit('task_status', {'status': 'busy', 'batch': True, 'total': len(valid_jobs)})
+        success_count = 0
+        try:
+            processor = KTVProcessor(log_cb=broadcast_log)
+            for index, job in enumerate(valid_jobs, start=1):
+                broadcast_log(f"=== 批量任務 {index}/{len(valid_jobs)}：{job['title']} ===")
+                output_filename = processor.process_song(job['url'], job['title'], ai_engine, normalize_volume)
+                if output_filename:
+                    success_count += 1
+                    socketio.emit('refresh_list')
+                else:
+                    broadcast_log(f"⚠️ 批量任務 {index}/{len(valid_jobs)} 失敗，繼續處理下一首。")
+            broadcast_log(f"✅ 批量新增完成：成功 {success_count} 首，失敗 {len(valid_jobs) - success_count} 首。")
+        finally:
+            is_processing = False
+            socketio.emit('task_status', {'status': 'idle', 'batch': True})
+
+    broadcast_log(f"=== 開始批量新增：共 {len(valid_jobs)} 首 ===")
+    threading.Thread(target=run_batch_process, daemon=True).start()
 
 @socketio.on('update_ytdlp')
 def handle_update_ytdlp():

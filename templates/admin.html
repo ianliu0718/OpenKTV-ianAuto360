@@ -15,6 +15,7 @@
         .btn-update { background: #607D8B; }
         .btn-dl:disabled, .btn-update:disabled { background: #ccc; cursor: not-allowed; }
         textarea { width: 100%; height: 200px; background: #222; color: #0f0; padding: 10px; box-sizing: border-box; font-family: monospace; border-radius: 5px; resize: none; }
+        .batch-input { height: 140px; margin-top: 10px; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -37,6 +38,11 @@
     </div>
 
     <div class="card">
+        <h3>📝 系統日誌</h3>
+        <textarea id="log" readonly></textarea>
+    </div>
+
+    <div class="card">
         <h3>📥 新增 KTV 歌曲</h3>
         <label>1. YouTube 網址:</label>
         <input type="text" id="yt_url" placeholder="https://www.youtube.com/watch?v=...">
@@ -56,8 +62,11 @@
     </div>
 
     <div class="card">
-        <h3>📝 系統日誌</h3>
-        <textarea id="log" readonly></textarea>
+        <h3>📥 批量新增 KTV 歌曲</h3>
+        <label for="batch_downloads">每行輸入一首，格式：YouTube 網址 | 歌名</label>
+        <textarea id="batch_downloads" class="batch-input" placeholder="https://www.youtube.com/watch?v=... | 歌曲名稱&#10;https://www.youtube.com/watch?v=... | 第二首歌曲"></textarea>
+        <button id="btn_batch_dl" class="btn-dl" onclick="startBatchDownload()">開始批量製作（原聲 / 導唱 / 伴奏）</button>
+        <p id="batch_download_status"></p>
     </div>
 
     <div class="card subtitle-converter-card">
@@ -116,6 +125,9 @@
         const normalizeAudioFile = document.getElementById('normalize_audio_file');
         const normalizeAudioButton = document.getElementById('btn_normalize_audio');
         const normalizeAudioStatus = document.getElementById('normalize_audio_status');
+        const batchDownloads = document.getElementById('batch_downloads');
+        const batchDownloadButton = document.getElementById('btn_batch_dl');
+        const batchDownloadStatus = document.getElementById('batch_download_status');
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
@@ -126,12 +138,16 @@
             if(data.status === 'idle') {
                 btnDl.disabled = false;
                 btnDl.innerText = "開始製作（原聲 / 導唱 / 伴奏）";
+                batchDownloadButton.disabled = false;
+                batchDownloadButton.innerText = "開始批量製作（原聲 / 導唱 / 伴奏）";
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
             } else if (data.status === 'busy') {
                 btnDl.disabled = true;
                 btnDl.innerText = "製作中...請稍候";
+                batchDownloadButton.disabled = true;
+                batchDownloadButton.innerText = data.batch ? "批量製作中...請稍候" : "系統處理中...請稍候";
                 btnUpdate.disabled = true;
             }
         });
@@ -279,6 +295,31 @@
             } catch (error) {
                 alert(error.message);
             }
+        }
+
+        /**
+         * Parses and starts sequential batch download jobs from the multiline editor.
+         */
+        function startBatchDownload() {
+            const jobs = batchDownloads.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const separatorIndex = line.indexOf('|');
+                if (separatorIndex < 0) return { url: '', title: '' };
+                return {
+                    url: line.slice(0, separatorIndex).trim(),
+                    title: line.slice(separatorIndex + 1).trim(),
+                };
+            });
+            if (!jobs.length || jobs.some((job) => !job.url || !job.title)) {
+                batchDownloadStatus.innerText = '請確認每行格式都是：YouTube 網址 | 歌名';
+                return;
+            }
+            batchDownloadButton.disabled = true;
+            batchDownloadStatus.innerText = `已送出 ${jobs.length} 首，系統將依序製作；詳細進度請查看系統日誌。`;
+            socket.emit('start_batch_download', {
+                jobs,
+                ai_engine: document.getElementById('ai_engine').value,
+                normalize_volume: document.getElementById('normalize_volume').checked,
+            });
         }
 
         function updateYtDlp() {
