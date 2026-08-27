@@ -57,7 +57,7 @@
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, gainL, gainR, merger, masterGain, soundTouchNode, pitchShift;
+        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -65,6 +65,7 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let isSixChannelAudio = false;
         let announcementTimer;
         let queueAddAnnouncementTimer;
 
@@ -211,10 +212,11 @@
             if(!audioCtx) initAudioContext();
             audioSetupPromise = (async () => {
                 source = audioCtx.createMediaElementSource(video);
-                splitter = audioCtx.createChannelSplitter(2);
+                source.channelInterpretation = 'discrete';
+                splitter = audioCtx.createChannelSplitter(6);
+                splitter.channelInterpretation = 'discrete';
                 merger = audioCtx.createChannelMerger(2);
-                gainL = audioCtx.createGain();
-                gainR = audioCtx.createGain();
+                audioGains = Array.from({ length: 6 }, () => audioCtx.createGain());
                 masterGain = audioCtx.createGain();
                 useSoundTouch = Boolean(audioCtx.audioWorklet);
                 if (useSoundTouch) {
@@ -232,12 +234,11 @@
                 setAudioKey(currentKey);
 
                 source.connect(splitter);
-                splitter.connect(gainL, 0); 
-                gainL.connect(merger, 0, 0); 
-                gainL.connect(merger, 0, 1); 
-                splitter.connect(gainR, 1);
-                gainR.connect(merger, 0, 0); 
-                gainR.connect(merger, 0, 1); 
+                audioGains.forEach((gain, channel) => {
+                    splitter.connect(gain, channel);
+                    gain.connect(merger, 0, 0);
+                    gain.connect(merger, 0, 1);
+                });
                 merger.connect(masterGain);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
                 else Tone.connect(masterGain, pitchShift);
@@ -278,6 +279,7 @@
             setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             setupAudio().then(() => video.play()).then(() => {
+                isSixChannelAudio = Number(data.audio_channels) >= 6;
                 setAudioMode('original'); 
             }).catch(e => {
                 overlay.innerText = "⚠️ 請點擊畫面開始播放";
@@ -327,22 +329,19 @@
             }
         });
 
+        /**
+         * Selects one stereo pair from a six-channel KTV stream or the legacy L/R stream.
+         * @param {string} mode Playback mode: original, guide, or instrumental.
+         */
         function setAudioMode(mode) {
-            if(!isAudioSetup || !gainL || !gainR) return;
+            if(!isAudioSetup || !audioGains) return;
             const now = audioCtx.currentTime;
-            if (mode === 'original') { 
-                gainL.gain.setTargetAtTime(1, now, 0.1);
-                gainR.gain.setTargetAtTime(0, now, 0.1);
-                overlay.innerText = "🎤 目前模式：原唱";
-            } else if (mode === 'instrumental') { 
-                gainL.gain.setTargetAtTime(0, now, 0.1);
-                gainR.gain.setTargetAtTime(1, now, 0.1);
-                overlay.innerText = "🚫 目前模式：伴奏";
-            } else { 
-                gainL.gain.setTargetAtTime(1, now, 0.1);
-                gainR.gain.setTargetAtTime(1, now, 0.1);
-                overlay.innerText = "🎵 目前模式：立體聲";
-            }
+            audioGains.forEach((gain) => gain.gain.setTargetAtTime(0, now, 0.1));
+            const channels = isSixChannelAudio
+                ? (mode === 'guide' ? [2, 3] : mode === 'instrumental' ? [4, 5] : [0, 1])
+                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
+            channels.forEach((channel) => audioGains[channel].gain.setTargetAtTime(1, now, 0.1));
+            overlay.innerText = mode === 'guide' ? "🎵 目前模式：導唱" : mode === 'instrumental' ? "🚫 目前模式：伴奏" : "🎤 目前模式：原聲";
         }
         document.body.addEventListener('click', initAudioContext);
     </script>

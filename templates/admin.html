@@ -51,7 +51,7 @@
             <input type="checkbox" id="normalize_volume" checked style="width:auto; margin:0;">
             製作完成後自動平衡歌曲音量
         </label>
-        <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作 (L:原唱 / R:伴奏)</button>
+            <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作（原聲 / 導唱 / 伴奏）</button>
         <p id="subtitle_status"></p>
     </div>
 
@@ -87,7 +87,7 @@
             <summary>進階：既有影片 AI 去人聲</summary>
             <label for="ai_vocal_video_file">選擇要處理的 MP4（輸出會儲存在歌曲資料夾）:</label>
             <input type="file" id="ai_vocal_video_file" accept=".mp4,video/mp4">
-            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（L:原唱 / R:伴奏）</button>
+            <button id="btn_ai_vocal_convert" class="btn-update" onclick="aiRemoveVocals()">開始 AI 去人聲（原聲 / 導唱 / 伴奏）</button>
             <p id="ai_vocal_status"></p>
         </details>
         <details class="audio-normalizer">
@@ -126,7 +126,7 @@
         socket.on('task_status', (data) => {
             if(data.status === 'idle') {
                 btnDl.disabled = false;
-                btnDl.innerText = "開始製作 (L:原唱 / R:伴奏)";
+                btnDl.innerText = "開始製作（原聲 / 導唱 / 伴奏）";
                 btnUpdate.disabled = false;
                 document.getElementById('yt_url').value = '';
                 document.getElementById('yt_title').value = '';
@@ -172,7 +172,11 @@
                 }
                 const response = await fetch('/api/subtitles/upload', { method: 'POST', body: formData });
                 const data = await response.json();
-                converterStatus.innerText = data.success ? `已儲存：${data.filename}` : data.error;
+                if (response.ok && data.success === true) {
+                    converterStatus.innerText = `已儲存：${data.filename}`;
+                } else {
+                    converterStatus.innerText = data.error || `轉檔失敗（HTTP ${response.status}）`;
+                }
             } catch (error) {
                 converterStatus.innerText = `轉檔失敗：${error.message}`;
             }
@@ -194,7 +198,11 @@
                 formData.append('video', file);
                 const response = await fetch('/api/videos/optimize', { method: 'POST', body: formData });
                 const data = await response.json();
-                videoConverterStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+                if (response.ok && data.success === true) {
+                    videoConverterStatus.innerText = `已完成：${data.filename}，請查看系統日誌確認流程。`;
+                } else {
+                    videoConverterStatus.innerText = `失敗：${data.error || `影片轉檔失敗（HTTP ${response.status}）`}，請查看系統日誌。`;
+                }
             } catch (error) {
                 videoConverterStatus.innerText = `轉檔失敗：${error.message}`;
             } finally {
@@ -203,7 +211,7 @@
         }
 
         /**
-         * Uploads an existing MP4 for Spleeter vocal separation and KTV mixing.
+         * Uploads an existing MP4 for Spleeter separation and six-channel KTV mixing.
          */
         async function aiRemoveVocals() {
             const [file] = aiVocalVideoFile.files;
@@ -218,7 +226,7 @@
                 formData.append('video', file);
                 const response = await fetch('/api/videos/ai-vocal-remove', { method: 'POST', body: formData });
                 const data = await response.json();
-                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}` : data.error;
+                aiVocalStatus.innerText = data.success ? `已完成：${data.filename}（原聲 / 導唱 / 伴奏）` : data.error;
             } catch (error) {
                 aiVocalStatus.innerText = `AI 去人聲失敗：${error.message}`;
             } finally {
