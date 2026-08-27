@@ -34,6 +34,14 @@
         #song-announcement.visible { opacity: 1; }
         #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
+        #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
+        #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
+        #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
+        #ktv-subtitle .subtitle-char { display: inline-block; animation: ktv-char-pop 360ms cubic-bezier(.2, 1.5, .4, 1) both; animation-delay: calc(var(--char-index) * 38ms); }
+        @keyframes ktv-char-pop { 0% { opacity: 0; transform: scale(.72) translateY(10px); } 70% { transform: scale(1.12) translateY(-2px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -79,6 +87,7 @@
         <div id="overlay">等待連線...</div>
         <div id="song-announcement"></div>
         <div id="queue-add-announcement"></div>
+        <div id="ktv-subtitle" aria-live="polite"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
         <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
@@ -98,6 +107,14 @@
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+                <span>字幕字體大小</span><span id="subtitle-size-label">標準（100%）</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:5px;">
+                <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+                <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+                <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+            </div>
         </div>
         
         <div class="grid">
@@ -147,6 +164,7 @@ const socket = io();
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
         const subtitleTrack = document.getElementById('subtitle-track');
+        const ktvSubtitle = document.getElementById('ktv-subtitle');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const remoteQr = document.getElementById('remote-qr');
@@ -226,8 +244,60 @@ const socket = io();
         function setSubtitle(filename, visible) {
             currentFilename = filename;
             subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.track.mode = visible ? 'showing' : 'hidden';
+            subtitleTrack.track.mode = 'hidden';
+            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.replaceChildren();
         }
+
+        /**
+         * Applies the shared subtitle font size sent by the remote control.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function applySubtitleFontSize(fontSize) {
+            const size = Number(fontSize);
+            if (![80, 100, 120].includes(size)) return;
+            ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+        }
+
+        /**
+         * Wraps subtitle text in animated characters for the KTV entrance effect.
+         * @param {string} text Subtitle line text.
+         * @returns {HTMLSpanElement} Rendered subtitle text layer.
+         */
+        function createSubtitleTextLayer(text) {
+            const layer = document.createElement('span');
+            layer.className = 'subtitle-text-layer';
+            Array.from(text).forEach((character, index) => {
+                const characterElement = document.createElement('span');
+                characterElement.className = 'subtitle-char';
+                characterElement.style.setProperty('--char-index', String(index));
+                characterElement.textContent = character;
+                layer.appendChild(characterElement);
+            });
+            return layer;
+        }
+
+        /**
+         * Renders the active WebVTT cue as at most two KTV subtitle lines.
+         */
+        function renderKtvSubtitle() {
+            const activeCues = subtitleTrack.track.activeCues;
+            ktvSubtitle.replaceChildren();
+            if (!activeCues || !activeCues.length) return;
+            const lines = String(activeCues[0].text || '')
+                .replace(/<[^>]*>/g, '')
+                .split(/\r?\n/)
+                .filter(Boolean)
+                .slice(0, 2);
+            lines.forEach((line) => {
+                const lineElement = document.createElement('span');
+                lineElement.className = 'subtitle-line';
+                lineElement.appendChild(createSubtitleTextLayer(line));
+                ktvSubtitle.appendChild(lineElement);
+            });
+        }
+
+        subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
 
         function toggleFullScreen() {
             if (!document.fullscreenElement) {
@@ -371,7 +441,10 @@ const socket = io();
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
 
         socket.on('subtitle_state', (data) => {
-            if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
+            if (data.filename === currentFilename) {
+                setSubtitle(data.filename, data.visible);
+                applySubtitleFontSize(data.font_size);
+            }
         });
 
         // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
@@ -479,6 +552,7 @@ const socket = io();
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
+            applySubtitleFontSize(data.font_size);
             renderCurrentSongControl();
         }
 
@@ -489,11 +563,41 @@ const socket = io();
             if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
         }
 
+        /**
+         * Sets the shared subtitle font size for all playback screens.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function setSubtitleFontSize(fontSize) {
+            if (![80, 100, 120].includes(fontSize)) return;
+            applySubtitleFontSize(fontSize);
+            renderSubtitleFontSizeControl(fontSize);
+            socket.emit('set_subtitle_font_size', { font_size: fontSize });
+        }
+
+        /**
+         * Updates the all-in-one subtitle size label and selected button.
+         * @param {number} fontSize Current subtitle size percentage.
+         */
+        function renderSubtitleFontSizeControl(fontSize) {
+            const labels = { 80: '小字（80%）', 100: '標準（100%）', 120: '大字（120%）' };
+            const buttonIds = { 80: 'subtitle-size-small', 100: 'subtitle-size-normal', 120: 'subtitle-size-large' };
+            document.getElementById('subtitle-size-label').textContent = labels[fontSize] || labels[100];
+            Object.entries(buttonIds).forEach(([size, buttonId]) => {
+                const button = document.getElementById(buttonId);
+                const selected = Number(size) === fontSize;
+                button.setAttribute('aria-pressed', String(selected));
+                button.style.background = selected ? '#2aa894' : '#536d7a';
+            });
+        }
+
         socket.on('current_song', updateCurrentSong);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
                 currentSubtitleVisible = Boolean(data.visible);
+                if (data.font_size !== undefined) {
+                    renderSubtitleFontSizeControl(Number(data.font_size));
+                }
                 renderCurrentSongControl();
             }
         });

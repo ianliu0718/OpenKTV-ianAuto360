@@ -39,6 +39,14 @@
     <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
         <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
         <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+        <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+            <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:5px;">
+            <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+            <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+            <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+        </div>
     </div>
 
     <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
@@ -95,6 +103,7 @@
         let currentKey = 0;
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        let currentSubtitleFontSize = 200;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
 
@@ -207,6 +216,7 @@
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
+            currentSubtitleFontSize = Number(data.font_size) || 200;
             renderCurrentSongControl();
         }
 
@@ -215,6 +225,30 @@
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
+        }
+
+        /**
+         * Sets the shared subtitle font size for all playback screens.
+         * @param {number} fontSize Subtitle size percentage.
+         */
+        function setSubtitleFontSize(fontSize) {
+            if (![80, 100, 120].includes(fontSize)) return;
+            currentSubtitleFontSize = fontSize;
+            renderSubtitleFontSizeControl();
+            socket.emit('set_subtitle_font_size', { font_size: fontSize });
+        }
+
+        /**
+         * Updates the remote control label and selected subtitle size button.
+         */
+        function renderSubtitleFontSizeControl() {
+            const labels = { 80: '小字（80%）', 100: '標準（100%）', 120: '大字（120%）', 200: '預設（200%）' };
+            document.getElementById('subtitle-size-label').textContent = labels[currentSubtitleFontSize] || labels[200];
+            [80, 100, 120].forEach((size) => {
+                const button = document.getElementById({ 80: 'subtitle-size-small', 100: 'subtitle-size-normal', 120: 'subtitle-size-large' }[size]);
+                button.setAttribute('aria-pressed', String(size === currentSubtitleFontSize));
+                button.style.background = size === currentSubtitleFontSize ? '#2aa894' : '#536d7a';
+            });
         }
 
         socket.on('current_song', updateCurrentSong);
@@ -240,6 +274,8 @@
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
                 currentSubtitleVisible = Boolean(data.visible);
+                currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
+                renderSubtitleFontSizeControl();
                 renderCurrentSongControl();
             }
         });

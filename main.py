@@ -475,12 +475,17 @@ def format_vtt_time(milliseconds):
 # ------------------------------------------
 playlist_queue = []
 subtitle_visible = False
+subtitle_font_size = 100
 qr_visible = True
 
 def broadcast_current_song():
-    """Broadcast the current song and its subtitle visibility to all clients."""
+    """Broadcast the current song and its subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
-    socketio.emit('current_song', {'filename': filename, 'visible': subtitle_visible})
+    socketio.emit('current_song', {
+        'filename': filename,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    })
 
 @socketio.on('connect')
 def handle_connect():
@@ -489,6 +494,7 @@ def handle_connect():
     emit('current_song', {
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
     })
     emit('qr_visibility', {'visible': qr_visible})
 
@@ -526,7 +532,29 @@ def handle_toggle_subtitle(data):
     if not os.path.exists(subtitle_path):
         return
     subtitle_visible = not subtitle_visible
-    emit('subtitle_state', {'filename': filename, 'visible': subtitle_visible}, broadcast=True)
+    emit('subtitle_state', {
+        'filename': filename,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    }, broadcast=True)
+    broadcast_current_song()
+
+@socketio.on('set_subtitle_font_size')
+def handle_set_subtitle_font_size(data):
+    """Update and broadcast the shared subtitle font size in percent."""
+    global subtitle_font_size
+    try:
+        requested_size = int(data.get('font_size', 100)) if isinstance(data, dict) else 100
+    except (TypeError, ValueError):
+        return
+    if requested_size not in {80, 100, 120}:
+        return
+    subtitle_font_size = requested_size
+    emit('subtitle_state', {
+        'filename': playlist_queue[0] if playlist_queue else '',
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
+    }, broadcast=True)
     broadcast_current_song()
 
 @socketio.on('remove_from_queue')
