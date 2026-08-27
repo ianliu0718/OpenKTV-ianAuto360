@@ -507,6 +507,7 @@ def handle_add_queue(data):
     
     # 廣播更新所有設備上的歌單畫面
     emit('update_queue', playlist_queue, broadcast=True)
+    emit('queue_song_added', {'filename': filename}, broadcast=True)
     
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:

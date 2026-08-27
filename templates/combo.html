@@ -32,6 +32,8 @@
         #remote-qr-label { font-size: 12px; font-weight: bold; }
         #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 25; width: min(82%, 720px); padding: 14px 22px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(20px, 3vw, 36px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
         #song-announcement.visible { opacity: 1; }
+        #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        #queue-add-announcement.visible { opacity: 1; }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -74,6 +76,7 @@
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
         <div id="song-announcement"></div>
+        <div id="queue-add-announcement"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
         <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
@@ -143,6 +146,7 @@ const socket = io();
         const engineStatus = document.getElementById('engine-status');
         const subtitleTrack = document.getElementById('subtitle-track');
         const songAnnouncement = document.getElementById('song-announcement');
+        const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
@@ -154,6 +158,18 @@ const socket = io();
         let currentKey = 0; 
         let currentFilename = '';
         let announcementTimer;
+        let queueAddAnnouncementTimer;
+
+        /**
+         * Shows the filename that was successfully added to the all-in-one queue.
+         * @param {string} filename Newly queued song filename.
+         */
+        function showQueueAddAnnouncement(filename) {
+            clearTimeout(queueAddAnnouncementTimer);
+            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.classList.add('visible');
+            queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
+        }
 
         /**
          * Shows the playing filename in the center of the all-in-one screen for ten seconds.
@@ -349,6 +365,8 @@ const socket = io();
                 socket.emit('control_effect', { pitch: 0 }); // 新歌自動回歸原 KEY
             }).catch(e => { overlay.innerText = "⚠️ 請點擊畫面開始播放"; });
         });
+
+        socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);

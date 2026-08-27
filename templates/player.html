@@ -11,6 +11,8 @@
         #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
         #remote-qr-label { font-size: 14px; font-weight: bold; }
+        #queue-add-announcement { position: absolute; top: 20px; left: 50%; z-index: 14; max-width: 80%; padding: 10px 18px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        #queue-add-announcement.visible { opacity: 1; }
         #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 15; max-width: 80%; padding: 18px 28px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(24px, 4vw, 48px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
         #song-announcement.visible { opacity: 1; }
     </style>
@@ -24,6 +26,7 @@
 </head>
 <body>
     <div id="overlay">等待連線...</div>
+    <div id="queue-add-announcement"></div>
     <div id="song-announcement"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
@@ -39,6 +42,7 @@
         const waiting = document.getElementById('waiting');
         const engineStatus = document.getElementById('engine-status');
         const songAnnouncement = document.getElementById('song-announcement');
+        const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const subtitleTrack = document.getElementById('subtitle-track');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
@@ -52,6 +56,18 @@
         let currentKey = 0;
         let currentFilename = '';
         let announcementTimer;
+        let queueAddAnnouncementTimer;
+
+        /**
+         * Shows the filename that was successfully added to the playback queue.
+         * @param {string} filename Newly queued song filename.
+         */
+        function showQueueAddAnnouncement(filename) {
+            clearTimeout(queueAddAnnouncementTimer);
+            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.classList.add('visible');
+            queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
+        }
 
         /**
          * Shows the playing filename in the center of the playback screen for ten seconds.
@@ -206,6 +222,8 @@
                 overlay.innerText = "⚠️ 請點擊畫面開始播放";
             });
         });
+
+        socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) setSubtitle(data.filename, data.visible);
