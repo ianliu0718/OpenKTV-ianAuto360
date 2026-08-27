@@ -56,11 +56,6 @@
     </div>
 
     <div class="card">
-        <h3>⚙️ 系統維護</h3>
-        <button id="btn_update" class="btn-update" onclick="updateYtDlp()">🔄 手動更新 yt-dlp 核心</button>
-    </div>
-
-    <div class="card">
         <h3>📝 系統日誌</h3>
         <textarea id="log" readonly></textarea>
     </div>
@@ -96,6 +91,10 @@
             <input type="file" id="normalize_audio_file" accept=".mp4,video/mp4">
             <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-16 LUFS）</button>
             <p id="normalize_audio_status"></p>
+        </details>
+        <details class="system-maintenance">
+            <summary>進階：系統維護</summary>
+            <button id="btn_update" class="btn-update" onclick="updateYtDlp()">🔄 手動更新 yt-dlp 核心</button>
         </details>
     </div>
 
