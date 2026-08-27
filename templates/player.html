@@ -11,6 +11,8 @@
         #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
         #remote-qr-label { font-size: 14px; font-weight: bold; }
+        #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 15; max-width: 80%; padding: 18px 28px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(24px, 4vw, 48px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        #song-announcement.visible { opacity: 1; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -22,6 +24,7 @@
 </head>
 <body>
     <div id="overlay">等待連線...</div>
+    <div id="song-announcement"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
     <div id="waiting" onclick="initAudioContext()">📺 KTV 準備就緒 (點我啟動音效)</div>
@@ -35,6 +38,7 @@
         const overlay = document.getElementById('overlay');
         const waiting = document.getElementById('waiting');
         const engineStatus = document.getElementById('engine-status');
+        const songAnnouncement = document.getElementById('song-announcement');
         const subtitleTrack = document.getElementById('subtitle-track');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
@@ -47,6 +51,18 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let announcementTimer;
+
+        /**
+         * Shows the playing filename in the center of the playback screen for ten seconds.
+         * @param {string} filename Current song filename.
+         */
+        function showSongAnnouncement(filename) {
+            clearTimeout(announcementTimer);
+            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.classList.add('visible');
+            announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
+        }
 
         /**
          * Creates the QR Code that opens the current server's remote control page.
@@ -179,6 +195,7 @@
         socket.on('play_video', (data) => {
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
+            showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);
             setAudioKey(0);
@@ -201,6 +218,8 @@
                 video.src = "";
                 waiting.style.display = 'block';
                 overlay.innerText = "⏹ 已停止";
+                songAnnouncement.classList.remove('visible');
+                clearTimeout(announcementTimer);
             }
         });
 
