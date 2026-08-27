@@ -343,6 +343,57 @@ def ai_vocal_remove_video():
         socketio.emit('task_status', {'status': 'idle'})
         shutil.rmtree(job_dir, ignore_errors=True)
 
+@app.route('/api/videos/normalize-audio', methods=['POST'])
+def normalize_video_audio():
+    """Normalize an uploaded MP4 audio track to the shared KTV loudness target."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_file = request.files.get('video')
+    if not video_file or not video_file.filename:
+        return json.dumps({'error': '請選擇要處理的 MP4 影片'}), 400
+    filename = os.path.basename(video_file.filename)
+    if not filename.lower().endswith('.mp4'):
+        return json.dumps({'error': '影片檔必須是 .mp4'}), 400
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'normalize_audio_{time.time_ns()}')
+    source_path = os.path.join(job_dir, 'input.mp4')
+    output_path = os.path.join(job_dir, 'output.mp4')
+    final_path = os.path.join(SONGS_DIR, filename)
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
+    try:
+        video_file.save(source_path)
+        broadcast_log(f'=== 開始平衡音量：{filename} ===')
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            raise RuntimeError('找不到 FFmpeg')
+        command = [
+            ffmpeg_path, '-y', '-i', source_path,
+            '-map', '0:v:0', '-map', '0:a?',
+            '-c:v', 'copy', '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+            '-c:a', 'aac', '-movflags', '+faststart', output_path,
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            raise RuntimeError('FFmpeg 音量平衡失敗')
+        shutil.move(output_path, final_path)
+        broadcast_log(f'✅ 音量平衡完成：{filename}')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
+    except (OSError, RuntimeError) as error:
+        broadcast_log(f'❌ 音量平衡失敗：{error}')
+        return json.dumps({'error': str(error)}, ensure_ascii=False), 400
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
     converted_content = convert_to_webvtt(content, subtitle_extension)
@@ -560,6 +611,7 @@ def handle_start_download(data):
     url = data.get('url')
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
+    normalize_volume = data.get('normalize_volume', True) is not False
     subtitle_content = data.get('subtitle_content', '')
     subtitle_extension = str(data.get('subtitle_extension', '')).lower().lstrip('.')
     if subtitle_content:
@@ -581,7 +633,7 @@ def handle_start_download(data):
         socketio.emit('task_status', {'status': 'busy'})
         
         processor = KTVProcessor(log_cb=broadcast_log)
-        output_filename = processor.process_song(url, title, ai_engine)
+        output_filename = processor.process_song(url, title, ai_engine, normalize_volume)
         
         if output_filename:
             if subtitle_content:
@@ -645,7 +697,7 @@ class KTVProcessor:
     def sanitize_filename(self, name):
         return "".join([c for c in name if c not in r'\/:*?"<>|'])
 
-    def process_song(self, url, manual_title, ai_engine='spleeter'):
+    def process_song(self, url, manual_title, ai_engine='spleeter', normalize_volume=True):
         job_temp_dir = None
         try:
             safe_title = self.sanitize_filename(manual_title)
@@ -705,10 +757,16 @@ class KTVProcessor:
                 raise Exception("Spleeter 分離失敗，找不到音軌檔")
 
             self.log("步驟 3/4: 合成 L/R 聲道 (L:原曲 R:伴奏)...")
+            audio_filter = '[L][R]join=inputs=2:channel_layout=stereo[a]'
+            if normalize_volume:
+                audio_filter += ';[a]loudnorm=I=-16:TP=-1.5:LRA=11[normalized]'
+                audio_map = '[normalized]'
+            else:
+                audio_map = '[a]'
             cmd_ffmpeg = (
                 f'ffmpeg -y -i "{temp_input}" -i "{voc_path}" -i "{acc_path}" '
-                '-filter_complex "[0:a]pan=mono|c0=0.5*FL+0.5*FR[L];[2:a]pan=mono|c0=0.5*FL+0.5*FR[R];[L][R]join=inputs=2:channel_layout=stereo[a]" '
-                f'-map 0:v -map "[a]" -c:v copy -c:a aac "{temp_output}"'
+                f'-filter_complex "[1:a]pan=mono|c0=0.5*FL+0.5*FR[L];[2:a]pan=mono|c0=0.5*FL+0.5*FR[R];{audio_filter}" '
+                f'-map 0:v -map "{audio_map}" -c:v copy -c:a aac "{temp_output}"'
             )
             
             subprocess.run(
