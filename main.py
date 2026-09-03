@@ -764,6 +764,16 @@ def handle_add_queue(data):
         emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
 
+@socketio.on('replay_current_song')
+def handle_replay_current_song():
+    """Insert the current song after itself, then cut to replay it immediately."""
+    if not playlist_queue:
+        return
+    filename = playlist_queue[0]
+    playlist_queue.insert(1, filename)
+    emit('queue_song_added', {'filename': filename}, broadcast=True)
+    handle_song_ended()
+
 @socketio.on('toggle_subtitle')
 def handle_toggle_subtitle(data):
     """Toggle subtitles only for the song currently playing."""
