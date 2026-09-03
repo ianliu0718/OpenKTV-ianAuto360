@@ -25,6 +25,11 @@
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .tab-bar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -10px -10px 10px; padding: 10px; background: #1a1a1a; }
+        .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
+        .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
+        .tab-panel[hidden] { display: none; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -36,66 +41,75 @@
 
     <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌/管理系統)</a>
 
-    <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
-        <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-        <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-        <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-            <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+    <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
+        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel" onclick="switchTab('song')">🎶 點歌</button>
+        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel" onclick="switchTab('control')">🎛️ 實際遙控</button>
+    </div>
+
+    <section id="song-panel" class="tab-panel" role="tabpanel" aria-labelledby="song-tab">
+        <div class="song-tools">
+            <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
+            <div class="category-filters">
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
+                <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
+            </div>
         </div>
-        <div style="display:flex; gap:6px; margin-top:5px;">
-            <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
-            <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
-            <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+        <ul id="list"></ul>
+    </section>
+
+    <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
+        <div class="queue-box">
+            <div class="queue-title">📋 待播清單</div>
+            <ul id="queue-list"><li>(無)</li></ul>
         </div>
-    </div>
 
-    <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
-        <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
-            <input type="checkbox" id="qr-visibility" checked style="width:auto;">
-            顯示播放端 QR Code
-        </label>
-    </div>
-
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
-        <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
-        <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
-        <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
-        <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
-        <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-    </div>
-
-    <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-top: 10px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: #ccc; font-size: 14px;">
-            <span>🔊 音量控制</span><span id="vol-val">100%</span>
+        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
+            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
+            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+                <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:5px;">
+                <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+                <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+                <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+            </div>
         </div>
-        <input type="range" id="vol" min="0" max="2" step="0.1" value="1" oninput="updateEffect()">
-    </div>
 
-    <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
-            <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
+        <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
+            <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
+                <input type="checkbox" id="qr-visibility" checked style="width:auto;">
+                顯示播放端 QR Code
+            </label>
         </div>
-        <div style="display: flex; gap: 8px;">
-            <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
-            <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
-            <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+            <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
+            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
+            <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
+            <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
+            <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
         </div>
-    </div>
 
-    <div class="queue-box">
-        <div class="queue-title">📋 待播清單</div>
-        <ul id="queue-list"><li>(無)</li></ul>
-    </div>
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-top: 10px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: #ccc; font-size: 14px;">
+                <span>🔊 音量控制</span><span id="vol-val">100%</span>
+            </div>
+            <input type="range" id="vol" min="0" max="2" step="0.1" value="1" oninput="updateEffect()">
+        </div>
 
-    <hr style="border-color: #333;">
-    
-    <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
-    <div class="category-filters">
-        <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
-        <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
-        <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
-    </div>
-    <ul id="list"></ul>
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
+                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+            </div>
+        </div>
+    </section>
 
     <script>
         const socket = io();
@@ -105,8 +119,27 @@
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
         let currentSubtitleFontSize = 200;
+        let songScrollTop = 0;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
+
+        /**
+         * Switches between song selection and playback control panels.
+         * @param {'song'|'control'} tabName Panel identifier to display.
+         */
+        function switchTab(tabName) {
+            const isSongTab = tabName === 'song';
+            if (!isSongTab) songScrollTop = window.scrollY;
+            document.getElementById('song-panel').hidden = !isSongTab;
+            document.getElementById('control-panel').hidden = isSongTab;
+            document.getElementById('song-tab').classList.toggle('active', isSongTab);
+            document.getElementById('control-tab').classList.toggle('active', !isSongTab);
+            document.getElementById('song-tab').setAttribute('aria-selected', String(isSongTab));
+            document.getElementById('control-tab').setAttribute('aria-selected', String(!isSongTab));
+            if (isSongTab) {
+                requestAnimationFrame(() => window.scrollTo(0, songScrollTop));
+            }
+        }
 
         /**
          * Renders the server's current queue for the remote control screen.
