@@ -97,13 +97,6 @@
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
         </div>
 
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-top: 10px; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: #ccc; font-size: 14px;">
-                <span>🔊 音量控制</span><span id="vol-val">100%</span>
-            </div>
-            <input type="range" id="vol" min="0" max="2" step="0.1" value="1" oninput="updateEffect()">
-        </div>
-
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
@@ -112,6 +105,19 @@
                 <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
                 <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
                 <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+            </div>
+        </div>
+
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>⏱ 畫面進度</span><span id="seek-val">0</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">0</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
@@ -130,6 +136,7 @@
         let currentSubtitleVisible = false;
         let currentSubtitleFontSize = 200;
         let songScrollTop = 0;
+        let seekOffset = 0;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
@@ -287,6 +294,7 @@
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
             currentSubtitleFontSize = Number(data.font_size) || 200;
+            updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
         }
 
@@ -474,6 +482,28 @@
             
             socket.emit('control_effect', { pitch: currentKey });
         }
+
+        /**
+         * Requests a half-second playback position adjustment for all players.
+         * @param {-0.5|-0.1|0|0.1|0.5} seconds Signed seek adjustment in seconds.
+         */
+        function seekVideo(seconds) {
+            if (![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            socket.emit('seek_video', { seconds });
+        }
+
+        /**
+         * Displays the accumulated video-only offset from the original position.
+         * @param {number} offset Signed accumulated offset in seconds.
+         */
+        function updateSeekOffset(offset) {
+            seekOffset = Math.round(offset * 10) / 10;
+            document.getElementById('seek-val').innerText = seekOffset === 0
+                ? '0'
+                : `${seekOffset > 0 ? '+' : ''}${seekOffset.toFixed(1)}`;
+        }
+
+        socket.on('seek_video', (data) => updateSeekOffset(Number(data.offset) || 0));
 
         // 接收伺服器廣播，同步更新介面狀態 (若有其他手機也在操作)
         socket.on('apply_effect', (data) => {

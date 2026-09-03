@@ -722,6 +722,8 @@ subtitle_visible = False
 subtitle_font_size = 100
 qr_visible = True
 random_play_enabled = False
+playback_rate = 1.0
+seek_offset = 0.0
 
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
@@ -745,6 +747,7 @@ def broadcast_current_song():
         'filename': filename,
         'visible': subtitle_visible,
         'font_size': subtitle_font_size,
+        'seek_offset': seek_offset,
     })
 
 @socketio.on('connect')
@@ -755,9 +758,11 @@ def handle_connect():
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
         'font_size': subtitle_font_size,
+        'seek_offset': seek_offset,
     })
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
+    emit('apply_effect', {'playback_rate': playback_rate})
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -777,7 +782,7 @@ def handle_random_play(data):
 
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
-    global subtitle_visible
+    global subtitle_visible, seek_offset
     filename = data['filename']
     playlist_queue.append(filename)
     
@@ -788,6 +793,7 @@ def handle_add_queue(data):
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
         subtitle_visible = False
+        seek_offset = 0.0
         emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
 
@@ -851,11 +857,12 @@ def handle_remove_from_queue(data):
 
 @socketio.on('song_ended')
 def handle_song_ended():
-    global subtitle_visible
+    global subtitle_visible, seek_offset
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0) 
         subtitle_visible = False
+        seek_offset = 0.0
         emit('update_queue', playlist_queue, broadcast=True)
         
         # 檢查是否還有下一首
@@ -878,17 +885,48 @@ def handle_control(action):
         # 其他指令 (例如 pause) 照常發送
         emit('command', action, broadcast=True)
 
+@socketio.on('seek_video')
+def handle_seek_video(data):
+    """Broadcast a bounded video seek adjustment and its accumulated offset."""
+    global seek_offset
+    try:
+        seconds = float(data.get('seconds', 0)) if isinstance(data, dict) else 0
+    except (TypeError, ValueError):
+        return
+    if seconds not in {-0.5, -0.1, 0, 0.1, 0.5}:
+        return
+    seek_offset = 0.0 if seconds == 0 else round(seek_offset + seconds, 1)
+    emit('seek_video', {'seconds': seconds, 'offset': seek_offset}, broadcast=True)
+
 # ------------------------------------------
 # (以下原本的音效與下載事件保留不動)
 @socketio.on('control_effect')
 def handle_effect(data):
+    global playback_rate
+    if isinstance(data, dict) and 'playback_rate' in data:
+        try:
+            requested_rate = float(data['playback_rate'])
+        except (TypeError, ValueError):
+            return
+        if requested_rate not in {0.75, 1.0, 1.25}:
+            return
+        playback_rate = requested_rate
     emit('apply_effect', data, broadcast=True)
 
 # ...後面的 @socketio.on('change_track') 等等都不用動...
 
 @socketio.on('control_effect')
 def handle_effect(data):
-    # 收到音量或升降 KEY 指令後，同步廣播給所有設備（包含一體機自己）
+    # 收到音量、升降 KEY 或播放速度指令後，同步廣播給所有設備
+    global playback_rate
+    if isinstance(data, dict) and 'playback_rate' in data:
+        try:
+            requested_rate = float(data['playback_rate'])
+        except (TypeError, ValueError):
+            return
+        if requested_rate not in {0.75, 1.0, 1.25}:
+            return
+        playback_rate = requested_rate
     emit('apply_effect', data, broadcast=True)
 
 @socketio.on('change_track')
