@@ -578,6 +578,31 @@ const socket = io();
         }
 
         /**
+         * Extracts the final numeric song code used for reverse sorting.
+         * @param {string} filename Song filename.
+         * @returns {number|null} Numeric song code, or null when unavailable.
+         */
+        function getSongCode(filename) {
+            const match = filename.match(/(\d+)(?:\.mp4)?$/i);
+            return match ? Number(match[1]) : null;
+        }
+
+        /**
+         * Sorts songs with unknown codes first, then numeric codes descending.
+         * @param {string} firstFilename First song filename.
+         * @param {string} secondFilename Second song filename.
+         * @returns {number} Sort comparison result.
+         */
+        function compareSongCodeDescending(firstFilename, secondFilename) {
+            const firstCode = getSongCode(firstFilename);
+            const secondCode = getSongCode(secondFilename);
+            if (firstCode === null && secondCode === null) return firstFilename.localeCompare(secondFilename, 'zh-Hant');
+            if (firstCode === null) return -1;
+            if (secondCode === null) return 1;
+            return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
+        }
+
+        /**
          * Rebuilds category selectors from the currently loaded song list.
          */
         function renderCategoryFilters() {
@@ -710,7 +735,7 @@ const socket = io();
             const selectedLanguage = document.getElementById('language-filter').value;
             const list = document.getElementById('list');
             list.innerHTML = "";
-            allSongs.filter(s => {
+            allSongs.slice().sort(compareSongCodeDescending).filter(s => {
                 const metadata = parseSongMetadata(s);
                 return s.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
