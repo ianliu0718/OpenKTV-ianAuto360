@@ -2,6 +2,7 @@ import sys
 import os
 import glob
 import queue
+import random
 import re
 
 # ==========================================
@@ -720,6 +721,22 @@ playlist_queue = []
 subtitle_visible = False
 subtitle_font_size = 100
 qr_visible = True
+random_play_enabled = False
+
+def start_random_song():
+    """Append and start one random song when the playback queue is empty."""
+    global subtitle_visible
+    songs = [filename for filename in os.listdir(SONGS_DIR) if filename.lower().endswith('.mp4')]
+    if not songs:
+        return False
+    filename = random.choice(songs)
+    playlist_queue.append(filename)
+    subtitle_visible = False
+    emit('update_queue', playlist_queue, broadcast=True)
+    emit('queue_song_added', {'filename': filename}, broadcast=True)
+    emit('play_video', _play_video_payload(filename), broadcast=True)
+    broadcast_current_song()
+    return True
 
 def broadcast_current_song():
     """Broadcast the current song and its subtitle presentation state to all clients."""
@@ -740,6 +757,7 @@ def handle_connect():
         'font_size': subtitle_font_size,
     })
     emit('qr_visibility', {'visible': qr_visible})
+    emit('random_play', {'enabled': random_play_enabled})
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -747,6 +765,15 @@ def handle_qr_visibility(data):
     global qr_visible
     qr_visible = bool(data.get('visible')) if isinstance(data, dict) else True
     emit('qr_visibility', {'visible': qr_visible}, broadcast=True)
+
+@socketio.on('set_random_play')
+def handle_random_play(data):
+    """Update and broadcast whether idle playback should choose random songs."""
+    global random_play_enabled
+    random_play_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    emit('random_play', {'enabled': random_play_enabled}, broadcast=True)
+    if random_play_enabled and not playlist_queue:
+        start_random_song()
 
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
@@ -837,6 +864,8 @@ def handle_song_ended():
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
+            if random_play_enabled and start_random_song():
+                return
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
             broadcast_current_song()

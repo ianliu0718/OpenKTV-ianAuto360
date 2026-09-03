@@ -31,6 +31,9 @@
         .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
         .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
         .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
+        .setting-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .setting-button input { width: auto; flex: 0 0 auto; }
         .tab-panel[hidden] { display: none; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -74,10 +77,14 @@
             </div>
         </div>
 
-        <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
-            <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
+        <div class="setting-grid" style="margin-bottom:10px;">
+            <label class="setting-button">
                 <input type="checkbox" id="qr-visibility" checked style="width:auto;">
                 顯示播放端 QR Code
+            </label>
+            <label class="setting-button">
+                <input type="checkbox" id="random-play" style="width:auto;">
+                無點歌時隨機播歌
             </label>
         </div>
 
@@ -125,6 +132,7 @@
         let songScrollTop = 0;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
+        const randomPlay = document.getElementById('random-play');
 
         /**
          * Switches between song selection and playback control panels.
@@ -332,6 +340,24 @@
 
         qrVisibility.addEventListener('change', setQrVisibility);
         socket.on('qr_visibility', updateQrVisibility);
+
+        /**
+         * Updates the random playback switch from the server state.
+         * @param {Object} data Random playback state with an enabled field.
+         */
+        function updateRandomPlay(data) {
+            randomPlay.checked = Boolean(data.enabled);
+        }
+
+        /**
+         * Requests random playback whenever the queue becomes empty.
+         */
+        function setRandomPlay() {
+            socket.emit('set_random_play', { enabled: randomPlay.checked });
+        }
+
+        randomPlay.addEventListener('change', setRandomPlay);
+        socket.on('random_play', updateRandomPlay);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
