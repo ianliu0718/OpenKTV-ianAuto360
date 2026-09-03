@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Write a temporary output beside the song and replace the source only after success.
-    Copy the audio stream to preserve the KTV vocal/instrumental channels.
+    Re-encode the audio stream with the shared -14 LUFS / -1 dBTP target.
 
 .PARAMETER InputFile
     Existing MP4 song path.
@@ -37,7 +37,7 @@ $tempOutput = Join-Path $directory $tempName
 $videoFilter = "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease"
 
 try {
-    & $ffmpeg -y -i $resolvedInput -map 0:v:0 -map '0:a?' -vf $videoFilter -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a copy -movflags +faststart $tempOutput
+    & $ffmpeg -y -i $resolvedInput -map 0:v:0 -map '0:a?' -vf $videoFilter -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -af 'loudnorm=I=-14:TP=-1:LRA=11' -c:a aac -movflags +faststart $tempOutput
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempOutput)) {
         throw 'FFmpeg conversion failed.'
     }

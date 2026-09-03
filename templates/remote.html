@@ -22,9 +22,22 @@
         #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
         .song-btn.added { background: #607d8b; cursor: wait; }
+        li.song-row { cursor: pointer; }
+        li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .search-row { display: flex; gap: 6px; align-items: stretch; }
+        .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
+        .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
+        .tab-bar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -10px -10px 10px; padding: 10px; background: #1a1a1a; }
+        .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
+        .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
+        .setting-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .setting-button input { width: auto; flex: 0 0 auto; }
+        .tab-panel[hidden] { display: none; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -36,66 +49,89 @@
 
     <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌/管理系統)</a>
 
-    <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
-        <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-        <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-        <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-            <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+    <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
+        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel" onclick="switchTab('song')">🎶 點歌</button>
+        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel" onclick="switchTab('control')">🎛️ 實際遙控</button>
+    </div>
+
+    <section id="song-panel" class="tab-panel" role="tabpanel" aria-labelledby="song-tab">
+        <div class="song-tools">
+            <div class="search-row">
+                <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
+                <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
+            </div>
+            <div class="category-filters">
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange('song-length-filter')"><option value="">歌曲字數：全部</option></select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange('singer-filter')"><option value="">主唱者：全部</option></select>
+                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
+            </div>
         </div>
-        <div style="display:flex; gap:6px; margin-top:5px;">
-            <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
-            <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
-            <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+        <ul id="list"></ul>
+    </section>
+
+    <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
+        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
+            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
+            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
+                <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:5px;">
+                <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
+                <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
+                <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+            </div>
         </div>
-    </div>
 
-    <div style="background:#2a2a2a; padding:12px; border-radius:8px; margin-bottom:10px;">
-        <label style="display:flex; align-items:center; gap:8px; color:#ccc;">
-            <input type="checkbox" id="qr-visibility" checked style="width:auto;">
-            顯示播放端 QR Code
-        </label>
-    </div>
-
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
-        <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
-        <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
-        <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
-        <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
-        <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-    </div>
-
-    <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-top: 10px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px; color: #ccc; font-size: 14px;">
-            <span>🔊 音量控制</span><span id="vol-val">100%</span>
+        <div class="setting-grid" style="margin-bottom:10px;">
+            <label class="setting-button">
+                <input type="checkbox" id="qr-visibility" checked style="width:auto;">
+                顯示播放端 QR Code
+            </label>
+            <label class="setting-button">
+                <input type="checkbox" id="random-play" style="width:auto;">
+                無點歌時隨機播歌
+            </label>
         </div>
-        <input type="range" id="vol" min="0" max="2" step="0.1" value="1" oninput="updateEffect()">
-    </div>
 
-    <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
-            <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+            <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
+            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
+            <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
+            <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
+            <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
+            <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
         </div>
-        <div style="display: flex; gap: 8px;">
-            <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
-            <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
-            <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
+                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+            </div>
         </div>
-    </div>
 
-    <div class="queue-box">
-        <div class="queue-title">📋 待播清單</div>
-        <ul id="queue-list"><li>(無)</li></ul>
-    </div>
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>⏱ 畫面進度</span><span id="seek-val">0</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">0</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
+            </div>
+        </div>
 
-    <hr style="border-color: #333;">
-    
-    <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
-    <div class="category-filters">
-        <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
-        <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
-        <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
-    </div>
-    <ul id="list"></ul>
+        <div class="queue-box">
+            <div class="queue-title">📋 待播清單</div>
+            <ul id="queue-list"><li>(無)</li></ul>
+        </div>
+    </section>
 
     <script>
         const socket = io();
@@ -105,8 +141,29 @@
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
         let currentSubtitleFontSize = 200;
+        let songScrollTop = 0;
+        let seekOffset = 0;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
+        const randomPlay = document.getElementById('random-play');
+
+        /**
+         * Switches between song selection and playback control panels.
+         * @param {'song'|'control'} tabName Panel identifier to display.
+         */
+        function switchTab(tabName) {
+            const isSongTab = tabName === 'song';
+            if (!isSongTab) songScrollTop = window.scrollY;
+            document.getElementById('song-panel').hidden = !isSongTab;
+            document.getElementById('control-panel').hidden = isSongTab;
+            document.getElementById('song-tab').classList.toggle('active', isSongTab);
+            document.getElementById('control-tab').classList.toggle('active', !isSongTab);
+            document.getElementById('song-tab').setAttribute('aria-selected', String(isSongTab));
+            document.getElementById('control-tab').setAttribute('aria-selected', String(!isSongTab));
+            if (isSongTab) {
+                requestAnimationFrame(() => window.scrollTo(0, songScrollTop));
+            }
+        }
 
         /**
          * Renders the server's current queue for the remote control screen.
@@ -178,6 +235,31 @@
         }
 
         /**
+         * Extracts the final numeric song code used for reverse sorting.
+         * @param {string} filename Song filename.
+         * @returns {number|null} Numeric song code, or null when unavailable.
+         */
+        function getSongCode(filename) {
+            const match = filename.match(/(\d+)(?:\.mp4)?$/i);
+            return match ? Number(match[1]) : null;
+        }
+
+        /**
+         * Sorts songs with unknown codes first, then numeric codes descending.
+         * @param {string} firstFilename First song filename.
+         * @param {string} secondFilename Second song filename.
+         * @returns {number} Sort comparison result.
+         */
+        function compareSongCodeDescending(firstFilename, secondFilename) {
+            const firstCode = getSongCode(firstFilename);
+            const secondCode = getSongCode(secondFilename);
+            if (firstCode === null && secondCode === null) return firstFilename.localeCompare(secondFilename, 'zh-Hant');
+            if (firstCode === null) return -1;
+            if (secondCode === null) return 1;
+            return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
+        }
+
+        /**
          * Rebuilds category selectors from the currently loaded song list.
          */
         function renderCategoryFilters() {
@@ -218,6 +300,7 @@
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
             currentSubtitleFontSize = Number(data.font_size) || 200;
+            updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
         }
 
@@ -272,6 +355,24 @@
         qrVisibility.addEventListener('change', setQrVisibility);
         socket.on('qr_visibility', updateQrVisibility);
 
+        /**
+         * Updates the random playback switch from the server state.
+         * @param {Object} data Random playback state with an enabled field.
+         */
+        function updateRandomPlay(data) {
+            randomPlay.checked = Boolean(data.enabled);
+        }
+
+        /**
+         * Requests random playback whenever the queue becomes empty.
+         */
+        function setRandomPlay() {
+            socket.emit('set_random_play', { enabled: randomPlay.checked });
+        }
+
+        randomPlay.addEventListener('change', setRandomPlay);
+        socket.on('random_play', updateRandomPlay);
+
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
                 currentSubtitleVisible = Boolean(data.visible);
@@ -281,6 +382,26 @@
             }
         });
 
+        /** Clears all four song filtering methods and restores the full list. */
+        function clearFilters() {
+            document.getElementById('search').value = '';
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            filter();
+        }
+
+        /** Clears category filters when the free-text search is used. */
+        function handleSearchInput() {
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            filter();
+        }
+
+        /** Clears search and other categories when one category is selected. @param {string} selectedId Selected filter id. */
+        function handleCategoryChange(selectedId) {
+            document.getElementById('search').value = '';
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { if (id !== selectedId) document.getElementById(id).value = ''; });
+            filter();
+        }
+
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
             const selectedLength = document.getElementById('song-length-filter').value;
@@ -289,7 +410,7 @@
             const list = document.getElementById('list');
             list.innerHTML = "";
             
-            allSongs.filter(s => {
+            allSongs.slice().sort(compareSongCodeDescending).filter(s => {
                 const metadata = parseSongMetadata(s);
                 return s.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
@@ -302,7 +423,7 @@
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
-                    <li class="${isPending ? 'song-added' : ''}">
+                    <li class="song-row ${isPending ? 'song-added' : ''}" onclick="playSongFromRow(this, '${s}', event)">
                         <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${s}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
@@ -327,8 +448,26 @@
                 filter();
             }, 1500);
         }
+
+        /**
+         * Queues a song when its song row is selected.
+         * @param {HTMLLIElement} rowElement Selected song row.
+         * @param {string} filename Song filename to queue.
+         * @param {MouseEvent} event Click event used to preserve nested button actions.
+         */
+        function playSongFromRow(rowElement, filename, event) {
+            if (event.target.closest('button')) return;
+            const playButton = rowElement.querySelector('button[onclick^="play("]');
+            if (playButton) play(playButton, filename);
+        }
+
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
+
+        /**
+         * Inserts the currently playing song as the next queued song.
+         */
+        function replayCurrentSong() { socket.emit('replay_current_song'); }
 
         /**
          * Requests the player to toggle subtitles for a song with an attached file.
@@ -369,6 +508,28 @@
             
             socket.emit('control_effect', { pitch: currentKey });
         }
+
+        /**
+         * Requests a half-second playback position adjustment for all players.
+         * @param {-0.5|-0.1|0|0.1|0.5} seconds Signed seek adjustment in seconds.
+         */
+        function seekVideo(seconds) {
+            if (![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            socket.emit('seek_video', { seconds });
+        }
+
+        /**
+         * Displays the accumulated video-only offset from the original position.
+         * @param {number} offset Signed accumulated offset in seconds.
+         */
+        function updateSeekOffset(offset) {
+            seekOffset = Math.round(offset * 10) / 10;
+            document.getElementById('seek-val').innerText = seekOffset === 0
+                ? '0'
+                : `${seekOffset > 0 ? '+' : ''}${seekOffset.toFixed(1)}`;
+        }
+
+        socket.on('seek_video', (data) => updateSeekOffset(Number(data.offset) || 0));
 
         // 接收伺服器廣播，同步更新介面狀態 (若有其他手機也在操作)
         socket.on('apply_effect', (data) => {
