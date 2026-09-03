@@ -278,6 +278,8 @@
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
             currentLoudness = data.audio_loudness_lufs;
+            currentMode = 'original';
+            isSixChannelAudio = Number(data.audio_channels) >= 6;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）', data.audio_loudness_lufs);
             showSongAnnouncement(data.filename);
             currentKey = 0;
@@ -286,10 +288,7 @@
             video.pause();
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             video.load();
-            setupAudio().then(() => video.play()).then(() => {
-                isSixChannelAudio = Number(data.audio_channels) >= 6;
-                setAudioMode('original'); 
-            }).catch(e => {
+            setupAudio().then(() => video.play()).catch(e => {
                 overlay.innerText = "⚠️ 請點擊畫面開始播放";
             });
         });

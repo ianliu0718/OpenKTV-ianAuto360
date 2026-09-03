@@ -177,6 +177,7 @@ const socket = io();
         let useSoundTouch = false;
         let currentMode = 'original';
         let currentKey = 0; 
+        let currentVolume = 1;
         let currentFilename = '';
         let currentLoudness;
         let isSixChannelAudio = false;
@@ -367,6 +368,7 @@ const socket = io();
                 merger.connect(masterGain);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
                 else Tone.connect(masterGain, pitchShift);
+                masterGain.gain.value = currentVolume;
                 isAudioSetup = true;
                 setAudioMode(currentMode);
             })();
@@ -417,10 +419,13 @@ const socket = io();
         }
 
         socket.on('apply_effect', (data) => {
-            if(masterGain && data.volume !== undefined) {
-                masterGain.gain.setTargetAtTime(data.volume, audioCtx.currentTime, 0.1);
-                document.getElementById('vol').value = data.volume;
-                document.getElementById('vol-val').innerText = Math.round(data.volume * 100) + "%";
+            if(data.volume !== undefined) {
+                currentVolume = Math.max(0, Math.min(2, Number(data.volume)));
+                if (masterGain) {
+                    masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
+                }
+                document.getElementById('vol').value = currentVolume;
+                document.getElementById('vol-val').innerText = Math.round(currentVolume * 100) + "%";
             }
             if(data.pitch !== undefined) {
                 const pitch = Number(data.pitch);
@@ -435,6 +440,8 @@ const socket = io();
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
             currentLoudness = data.audio_loudness_lufs;
+            currentMode = 'original';
+            isSixChannelAudio = Number(data.audio_channels) >= 6;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）', data.audio_loudness_lufs);
             showSongAnnouncement(data.filename);
             currentKey = 0;
@@ -442,8 +449,6 @@ const socket = io();
             setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             setupAudio().then(() => video.play()).then(() => {
-                isSixChannelAudio = Number(data.audio_channels) >= 6;
-                setAudioMode('original'); 
                 updateEffect(); 
                 socket.emit('control_effect', { pitch: 0 }); // 新歌自動回歸原 KEY
             }).catch(e => { overlay.innerText = "⚠️ 請點擊畫面開始播放"; });
