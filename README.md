@@ -147,7 +147,7 @@ python main.py
 
 播放器啟動音效上下文時不會預先建立 MediaElementAudioSourceNode；收到播放事件後，必須先等待影片 `loadedmetadata` 確認實際聲道數，再建立 Web Audio 音訊圖並開始播放。這可避免六聲道歌曲在媒體 metadata 尚未載入時以瀏覽器預設雙聲道建立來源，造成 c4/c5 伴奏通道不可聞。`player.html` 與 `combo.html` 均遵循相同時序：metadata -> 建立六聲道離散分流 -> 套用目前模式 -> 播放。
 
-播放畫面下方的音訊狀態列也會顯示歌曲實際聲道模式，例如 `5.1`，並顯示 Web Audio 實際聲道數與目前啟用通道（例如導唱 `WebAudio：6ch/explicit｜啟用：c2`、伴奏 `啟用：c4,c5`）；此資訊由播放事件中的 FFprobe `channel_layout` 與播放器 runtime 提供。六聲道歌曲在影片 metadata 載入後，播放端會將 MediaElementAudioSourceNode 設為 `explicit/6`，再交給離散 ChannelSplitter 分流，避免音訊圖在待機初始化時只有 2 聲道而使 `c4/c5` 伴奏失效。導唱 c2 會同時接到 merger 左右輸出，c3 不參與播放。一體機按鈕會先立即套用本機模式，再透過 SocketIO 同步其他播放端；伺服器的模式切換也會先廣播聲道變更，再於背景分析整曲 LUFS，避免 FFmpeg 分析期間阻塞切歌控制。
+播放畫面下方的音訊狀態列也會顯示歌曲實際聲道模式，例如 `5.1`，並顯示 Web Audio 實際聲道數與目前啟用通道（例如導唱 `WebAudio：6ch/explicit｜啟用：c2`、伴奏 `啟用：c4,c5`）；播放畫面右上角另顯示目前升降 KEY，並在新歌開始時重設為原 KEY。此資訊由播放事件中的 FFprobe `channel_layout` 與播放器 runtime 提供。六聲道歌曲在影片 metadata 載入後，播放端會將 MediaElementAudioSourceNode 設為 `explicit/6`，再交給離散 ChannelSplitter 分流，避免音訊圖在待機初始化時只有 2 聲道而使 `c4/c5` 伴奏失效。導唱 c2 會同時接到 merger 左右輸出，c3 不參與播放。一體機按鈕會先立即套用本機模式，再透過 SocketIO 同步其他播放端；伺服器的模式切換也會先廣播聲道變更，再於背景分析整曲 LUFS，避免 FFmpeg 分析期間阻塞切歌控制。
 
 ### 字幕流程
 
