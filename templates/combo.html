@@ -178,6 +178,7 @@ const socket = io();
         let currentMode = 'original';
         let currentKey = 0; 
         let currentFilename = '';
+        let currentLoudness;
         let isSixChannelAudio = false;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -234,8 +235,9 @@ const socket = io();
          * Shows the audio processor currently used by the all-in-one player.
          * @param {string} message Engine name and optional diagnostic detail.
          */
-        function setEngineStatus(message) {
-            engineStatus.innerText = `音訊引擎：${message}`;
+        function setEngineStatus(message, loudness = currentLoudness) {
+            const volumeText = Number.isFinite(Number(loudness)) ? `｜曲目音量：${Number(loudness).toFixed(1)} LUFS` : '';
+            engineStatus.innerText = `音訊引擎：${message}${volumeText}`;
         }
 
         /**
@@ -432,6 +434,8 @@ const socket = io();
             idleScreen.style.display = 'none';
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
+            currentLoudness = data.audio_loudness_lufs;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）', data.audio_loudness_lufs);
             showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);

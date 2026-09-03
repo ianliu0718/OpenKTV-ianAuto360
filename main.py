@@ -109,6 +109,34 @@ def get_audio_channel_count(filename):
     except (TypeError, ValueError):
         return 0
 
+def get_audio_loudness(filename):
+    """Return the integrated loudness in LUFS, cached until the song file changes."""
+    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    if not os.path.exists(song_path):
+        return None
+    cache_key = (song_path, os.path.getmtime(song_path), os.path.getsize(song_path))
+    cached_value = audio_loudness_cache.get(song_path)
+    if cached_value and cached_value[0] == cache_key:
+        return cached_value[1]
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    if not ffmpeg_path:
+        return None
+    null_device = 'NUL' if os.name == 'nt' else '/dev/null'
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
+             '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', null_device],
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        audio_loudness_cache[song_path] = (cache_key, None)
+        return None
+    match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
+    loudness = round(float(match.group(1)), 1) if match else None
+    audio_loudness_cache[song_path] = (cache_key, loudness)
+    return loudness
+
 ffmpeg_location = get_ffmpeg_location()
 if ffmpeg_location:
     os.environ["PATH"] += os.pathsep + ffmpeg_location
@@ -117,6 +145,7 @@ os.environ["PATH"] += os.pathsep + BASE_DIR
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
 TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing") 
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
+audio_loudness_cache = {}
 
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
@@ -222,6 +251,7 @@ def _play_video_payload(filename):
         'filename': filename,
         'title': filename,
         'audio_channels': get_audio_channel_count(filename),
+        'audio_loudness_lufs': get_audio_loudness(filename),
     }
 
 @app.route('/subtitles/<path:filename>')
@@ -344,7 +374,8 @@ def optimize_video():
             '-map', '0:v:0', '-map', '0:a?',
             '-vf', "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart',
+            '-pix_fmt', 'yuv420p', '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
+            '-c:a', 'aac', '-movflags', '+faststart',
             output_path,
         ]
         result = subprocess.run(
@@ -372,10 +403,10 @@ def optimize_video():
 
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 with original, guide, and instrumental stereo pairs."""
-    loudnorm = 'loudnorm=I=-16:TP=-1.5:LRA=11,' if normalize_volume else ''
+    loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.25,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
         f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
@@ -454,7 +485,7 @@ def ai_vocal_remove_video():
             raise RuntimeError('找不到 FFprobe，無法驗證六聲道輸出')
         _create_six_channel_mp4(
             ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path,
-            output_path, normalize_volume=False,
+            output_path, normalize_volume=True,
         )
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ AI 去人聲完成：{filename}（六聲道：原聲 / 導唱 / 伴奏）')
@@ -498,7 +529,7 @@ def normalize_video_audio():
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
-            '-c:v', 'copy', '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+            '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
             '-c:a', 'aac', '-movflags', '+faststart', output_path,
         ]
         result = subprocess.run(

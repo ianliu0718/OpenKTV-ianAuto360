@@ -67,6 +67,7 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let currentLoudness;
         let isSixChannelAudio = false;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -123,8 +124,9 @@
          * Shows the audio processor currently used by the player.
          * @param {string} message Engine name and optional diagnostic detail.
          */
-        function setEngineStatus(message) {
-            engineStatus.innerText = `音訊引擎：${message}`;
+        function setEngineStatus(message, loudness = currentLoudness) {
+            const volumeText = Number.isFinite(Number(loudness)) ? `｜曲目音量：${Number(loudness).toFixed(1)} LUFS` : '';
+            engineStatus.innerText = `音訊引擎：${message}${volumeText}`;
         }
 
         /**
@@ -275,6 +277,8 @@
         socket.on('play_video', (data) => {
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
+            currentLoudness = data.audio_loudness_lufs;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）', data.audio_loudness_lufs);
             showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);
