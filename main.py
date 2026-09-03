@@ -144,7 +144,7 @@ def _mode_pan_filter(mode, channels):
     if mode not in {'original', 'guide', 'instrumental'}:
         mode = 'original'
     if channels >= 6:
-        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c3'), 'instrumental': ('c4', 'c5')}[mode]
+        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c2'), 'instrumental': ('c4', 'c5')}[mode]
         return f'pan=stereo|c0={mode_channels[0]}|c1={mode_channels[1]}'
     elif mode == 'instrumental':
         return 'pan=stereo|c0=c1|c1=c1'

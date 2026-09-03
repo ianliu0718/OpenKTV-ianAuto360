@@ -365,7 +365,11 @@ const socket = io();
                 source.connect(splitter);
                 audioGains.forEach((gain, channel) => {
                     splitter.connect(gain, channel);
-                    if (isSixChannelAudio) gain.connect(merger, 0, channel % 2);
+                    if (isSixChannelAudio) {
+                        gain.connect(merger, 0, channel % 2);
+                        /** Duplicates guide c2 to both speakers while ignoring unreliable c3. */
+                        if (channel === 2) gain.connect(merger, 0, 1);
+                    }
                     else {
                         gain.connect(merger, 0, 0);
                         gain.connect(merger, 0, 1);
@@ -532,7 +536,7 @@ const socket = io();
                 gain.gain.setValueAtTime(0, now);
             });
             const channels = isSixChannelAudio
-                ? (mode === 'guide' ? [2, 3] : mode === 'instrumental' ? [4, 5] : [0, 1])
+                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4, 5] : [0, 1])
                 : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
             channels.forEach((channel) => audioGains[channel].gain.setValueAtTime(1, now));
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
