@@ -109,32 +109,79 @@ def get_audio_channel_count(filename):
     except (TypeError, ValueError):
         return 0
 
-def get_audio_loudness(filename):
-    """Return the integrated loudness in LUFS, cached until the song file changes."""
+def get_audio_channel_layout(filename):
+    """Return the first audio stream channel layout for a song."""
+    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffprobe_path or not os.path.exists(song_path):
+        return ''
+    result = subprocess.run(
+        [ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
+         '-show_entries', 'stream=channel_layout', '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    return result.stdout.strip()
+
+def get_audio_channel_count_from_path(song_path, ffprobe_path):
+    """Return the first audio stream channel count for an arbitrary media path."""
+    if not ffprobe_path or not os.path.exists(song_path):
+        return 0
+    result = subprocess.run(
+        [ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
+         '-show_entries', 'stream=channels', '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    try:
+        return int(result.stdout.strip())
+    except (TypeError, ValueError):
+        return 0
+
+def _mode_pan_filter(mode, channels):
+    """Return the FFmpeg pan filter for one playback mode."""
+    if mode not in {'original', 'guide', 'instrumental'}:
+        mode = 'original'
+    if channels >= 6:
+        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c3'), 'instrumental': ('c4', 'c5')}[mode]
+        return f'pan=stereo|c0={mode_channels[0]}|c1={mode_channels[1]}'
+    elif mode == 'instrumental':
+        return 'pan=stereo|c0=c1|c1=c1'
+    elif mode == 'guide':
+        return 'pan=stereo|c0=c0|c1=c1'
+    return 'pan=stereo|c0=c0|c1=c0'
+
+def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
+    """Measure one audio file's selected mode without changing the file."""
+    null_device = 'NUL' if os.name == 'nt' else '/dev/null'
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
+             '-af', f'{_mode_pan_filter(mode, channels)},ebur128=peak=true:framelog=verbose', '-f', 'null', null_device],
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
+    return float(match.group(1)) if match else None
+
+def get_audio_loudness(filename, mode='original'):
+    """Return the selected mode's integrated loudness in LUFS, cached until the song changes."""
     song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
     if not os.path.exists(song_path):
         return None
-    cache_key = (song_path, os.path.getmtime(song_path), os.path.getsize(song_path))
-    cached_value = audio_loudness_cache.get(song_path)
+    cache_key = (song_path, os.path.getmtime(song_path), os.path.getsize(song_path), mode)
+    cached_value = audio_loudness_cache.get((song_path, mode))
     if cached_value and cached_value[0] == cache_key:
         return cached_value[1]
     ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
     if not ffmpeg_path:
         return None
-    null_device = 'NUL' if os.name == 'nt' else '/dev/null'
-    try:
-        result = subprocess.run(
-            [ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
-             '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', null_device],
-            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        audio_loudness_cache[song_path] = (cache_key, None)
-        return None
-    match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
-    loudness = round(float(match.group(1)), 1) if match else None
-    audio_loudness_cache[song_path] = (cache_key, loudness)
+    loudness = _measure_audio_loudness(ffmpeg_path, song_path, mode, get_audio_channel_count(filename))
+    loudness = round(loudness, 1) if loudness is not None else None
+    audio_loudness_cache[(song_path, mode)] = (cache_key, loudness)
     return loudness
 
 ffmpeg_location = get_ffmpeg_location()
@@ -251,7 +298,8 @@ def _play_video_payload(filename):
         'filename': filename,
         'title': filename,
         'audio_channels': get_audio_channel_count(filename),
-        'audio_loudness_lufs': get_audio_loudness(filename),
+        'audio_channel_layout': get_audio_channel_layout(filename),
+        'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
     }
 
 @app.route('/subtitles/<path:filename>')
@@ -401,12 +449,40 @@ def optimize_video():
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
+def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
+    """Correct each final stereo pair to the shared -14 LUFS target."""
+    mode_levels = {
+        mode: _measure_audio_loudness(ffmpeg_path, source_path, mode)
+        for mode in ('original', 'guide', 'instrumental')
+    }
+    if any(level is None for level in mode_levels.values()):
+        raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量')
+    corrections = {mode: -14 - level for mode, level in mode_levels.items()}
+    audio_filter = (
+        f'[0:a]{_mode_pan_filter("original", 6)},volume={corrections["original"]:.3f}dB[original];'
+        f'[0:a]{_mode_pan_filter("guide", 6)},volume={corrections["guide"]:.3f}dB[guide];'
+        f'[0:a]{_mode_pan_filter("instrumental", 6)},volume={corrections["instrumental"]:.3f}dB[instrumental];'
+        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+        '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
+        '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
+        '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
+        'join=inputs=6:channel_layout=6.0:map=0.0-FL|1.0-FR|2.0-FC|3.0-BC|4.0-SL|5.0-SR,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=6.0[audio]'
+    )
+    subprocess.run(
+        [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
+         '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+         '-movflags', '+faststart', output_path],
+        check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
-    """Create one MP4 with original, guide, and instrumental stereo pairs."""
+    """Create one MP4 using the v1.0.4-proven six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.25,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
         f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
@@ -526,6 +602,17 @@ def normalize_video_audio():
         ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
         if not ffmpeg_path:
             raise RuntimeError('找不到 FFmpeg')
+        ffprobe_path = get_ffprobe_path(ffmpeg_path)
+        if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
+            balanced_source = source_path
+            for pass_index in range(2):
+                balanced_path = os.path.join(job_dir, f'balanced_{pass_index}.mp4')
+                _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
+                balanced_source = balanced_path
+            shutil.move(balanced_source, final_path)
+            broadcast_log(f'✅ 六聲道音量平衡完成：{filename}')
+            socketio.emit('refresh_list')
+            return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
@@ -767,7 +854,27 @@ def handle_effect(data):
 
 @socketio.on('change_track')
 def handle_track(mode):
-    emit('set_audio', mode, broadcast=True)
+    """Switch the playback mode immediately and calculate its LUFS asynchronously."""
+    if mode not in {'original', 'guide', 'instrumental'}:
+        return
+    filename = playlist_queue[0] if playlist_queue else ''
+    emit('set_audio', {
+        'mode': mode,
+        'audio_loudness_lufs': None,
+    }, broadcast=True)
+    if not filename:
+        return
+
+    def update_loudness():
+        """Send the selected mode's LUFS after the blocking FFmpeg analysis finishes."""
+        loudness = get_audio_loudness(filename, mode)
+        if playlist_queue and playlist_queue[0] == filename:
+            socketio.emit('set_audio', {
+                'mode': mode,
+                'audio_loudness_lufs': loudness,
+            })
+
+    socketio.start_background_task(update_loudness)
 
 is_processing = False
 

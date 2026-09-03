@@ -179,7 +179,9 @@ const socket = io();
         let currentKey = 0; 
         let currentVolume = 1;
         let currentFilename = '';
-        let currentLoudness;
+        let currentLoudness = null;
+        let currentChannelLayout = '';
+        let currentActiveChannels = '';
         let isSixChannelAudio = false;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -236,9 +238,12 @@ const socket = io();
          * Shows the audio processor currently used by the all-in-one player.
          * @param {string} message Engine name and optional diagnostic detail.
          */
-        function setEngineStatus(message, loudness = currentLoudness) {
-            const volumeText = Number.isFinite(Number(loudness)) ? `｜曲目音量：${Number(loudness).toFixed(1)} LUFS` : '';
-            engineStatus.innerText = `音訊引擎：${message}${volumeText}`;
+        function setEngineStatus(message) {
+            const volumeText = currentLoudness === null ? '' : `｜曲目音量：${currentLoudness.toFixed(1)} LUFS`;
+            const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
+            const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
+            const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
+            engineStatus.innerText = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
         }
 
         /**
@@ -323,9 +328,6 @@ const socket = io();
             waitingBtn.innerHTML = "✅ 音效已啟動<br><span style='font-size:16px;color:#888;'>請從下方/右方點歌</span>";
             waitingBtn.style.borderColor = "#4CAF50";
             waitingBtn.style.color = "#4CAF50";
-            setupAudio().catch((error) => {
-                overlay.innerText = `⚠️ 音效引擎啟動失敗：${error.message}`;
-            });
         }
 
         /**
@@ -342,6 +344,7 @@ const socket = io();
                 splitter = audioCtx.createChannelSplitter(6);
                 splitter.channelInterpretation = 'discrete';
                 merger = audioCtx.createChannelMerger(2);
+                merger.channelInterpretation = 'discrete';
                 audioGains = Array.from({ length: 6 }, () => audioCtx.createGain());
                 masterGain = audioCtx.createGain();
                 useSoundTouch = Boolean(audioCtx.audioWorklet);
@@ -362,8 +365,11 @@ const socket = io();
                 source.connect(splitter);
                 audioGains.forEach((gain, channel) => {
                     splitter.connect(gain, channel);
-                    gain.connect(merger, 0, 0);
-                    gain.connect(merger, 0, 1);
+                    if (isSixChannelAudio) gain.connect(merger, 0, channel % 2);
+                    else {
+                        gain.connect(merger, 0, 0);
+                        gain.connect(merger, 0, 1);
+                    }
                 });
                 merger.connect(masterGain);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
@@ -391,6 +397,20 @@ const socket = io();
             } else if (pitchShift) {
                 pitchShift.pitch = bounded;
                 pitchShift.wet.rampTo(bounded === 0 ? 0 : 1, 0.03);
+            }
+        }
+
+        /**
+         * Restores the six-channel media source after the video metadata is loaded.
+         */
+        function configureSourceChannels() {
+            if (!source || !isSixChannelAudio) return;
+            try {
+                source.channelCountMode = 'explicit';
+                source.channelCount = 6;
+                if (isAudioSetup) setAudioMode(currentMode);
+            } catch (error) {
+                source.channelCountMode = 'max';
             }
         }
 
@@ -439,19 +459,29 @@ const socket = io();
             idleScreen.style.display = 'none';
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
-            currentLoudness = data.audio_loudness_lufs;
             currentMode = 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
-            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）', data.audio_loudness_lufs);
+            currentChannelLayout = data.audio_channel_layout || '';
+            currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
             currentKey = 0;
             setSubtitle(data.filename, false);
             setAudioKey(0);
             video.src = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
-            setupAudio().then(() => video.play()).then(() => {
-                updateEffect(); 
-                socket.emit('control_effect', { pitch: 0 }); // 新歌自動回歸原 KEY
-            }).catch(e => { overlay.innerText = "⚠️ 請點擊畫面開始播放"; });
+            /** Builds the audio graph after the media element exposes its real channel count. */
+            video.addEventListener('loadedmetadata', () => {
+                setupAudio().then(() => {
+                    configureSourceChannels();
+                    return video.play();
+                }).then(() => {
+                    updateEffect();
+                    socket.emit('control_effect', { pitch: 0 });
+                }).catch(() => {
+                    overlay.innerText = "⚠️ 請點擊畫面開始播放";
+                });
+            }, { once: true });
+            video.load();
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
@@ -480,8 +510,13 @@ const socket = io();
             if (cmd === 'pause') video.paused ? video.play() : video.pause();
         });
 
-        socket.on('set_audio', (mode) => {
+        socket.on('set_audio', (data) => {
+            const mode = typeof data === 'string' ? data : data.mode;
             currentMode = mode;
+            if (data && typeof data === 'object' && Number.isFinite(Number(data.audio_loudness_lufs))) {
+                currentLoudness = Number(data.audio_loudness_lufs);
+                setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
+            }
             setAudioMode(mode);
         });
 
@@ -492,11 +527,16 @@ const socket = io();
         function setAudioMode(mode) {
             if(!isAudioSetup || !audioGains) return;
             const now = audioCtx.currentTime;
-            audioGains.forEach((gain) => gain.gain.setTargetAtTime(0, now, 0.1));
+            audioGains.forEach((gain) => {
+                gain.gain.cancelScheduledValues(now);
+                gain.gain.setValueAtTime(0, now);
+            });
             const channels = isSixChannelAudio
                 ? (mode === 'guide' ? [2, 3] : mode === 'instrumental' ? [4, 5] : [0, 1])
                 : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
-            channels.forEach((channel) => audioGains[channel].gain.setTargetAtTime(1, now, 0.1));
+            channels.forEach((channel) => audioGains[channel].gain.setValueAtTime(1, now));
+            currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = mode === 'guide' ? "🎵 模式：導唱" : mode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";
         }
 
@@ -707,7 +747,11 @@ const socket = io();
         }
 
         function cmd(action) { socket.emit('control', action); }
-        function track(mode) { socket.emit('change_track', mode); }
+        function track(mode) {
+            currentMode = mode;
+            setAudioMode(mode);
+            socket.emit('change_track', mode);
+        }
 
         function loadList() {
             fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; renderCategoryFilters(); filter(); });
