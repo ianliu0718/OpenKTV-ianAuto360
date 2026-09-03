@@ -27,6 +27,9 @@
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .search-row { display: flex; gap: 6px; align-items: stretch; }
+        .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
+        .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
         .tab-bar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -10px -10px 10px; padding: 10px; background: #1a1a1a; }
         .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
         .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
@@ -53,11 +56,14 @@
 
     <section id="song-panel" class="tab-panel" role="tabpanel" aria-labelledby="song-tab">
         <div class="song-tools">
-            <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="filter()">
+            <div class="search-row">
+                <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
+                <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
+            </div>
             <div class="category-filters">
-                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="filter()"><option value="">歌曲字數：全部</option></select>
-                <select id="singer-filter" aria-label="依主唱者分類" onchange="filter()"><option value="">主唱者：全部</option></select>
-                <select id="language-filter" aria-label="依語言分類" onchange="filter()"><option value="">語言：全部</option></select>
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange('song-length-filter')"><option value="">歌曲字數：全部</option></select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange('singer-filter')"><option value="">主唱者：全部</option></select>
+                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
             </div>
         </div>
         <ul id="list"></ul>
@@ -375,6 +381,26 @@
                 renderCurrentSongControl();
             }
         });
+
+        /** Clears all four song filtering methods and restores the full list. */
+        function clearFilters() {
+            document.getElementById('search').value = '';
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            filter();
+        }
+
+        /** Clears category filters when the free-text search is used. */
+        function handleSearchInput() {
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            filter();
+        }
+
+        /** Clears search and other categories when one category is selected. @param {string} selectedId Selected filter id. */
+        function handleCategoryChange(selectedId) {
+            document.getElementById('search').value = '';
+            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { if (id !== selectedId) document.getElementById(id).value = ''; });
+            filter();
+        }
 
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
