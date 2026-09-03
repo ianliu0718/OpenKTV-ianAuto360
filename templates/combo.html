@@ -353,6 +353,13 @@ const socket = io();
 
         subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
 
+        /** Clears the visible subtitle when playback leaves the current song. */
+        function clearCurrentSubtitle() {
+            subtitleTrack.track.mode = 'disabled';
+            ktvSubtitle.style.display = 'none';
+            ktvSubtitle.replaceChildren();
+        }
+
         function toggleFullScreen() {
             if (!document.fullscreenElement) {
                 if (playerContainer.requestFullscreen) playerContainer.requestFullscreen();
@@ -551,11 +558,12 @@ const socket = io();
         });
 
         // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
-        video.onended = function() { socket.emit('song_ended'); };
+        video.onended = function() { clearCurrentSubtitle(); socket.emit('song_ended'); };
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線"; });
 
         socket.on('stop_video', () => {
+            clearCurrentSubtitle();
             video.pause(); audioTrack.pause(); video.src = ""; audioTrack.src = ""; video.style.display = 'none';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
             nextInfo.style.display = 'none';
