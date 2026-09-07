@@ -490,8 +490,10 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
         f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
@@ -530,14 +532,16 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
-    """Convert a downloaded video to a low-load H.264 format for legacy PCs."""
+    """Convert and validate a downloaded video for reliable legacy-PC playback."""
     command = [
-        ffmpeg_path, '-y', '-i', source_path,
+        ffmpeg_path, '-y', '-fflags', '+genpts', '-i', source_path,
         '-map', '0:v:0', '-map', '0:a?',
         '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
         '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
-        '-c:a', 'copy', '-movflags', '+faststart', output_path,
+        '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+        '-af', 'aresample=async=1:first_pts=0',
+        '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', output_path,
     ]
     subprocess.run(
         command, check=True, stdin=subprocess.DEVNULL,
@@ -546,6 +550,16 @@ def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     )
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
         raise RuntimeError('下載影片播放相容化失敗：輸出檔案不存在或為空')
+    validation_command = [
+        ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+        '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+        'NUL' if os.name == 'nt' else '/dev/null',
+    ]
+    subprocess.run(
+        validation_command, check=True, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
 
 @app.route('/api/videos/ai-vocal-remove', methods=['POST'])
 def ai_vocal_remove_video():
