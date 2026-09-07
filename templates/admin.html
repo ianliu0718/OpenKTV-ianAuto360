@@ -63,10 +63,6 @@
             <option value="spleeter">Spleeter (目前可用)</option>
             <option value="mdxnet" disabled>MDX-Net (準備中)</option>
         </select>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:15px;">
-            <input type="checkbox" id="normalize_volume" checked style="width:auto; margin:0;">
-            製作完成後自動平衡歌曲音量
-        </label>
             <button id="btn_dl" class="btn-dl" onclick="startDownload()">開始製作（原聲 / 導唱 / 伴奏）</button>
         <p id="subtitle_status"></p>
     </div>
@@ -111,7 +107,7 @@
             <summary>進階：既有影片效能最佳化</summary>
             <label for="video_file">選擇要轉檔的 MP4（輸出會儲存在歌曲資料夾）:</label>
             <input type="file" id="video_file" accept=".mp4,video/mp4">
-            <button id="btn_video_convert" class="btn-update" onclick="optimizeExistingVideo()">轉成 H.264 / 1080p</button>
+            <button id="btn_video_convert" class="btn-update" onclick="optimizeExistingVideo()">轉成 H.264 / 720p / 30fps</button>
             <p id="video_converter_status"></p>
         </details>
         <details class="ai-vocal-converter">
@@ -411,7 +407,6 @@
             const url = document.getElementById('yt_url').value.trim();
             const title = document.getElementById('yt_title').value.trim();
             const aiEngine = document.getElementById('ai_engine').value;
-            const normalizeVolume = document.getElementById('normalize_volume').checked;
             if(!url || !title) {
                 alert("網址與歌名皆為必填！");
                 return;
@@ -421,7 +416,6 @@
                     url: url,
                     title: title,
                     ai_engine: aiEngine,
-                    normalize_volume: normalizeVolume,
                 });
             } catch (error) {
                 alert(error.message);
@@ -449,7 +443,6 @@
             socket.emit('start_batch_download', {
                 jobs,
                 ai_engine: document.getElementById('ai_engine').value,
-                normalize_volume: document.getElementById('normalize_volume').checked,
             });
         }
 

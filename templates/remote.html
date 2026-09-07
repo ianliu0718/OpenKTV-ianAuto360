@@ -103,6 +103,13 @@
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
         </div>
 
+        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
+                <span>🔊 主音量</span><span id="vol-val">100%</span>
+            </div>
+            <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量" oninput="updateEffect()">
+        </div>
+
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
@@ -116,14 +123,14 @@
 
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
-                <span>⏱ 畫面進度</span><span id="seek-val">0</span>
+                <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
-                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">0</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">&lt;0.1</button>
+                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
+                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
@@ -525,8 +532,10 @@
         function updateSeekOffset(offset) {
             seekOffset = Math.round(offset * 10) / 10;
             document.getElementById('seek-val').innerText = seekOffset === 0
-                ? '0'
-                : `${seekOffset > 0 ? '+' : ''}${seekOffset.toFixed(1)}`;
+                ? '同步'
+                : seekOffset > 0
+                    ? `延遲 ${seekOffset.toFixed(1)} 秒`
+                    : `提前 ${Math.abs(seekOffset).toFixed(1)} 秒`;
         }
 
         socket.on('seek_video', (data) => updateSeekOffset(Number(data.offset) || 0));

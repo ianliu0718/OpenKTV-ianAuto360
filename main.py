@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.5.1"
+APP_VERSION = "v1.0.6.1"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -392,7 +392,10 @@ def save_manual_subtitle():
 
 @app.route('/api/videos/optimize', methods=['POST'])
 def optimize_video():
-    """Convert an uploaded MP4 to H.264 up to 1080p and replace its song file."""
+    """Convert an uploaded MP4 to low-load H.264 and replace its song file."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
     video_file = request.files.get('video')
     if not video_file or not video_file.filename:
         broadcast_log('❌ 影片最佳化失敗：未選擇 MP4 檔案。')
@@ -407,6 +410,8 @@ def optimize_video():
     output_path = os.path.join(job_dir, f'{os.path.splitext(filename)[0]}.optimized.mp4')
     final_path = os.path.join(SONGS_DIR, filename)
     os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
     try:
         broadcast_log(f'=== 開始影片效能最佳化：{filename} ===')
         video_file.save(source_path)
@@ -417,13 +422,14 @@ def optimize_video():
             broadcast_log('❌ 影片最佳化失敗：找不到 FFmpeg。')
             return json.dumps({'error': '找不到 FFmpeg'}), 500
         broadcast_log(f'🔧 使用 FFmpeg：{ffmpeg_path}')
-        broadcast_log('⏳ 正在重新編碼為 H.264 / 最高 1080p，請稍候...')
+        broadcast_log('⏳ 正在重新編碼為 H.264 / 最高 720p / 30fps，請稍候...')
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
-            '-vf', "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease",
+            '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-pix_fmt', 'yuv420p', '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
+            '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
+            '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
             '-c:a', 'aac', '-movflags', '+faststart',
             output_path,
         ]
@@ -448,6 +454,8 @@ def optimize_video():
         broadcast_log(f'❌ 影片最佳化發生例外：{error}')
         return json.dumps({'success': False, 'error': f'影片轉檔失敗：{error}'}, ensure_ascii=False), 400
     finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
         shutil.rmtree(job_dir, ignore_errors=True)
 
 def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
@@ -482,8 +490,10 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        '[0:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
         f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
@@ -494,7 +504,8 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
         '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
         '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
-        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]amerge=inputs=6,'
+        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
@@ -502,13 +513,19 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '-filter_complex', audio_filter,
         '-map', '0:v:0', '-map', '[audio]',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k', '-movflags', '+faststart',
+        '-shortest',
         '-metadata:s:a:0', 'title=原聲、導唱、伴奏（六聲道）', output_path,
     ]
-    subprocess.run(
-        command, check=True, stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    result = subprocess.run(
+        command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        encoding='utf-8', errors='replace',
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
     )
+    if result.returncode != 0:
+        detail = result.stderr.strip()[-3000:] if result.stderr else 'FFmpeg 未提供錯誤訊息'
+        raise RuntimeError(f'六聲道合成失敗（return code {result.returncode}）：{detail}')
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError('六聲道合成失敗：FFmpeg 未產生有效輸出檔案')
     probe_command = [
         ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
         '-show_entries', 'stream=channels', '-of', 'default=noprint_wrappers=1:nokey=1', output_path,
@@ -520,6 +537,36 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     )
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
+
+def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
+    """Convert and validate a downloaded video for reliable legacy-PC playback."""
+    command = [
+        ffmpeg_path, '-y', '-fflags', '+genpts', '-i', source_path,
+        '-map', '0:v:0', '-map', '0:a?',
+        '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+        '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+        '-af', 'aresample=async=1:first_pts=0',
+        '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', output_path,
+    ]
+    subprocess.run(
+        command, check=True, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError('下載影片播放相容化失敗：輸出檔案不存在或為空')
+    validation_command = [
+        ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+        '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+        'NUL' if os.name == 'nt' else '/dev/null',
+    ]
+    subprocess.run(
+        validation_command, check=True, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
 
 @app.route('/api/videos/ai-vocal-remove', methods=['POST'])
 def ai_vocal_remove_video():
@@ -536,6 +583,7 @@ def ai_vocal_remove_video():
 
     job_dir = os.path.join(TEMP_BASE_DIR, f'ai_vocal_remove_{time.time_ns()}')
     source_path = os.path.join(job_dir, 'input.mp4')
+    optimized_source_path = os.path.join(job_dir, 'input_optimized.mp4')
     output_path = os.path.join(job_dir, 'output.mp4')
     final_path = os.path.join(SONGS_DIR, filename)
     os.makedirs(job_dir, exist_ok=True)
@@ -544,6 +592,13 @@ def ai_vocal_remove_video():
     try:
         video_file.save(source_path)
         broadcast_log(f'=== 開始 AI 去人聲：{filename} ===')
+        ffmpeg_dir = get_ffmpeg_location()
+        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            raise RuntimeError('找不到 FFmpeg')
+        broadcast_log('⏳ 先轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...')
+        _optimize_downloaded_video(ffmpeg_path, source_path, optimized_source_path)
+        shutil.move(optimized_source_path, source_path)
         p = multiprocessing.Process(target=_run_spleeter_process, args=(source_path, job_dir))
         p.start()
         p.join()
@@ -553,10 +608,6 @@ def ai_vocal_remove_video():
         accompaniment_path = os.path.join(job_dir, 'input', 'accompaniment.wav')
         if not os.path.exists(vocal_path) or not os.path.exists(accompaniment_path):
             raise RuntimeError('找不到 Spleeter 產生的音軌檔')
-        ffmpeg_dir = get_ffmpeg_location()
-        ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
-        if not ffmpeg_path:
-            raise RuntimeError('找不到 FFmpeg')
         ffprobe_path = get_ffprobe_path(ffmpeg_path)
         if not ffprobe_path:
             raise RuntimeError('找不到 FFprobe，無法驗證六聲道輸出')
@@ -880,6 +931,8 @@ def handle_song_ended():
 @socketio.on('control')
 def handle_control(action):
     if action == 'cut':
+        if playlist_queue:
+            emit('stop_video', {'filename': playlist_queue[0]}, broadcast=True)
         handle_song_ended()
     else:
         # 其他指令 (例如 pause) 照常發送
@@ -988,7 +1041,7 @@ def handle_start_download(data):
     url = data.get('url')
     title = data.get('title')
     ai_engine = data.get('ai_engine', 'spleeter')
-    normalize_volume = data.get('normalize_volume', True) is not False
+    normalize_volume = True
     if ai_engine not in ('spleeter', 'mdxnet'):
         broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
         return
@@ -1022,7 +1075,7 @@ def handle_start_batch_download(data):
         return
     jobs = data.get('jobs', []) if isinstance(data, dict) else []
     ai_engine = data.get('ai_engine', 'spleeter') if isinstance(data, dict) else 'spleeter'
-    normalize_volume = data.get('normalize_volume', True) is not False if isinstance(data, dict) else True
+    normalize_volume = True
     if ai_engine not in ('spleeter', 'mdxnet'):
         broadcast_log(f"❌ 不支援的 AI 去人聲引擎：{ai_engine}")
         return
@@ -1120,9 +1173,10 @@ class KTVProcessor:
             os.makedirs(job_temp_dir, exist_ok=True)
 
             temp_input = os.path.join(job_temp_dir, "input.mp4")
+            temp_optimized = os.path.join(job_temp_dir, "input_optimized.mp4")
             temp_output = os.path.join(job_temp_dir, "output.mp4")
 
-            self.log("步驟 1/4: 下載影片...")
+            self.log("步驟 1/5: 下載影片...")
             ffmpeg_location = get_ffmpeg_location()
             cmd_dl = get_ytdlp_command() + ([
                 "--ffmpeg-location", ffmpeg_location
@@ -1139,11 +1193,18 @@ class KTVProcessor:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
             )
 
+            self.log("步驟 2/5: 轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...")
+            ffmpeg_path = os.path.join(ffmpeg_location, 'ffmpeg.exe') if ffmpeg_location else shutil.which('ffmpeg')
+            if not ffmpeg_path:
+                raise Exception("找不到 FFmpeg")
+            _optimize_downloaded_video(ffmpeg_path, temp_input, temp_optimized)
+            shutil.move(temp_optimized, temp_input)
+
             engine_names = {'spleeter': 'Spleeter', 'mdxnet': 'MDX-Net'}
             engine_name = engine_names.get(ai_engine)
             if engine_name is None:
                 raise ValueError(f"不支援的 AI 去人聲引擎：{ai_engine}")
-            self.log(f"步驟 2/4: AI 去人聲 ({engine_name})... (這需要一點時間)")
+            self.log(f"步驟 3/5: AI 去人聲 ({engine_name})... (這需要一點時間)")
             
             # 【終極修復】PyInstaller 打包後沒有 spleeter.exe 可用 subprocess 呼叫。
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。
@@ -1168,8 +1229,7 @@ class KTVProcessor:
             if not os.path.exists(voc_path) or not os.path.exists(acc_path):
                 raise Exception("Spleeter 分離失敗，找不到音軌檔")
 
-            self.log("步驟 3/4: 合成六聲道（原聲 / 導唱 / 伴奏）...")
-            ffmpeg_path = os.path.join(ffmpeg_location, 'ffmpeg.exe') if ffmpeg_location else shutil.which('ffmpeg')
+            self.log("步驟 4/5: 合成六聲道（原聲 / 導唱 / 伴奏）...")
             ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
             if not ffmpeg_path or not ffprobe_path:
                 raise Exception("找不到 FFmpeg 或 FFprobe")
@@ -1178,7 +1238,7 @@ class KTVProcessor:
                 temp_output, normalize_volume,
             )
 
-            self.log(f"步驟 4/4: 儲存為 {safe_title}.mp4")
+            self.log(f"步驟 5/5: 儲存為 {safe_title}.mp4")
             final = os.path.join(SONGS_DIR, f"{safe_title}.mp4")
             
             if os.path.exists(final):
@@ -1193,7 +1253,7 @@ class KTVProcessor:
             self.log(f"❌ 執行失敗 (Code {e.returncode})")
             return None
         except Exception as e:
-            self.log(f"❌ 錯誤: {e}")
+            self.log(f"❌ 執行失敗：{e}")
             return None
         finally:
             if job_temp_dir and os.path.exists(job_temp_dir):

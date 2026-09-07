@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Convert an existing KTV MP4 to H.264, up to 1080p.
+    Convert an existing KTV MP4 to low-load H.264, up to 720p at 30fps.
 
 .DESCRIPTION
     Write a temporary output beside the song and replace the source only after success.
@@ -34,10 +34,10 @@ $directory = [IO.Path]::GetDirectoryName($resolvedInput)
 $baseName = [IO.Path]::GetFileNameWithoutExtension($resolvedInput)
 $tempName = '{0}.optimized{1}' -f $baseName, $extension
 $tempOutput = Join-Path $directory $tempName
-$videoFilter = "scale=w='min(1920,iw)':h=-2:force_original_aspect_ratio=decrease"
+$videoFilter = "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30"
 
 try {
-    & $ffmpeg -y -i $resolvedInput -map 0:v:0 -map '0:a?' -vf $videoFilter -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -af 'loudnorm=I=-14:TP=-1:LRA=11' -c:a aac -movflags +faststart $tempOutput
+    & $ffmpeg -y -i $resolvedInput -map 0:v:0 -map '0:a?' -vf $videoFilter -c:v libx264 -preset veryfast -crf 23 -profile:v main -level 3.1 -pix_fmt yuv420p -af 'loudnorm=I=-14:TP=-1:LRA=11' -c:a aac -movflags +faststart $tempOutput
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempOutput)) {
         throw 'FFmpeg conversion failed.'
     }
