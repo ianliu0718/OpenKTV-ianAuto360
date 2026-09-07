@@ -566,9 +566,11 @@ const socket = io();
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線"; });
 
-        socket.on('stop_video', () => {
+        socket.on('stop_video', (data) => {
+            if (data && data.filename && data.filename !== currentFilename) return;
             clearCurrentSubtitle();
             video.pause(); audioTrack.pause(); video.src = ""; audioTrack.src = ""; video.style.display = 'none';
+            currentFilename = '';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
             nextInfo.style.display = 'none';
             songAnnouncement.classList.remove('visible');

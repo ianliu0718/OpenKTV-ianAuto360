@@ -931,6 +931,8 @@ def handle_song_ended():
 @socketio.on('control')
 def handle_control(action):
     if action == 'cut':
+        if playlist_queue:
+            emit('stop_video', {'filename': playlist_queue[0]}, broadcast=True)
         handle_song_ended()
     else:
         # 其他指令 (例如 pause) 照常發送

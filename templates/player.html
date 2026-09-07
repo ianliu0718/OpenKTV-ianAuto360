@@ -402,12 +402,14 @@
             }
         });
 
-        socket.on('stop_video', () => {
+        socket.on('stop_video', (data) => {
+            if (data && data.filename && data.filename !== currentFilename) return;
             clearCurrentSubtitle();
             video.pause();
             audioTrack.pause();
             video.src = "";
             audioTrack.src = "";
+            currentFilename = '';
             waiting.style.display = 'block';
             overlay.innerText = "⏹ 已停止";
             songAnnouncement.classList.remove('visible');
