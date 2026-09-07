@@ -96,7 +96,7 @@
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
         <div id="key-status">KEY：原 KEY (0)</div>
-        <div id="seek-status">畫面：目前位置</div>
+        <div id="seek-status">畫面延遲：0 秒</div>
         <div id="song-announcement"></div>
         <div id="queue-add-announcement"></div>
         <div id="ktv-subtitle" aria-live="polite"></div>
@@ -224,7 +224,11 @@ const socket = io();
          * @param {number} seconds Signed accumulated video position offset in seconds.
          */
         function updateSeekStatus(seconds) {
-            seekStatus.innerText = seconds === 0 ? '畫面：0' : `畫面：${seconds > 0 ? '+' : ''}${seconds.toFixed(1)}`;
+            seekStatus.innerText = seconds === 0
+                ? '畫面同步'
+                : seconds > 0
+                    ? `畫面延遲：${seconds.toFixed(1)} 秒（聲音提前）`
+                    : `畫面提前：${Math.abs(seconds).toFixed(1)} 秒（聲音落後）`;
             clearTimeout(seekStatusTimer);
             seekStatus.classList.add('visible');
             seekStatusTimer = setTimeout(() => seekStatus.classList.remove('visible'), 3000);
@@ -574,7 +578,8 @@ const socket = io();
         socket.on('seek_video', (data) => {
             const seconds = Number(data.seconds);
             if (Number.isFinite(seconds)) {
-                video.currentTime = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + seconds));
+                const targetTime = seconds === 0 ? audioTrack.currentTime : video.currentTime - seconds;
+                video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
                 updateSeekStatus(Number(data.offset) || 0);
             }
         });
