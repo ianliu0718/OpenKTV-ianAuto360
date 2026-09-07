@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.5.1"
+APP_VERSION = "v1.0.6"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -504,7 +504,8 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
         '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
         '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
-        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]amerge=inputs=6,'
+        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
@@ -512,13 +513,19 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '-filter_complex', audio_filter,
         '-map', '0:v:0', '-map', '[audio]',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k', '-movflags', '+faststart',
+        '-shortest',
         '-metadata:s:a:0', 'title=原聲、導唱、伴奏（六聲道）', output_path,
     ]
-    subprocess.run(
-        command, check=True, stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    result = subprocess.run(
+        command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        encoding='utf-8', errors='replace',
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
     )
+    if result.returncode != 0:
+        detail = result.stderr.strip()[-3000:] if result.stderr else 'FFmpeg 未提供錯誤訊息'
+        raise RuntimeError(f'六聲道合成失敗（return code {result.returncode}）：{detail}')
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError('六聲道合成失敗：FFmpeg 未產生有效輸出檔案')
     probe_command = [
         ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
         '-show_entries', 'stream=channels', '-of', 'default=noprint_wrappers=1:nokey=1', output_path,
@@ -1244,7 +1251,7 @@ class KTVProcessor:
             self.log(f"❌ 執行失敗 (Code {e.returncode})")
             return None
         except Exception as e:
-            self.log(f"❌ 錯誤: {e}")
+            self.log(f"❌ 執行失敗：{e}")
             return None
         finally:
             if job_temp_dir and os.path.exists(job_temp_dir):
