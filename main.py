@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.2"
+APP_VERSION = "v1.0.6.3"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -426,7 +426,7 @@ def optimize_video():
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
-            '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
+            '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
             '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
             '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
@@ -541,9 +541,9 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
     command = [
-        ffmpeg_path, '-y', '-fflags', '+genpts', '-i', source_path,
+        ffmpeg_path, '-y', '-fflags', '+genpts', '-xerror', '-i', source_path,
         '-map', '0:v:0', '-map', '0:a?',
-        '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
+        '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
         '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
@@ -1213,6 +1213,13 @@ class KTVProcessor:
             ] if ffmpeg_location else []) + [
                 "--force-overwrites",  
                 "--no-playlist",       
+                "--retries", "10",
+                "--fragment-retries", "10",
+                "--extractor-retries", "3",
+                "--file-access-retries", "3",
+                "--retry-sleep", "fragment:exp=1:10",
+                "--concurrent-fragments", "1",
+                "--abort-on-unavailable-fragments",
                 "-f", "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+best[ext=mp4][height<=1080]/best",
                 "-o", temp_input, 
                 url
