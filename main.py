@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.3"
+APP_VERSION = "v1.0.6.4"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -541,7 +541,7 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
     command = [
-        ffmpeg_path, '-y', '-fflags', '+genpts', '-xerror', '-i', source_path,
+        ffmpeg_path, '-y', '-fflags', '+genpts', '-err_detect', 'ignore_err', '-i', source_path,
         '-map', '0:v:0', '-map', '0:a?',
         '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
