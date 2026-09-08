@@ -7,6 +7,8 @@
         video { width: 100%; height: 100%; object-fit: contain; }
         audio { display: none; }
         #overlay { position: absolute; top: 20px; left: 20px; font-size: 24px; text-shadow: 2px 2px 4px #000; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px;}
+        #fs-btn { position: absolute; top: 20px; right: 20px; z-index: 50; background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 8px 12px; cursor: pointer; border-radius: 5px; font-size: 16px; }
+        #fs-btn:hover { background: rgba(255,255,255,0.4); }
         #key-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 14px 24px; border-radius: 8px; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #key-status.visible { opacity: 1; visibility: visible; }
         #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 70px); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
@@ -39,6 +41,7 @@
 </head>
 <body>
     <div id="overlay">等待連線...</div>
+    <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
     <div id="key-status">KEY：原 KEY (0)</div>
     <div id="seek-status">畫面延遲：0 秒</div>
     <div id="queue-add-announcement"></div>
@@ -57,6 +60,7 @@
         const video = document.getElementById('vid');
         const audioTrack = document.getElementById('audio-track');
         const overlay = document.getElementById('overlay');
+        const fsButton = document.getElementById('fs-btn');
         const keyStatus = document.getElementById('key-status');
         const seekStatus = document.getElementById('seek-status');
         const waiting = document.getElementById('waiting');
@@ -86,6 +90,28 @@
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
         let seekStatusTimer;
+
+        /** Toggles fullscreen for the playback page. */
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                const target = document.documentElement;
+                if (target.requestFullscreen) target.requestFullscreen();
+                else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        }
+
+        function updateFullScreenButton() {
+            if (fsButton) fsButton.textContent = document.fullscreenElement ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+        }
+
+        document.addEventListener('fullscreenchange', updateFullScreenButton);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && document.fullscreenElement && document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        });
 
         /**
          * Updates the KEY value shown on the playback screen.

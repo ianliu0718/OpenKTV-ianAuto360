@@ -373,6 +373,18 @@ const socket = io();
             }
         }
 
+        function updateFullScreenButton() {
+            const button = document.getElementById('fs-btn');
+            if (button) button.textContent = document.fullscreenElement ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+        }
+
+        document.addEventListener('fullscreenchange', updateFullScreenButton);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && document.fullscreenElement && document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        });
+
         function initSystem() {
             if(!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
