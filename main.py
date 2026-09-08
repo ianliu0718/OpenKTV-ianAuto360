@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.4"
+APP_VERSION = "v1.0.6.5"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -1208,38 +1208,63 @@ class KTVProcessor:
             current_step = '步驟 1/5 下載影片'
             self.log("步驟 1/5: 下載影片...")
             ffmpeg_location = get_ffmpeg_location()
-            cmd_dl = get_ytdlp_command() + ([
-                "--ffmpeg-location", ffmpeg_location
-            ] if ffmpeg_location else []) + [
-                "--force-overwrites",  
-                "--no-playlist",       
-                "--retries", "10",
-                "--fragment-retries", "10",
-                "--extractor-retries", "3",
-                "--file-access-retries", "3",
-                "--retry-sleep", "fragment:exp=1:10",
-                "--concurrent-fragments", "1",
-                "--abort-on-unavailable-fragments",
-                "-f", "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+best[ext=mp4][height<=1080]/best",
-                "-o", temp_input, 
-                url
-            ]
-            
-            download_result = subprocess.run(
-                cmd_dl, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                encoding='utf-8', errors='replace',
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
-            )
-            if download_result.returncode != 0:
-                detail = (download_result.stderr or download_result.stdout or 'yt-dlp 未提供錯誤訊息').strip()[-4000:]
-                raise RuntimeError(f'下載失敗（return code {download_result.returncode}）：{detail}')
-
-            current_step = '步驟 2/5 轉換影片'
-            self.log("步驟 2/5: 轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...")
             ffmpeg_path = os.path.join(ffmpeg_location, 'ffmpeg.exe') if ffmpeg_location else shutil.which('ffmpeg')
             if not ffmpeg_path:
                 raise Exception("找不到 FFmpeg")
-            _optimize_downloaded_video(ffmpeg_path, temp_input, temp_optimized)
+
+            format_candidates = [
+                ('720p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=720]+bestaudio[ext=m4a]'),
+                ('480p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]'),
+                ('720p MP4 progressive（影像與音訊合一）', 'best[ext=mp4][height<=720]'),
+                ('其他 720p 格式', 'best[height<=720]'),
+            ]
+            download_errors = []
+            selected_format_name = ''
+            for format_index, (format_name, format_selector) in enumerate(format_candidates, start=1):
+                current_step = f'步驟 1/5 下載影片（格式嘗試 {format_index}/{len(format_candidates)}）'
+                self.log(f"步驟 1/5: 嘗試格式 {format_index}/{len(format_candidates)}：{format_name}")
+                self.log(f"🔎 yt-dlp 格式選擇器：{format_selector}")
+                cmd_dl = get_ytdlp_command() + ([
+                    "--ffmpeg-location", ffmpeg_location
+                ] if ffmpeg_location else []) + [
+                    "--force-overwrites", "--no-playlist",
+                    "--retries", "10", "--fragment-retries", "10",
+                    "--extractor-retries", "3", "--file-access-retries", "3",
+                    "--retry-sleep", "fragment:exp=1:10",
+                    "--concurrent-fragments", "1", "--abort-on-unavailable-fragments",
+                    "-f", format_selector, "-o", temp_input, url,
+                ]
+                download_result = subprocess.run(
+                    cmd_dl, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                    encoding='utf-8', errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+                if download_result.returncode != 0:
+                    detail = (download_result.stderr or download_result.stdout or 'yt-dlp 未提供錯誤訊息').strip()[-1200:]
+                    self.log(f"⚠️ 格式失敗：{format_name}（return code {download_result.returncode}），準備換下一種格式。")
+                    download_errors.append(f'格式 {format_name}（{format_selector}）：下載失敗（{download_result.returncode}）：{detail}')
+                    for stale_path in (temp_input, temp_optimized):
+                        if os.path.exists(stale_path):
+                            os.remove(stale_path)
+                    self.log(f"🧹 已清除 {format_name} 的下載半成品。")
+                    continue
+                try:
+                    self.log(f"✅ 下載完成：{format_name}，開始轉檔與完整性驗證。")
+                    current_step = f'步驟 2/5 轉換影片（格式嘗試 {format_index}/{len(format_candidates)}）'
+                    self.log(f"步驟 2/5: 使用 {format_name} 轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...")
+                    _optimize_downloaded_video(ffmpeg_path, temp_input, temp_optimized)
+                    selected_format_name = format_name
+                    self.log(f"✅ 格式驗證成功：{format_name}，後續使用此影片進行 AI 去人聲。")
+                    break
+                except Exception as conversion_error:
+                    self.log(f"⚠️ 格式驗證失敗：{format_name}，清除半成品並換下一種格式。")
+                    download_errors.append(f'格式 {format_name}（{format_selector}）：{conversion_error}')
+                    for stale_path in (temp_input, temp_optimized):
+                        if os.path.exists(stale_path):
+                            os.remove(stale_path)
+                    self.log(f"🧹 已清除 {format_name} 的下載與轉檔半成品。")
+            else:
+                raise RuntimeError('所有下載格式均失敗：\n' + '\n'.join(download_errors)[-6000:])
             shutil.move(temp_optimized, temp_input)
 
             engine_names = {'spleeter': 'Spleeter', 'mdxnet': 'MDX-Net'}
@@ -1247,7 +1272,7 @@ class KTVProcessor:
             if engine_name is None:
                 raise ValueError(f"不支援的 AI 去人聲引擎：{ai_engine}")
             current_step = f'步驟 3/5 AI 去人聲（{engine_name}）'
-            self.log(f"步驟 3/5: AI 去人聲 ({engine_name})... (這需要一點時間)")
+            self.log(f"步驟 3/5: 使用 {selected_format_name} 的有效影片進行 AI 去人聲 ({engine_name})... (這需要一點時間)")
             
             # 【終極修復】PyInstaller 打包後沒有 spleeter.exe 可用 subprocess 呼叫。
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。

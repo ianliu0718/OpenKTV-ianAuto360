@@ -1,0 +1,352 @@
+ianAutoKTV 批量新增失敗清單
+建立時間：2026-09-08T08:19:57
+失敗數量：5
+
+[3] 鬥陣拼-詹雅雯-台-0053
+可重試：https://www.youtube.com/watch?v=Ot7bUb4IQ2E&list=RDRwVVorZlsGw&index=27 | 鬥陣拼-詹雅雯-台-0053
+失敗步驟：步驟 1/5 下載影片（格式嘗試 4/4）
+錯誤：所有下載格式均失敗：
+ing the input into NAL units.
+[aist#0:1/aac @ 0000021017d8dd00] [dec:aac @ 0000021019f09840] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 0000021019dced80] [dec:h264 @ 0000021019f11740] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 0000021019dced80] [dec:h264 @ 0000021019f11740] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 000002101990e480] Invalid NAL unit size (0 > 636).
+[h264 @ 000002101990e480] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 0000021019dced80] [dec:h264 @ 0000021019f11740] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 0000021019dced80] [dec:h264 @ 0000021019f11740] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]：轉檔後驗證失敗（return code 3199971767）：nit size (0 > 41).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 45
+[h264 @ 0000020b0cc361c0] Invalid NAL unit size (0 > 122).
+[h264 @ 0000020b0cc361c0] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 35).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 39
+[h264 @ 0000020b0cc36900] Invalid NAL unit size (0 > 610).
+[h264 @ 0000020b0cc36900] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 33).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 37
+[h264 @ 0000020b0cc36cc0] Invalid NAL unit size (0 > 334).
+[h264 @ 0000020b0cc36cc0] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 33).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 37
+[h264 @ 0000020b0cc3bcc0] Invalid NAL unit size (0 > 89).
+[h264 @ 0000020b0cc3bcc0] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 37).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 41
+[h264 @ 0000020b0ece6980] Invalid NAL unit size (0 > 79).
+[h264 @ 0000020b0ece6980] Error splitting the input into NAL units.
+[h264 @ 0000020b0e9f40c0] Invalid NAL unit size (0 > 192).
+[h264 @ 0000020b0e9f40c0] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 35).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 39
+[h264 @ 0000020b0ecf0840] Invalid NAL unit size (0 > 76).
+[h264 @ 0000020b0ecf0840] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 33).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 37
+[h264 @ 0000020b0ea68900] Invalid NAL unit size (0 > 77).
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 33).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 37
+[h264 @ 0000020b0ea68900] Error splitting the input into NAL units.
+[aac @ 0000020b0ece3140] channel element 0.0 is not allocated
+[aist#0:1/aac @ 0000020b0eb9ebc0] [dec:aac @ 0000020b0ed5fd00] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 0000020b0eb9ebc0] [dec:aac @ 0000020b0ed5fd00] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 263).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 267
+[h264 @ 0000020b0e9fcf00] Invalid NAL unit size (0 > 48).
+[h264 @ 0000020b0e9fcf00] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 264).
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 268
+[h264 @ 0000020b0e9fd680] Invalid NAL unit size (0 > 41).
+[h264 @ 0000020b0e9fd680] Error splitting the input into NAL units.
+[h264 @ 0000020b0cc7ea40] Invalid NAL unit size (0 > 695).
+[vist#0:0/h264 @ 0000020b0cc7ee00] [dec:h264 @ 0000020b0eae2d40] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 0000020b0cc7ee00] [dec:h264 @ 0000020b0eae2d40] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 0000020b0cc7d4c0] Invalid NAL unit size (0 > 35).
+[h264 @ 0000020b0cc7d4c0] Error splitting the input into NAL units.
+[aist#0:1/aac @ 0000020b0eb9ebc0] [dec:aac @ 0000020b0ed5fd00] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[h264 @ 0000020b0cc7ea40] missing picture in access unit with size 699
+[aist#0:1/aac @ 0000020b0eb9ebc0] [dec:aac @ 0000020b0ed5fd00] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 0000020b0cc7ee00] [dec:h264 @ 0000020b0eae2d40] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 0000020b0cc7ee00] [dec:h264 @ 0000020b0eae2d40] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 best[ext=mp4][height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] Ot7bUb4IQ2E: Requested format is not available. Use --list-formats for a list of available formats
+格式 best[height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] Ot7bUb4IQ2E: Requested format is not available. Use --list-formats for a list of available formats
+
+[16] 絕情雨-王瑞霞-台-0102
+可重試：https://www.youtube.com/watch?v=IkY1Ky2najY&list=RDRwVVorZlsGw&index=10 | 絕情雨-王瑞霞-台-0102
+失敗步驟：步驟 1/5 下載影片（格式嘗試 4/4）
+錯誤：所有下載格式均失敗：
+168b47e7d00] missing picture in access unit with size 37
+[h264 @ 00000168b636e800] Invalid NAL unit size (0 > 128).
+[h264 @ 00000168b636e800] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 00000168b621ecc0] [dec:h264 @ 00000168b4861c80] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 00000168b621ecc0] [dec:h264 @ 00000168b4861c80] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 00000168b4776400] Invalid NAL unit size (0 > 261).
+[h264 @ 00000168b4776400] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 00000168b621ecc0] [dec:h264 @ 00000168b4861c80] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 00000168b621ecc0] [dec:h264 @ 00000168b4861c80] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]：轉檔後驗證失敗（return code 3199971767）：00000177e60b3000] missing picture in access unit with size 8835
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 12747).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 12751
+[h264 @ 00000177e632eb00] Invalid NAL unit size (0 > 112).
+[h264 @ 00000177e632eb00] Error splitting the input into NAL units.
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 261).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 265
+[h264 @ 00000177e605e8c0] Invalid NAL unit size (0 > 869).
+[h264 @ 00000177e605e8c0] Error splitting the input into NAL units.
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 175).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 179
+[h264 @ 00000177e605f180] Invalid NAL unit size (0 > 101).
+[h264 @ 00000177e605f180] Error splitting the input into NAL units.
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 5692).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 5696
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 4396).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 4400
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 142).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 146
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 114).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 118
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 32).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 36
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 2310).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 2314
+[h264 @ 00000177e416e180] Invalid NAL unit size (0 > 85).
+[h264 @ 00000177e416e180] Error splitting the input into NAL units.
+[h264 @ 00000177e6145dc0] Invalid NAL unit size (0 > 502).
+[h264 @ 00000177e6145dc0] Error splitting the input into NAL units.
+[h264 @ 00000177e6146b40] Invalid NAL unit size (0 > 201).
+[h264 @ 00000177e6146b40] Error splitting the input into NAL units.
+[h264 @ 00000177e612cc00] Invalid NAL unit size (0 > 137).
+[h264 @ 00000177e612cc00] Error splitting the input into NAL units.
+[h264 @ 00000177e612cfc0] Invalid NAL unit size (0 > 119).
+[h264 @ 00000177e612cfc0] Error splitting the input into NAL units.
+[h264 @ 00000177e612d380] Invalid NAL unit size (0 > 458).
+[h264 @ 00000177e612d380] Error splitting the input into NAL units.
+[h264 @ 00000177e612b980] Invalid NAL unit size (0 > 159).
+[h264 @ 00000177e612b980] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 00000177e4169500] [dec:h264 @ 00000177e4134200] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 00000177e4169500] [dec:h264 @ 00000177e4134200] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 00000177e612bd40] Invalid NAL unit size (0 > 83).
+[h264 @ 00000177e612bd40] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 00000177e4169500] [dec:h264 @ 00000177e4134200] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 00000177e4169500] [dec:h264 @ 00000177e4134200] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 00000177e60b3000] Invalid NAL unit size (0 > 42).
+[h264 @ 00000177e60b3000] missing picture in access unit with size 46
+[aac @ 00000177e63a0d40] channel element 0.0 is not allocated
+[aist#0:1/aac @ 00000177e41696c0] [dec:aac @ 00000177e639f3c0] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 00000177e41696c0] [dec:aac @ 00000177e639f3c0] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 00000177e41696c0] [dec:aac @ 00000177e639f3c0] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 00000177e41696c0] [dec:aac @ 00000177e639f3c0] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 best[ext=mp4][height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] IkY1Ky2najY: Requested format is not available. Use --list-formats for a list of available formats
+格式 best[height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] IkY1Ky2najY: Requested format is not available. Use --list-formats for a list of available formats
+
+[18] 追追追-黃妃-台-0105
+可重試：https://www.youtube.com/watch?v=ho0sge1nch8&list=RDRwVVorZlsGw&index=25 | 追追追-黃妃-台-0105
+失敗步驟：步驟 1/5 下載影片（格式嘗試 4/4）
+錯誤：所有下載格式均失敗：
+edc0] [dec:h264 @ 0000023ebdbdc600] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 0000023ebf7a5cc0] Invalid NAL unit size (0 > 182).
+[h264 @ 0000023ebf7a5cc0] missing picture in access unit with size 186
+[aac @ 0000023ebfe6ef80] channel element 0.0 is not allocated
+[aist#0:1/aac @ 0000023ebf7a6040] [dec:aac @ 0000023ebfdde5c0] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 0000023ebf7a6040] [dec:aac @ 0000023ebfdde5c0] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 0000023ebf7a6040] [dec:aac @ 0000023ebfdde5c0] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 0000023ebf7a6040] [dec:aac @ 0000023ebfdde5c0] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]：轉檔後驗證失敗（return code 3199971767）：Invalid NAL unit size (0 > 352).
+[h264 @ 00000248e9770a40] Error splitting the input into NAL units.
+[h264 @ 00000248e993a300] Invalid NAL unit size (0 > 143).
+[h264 @ 00000248e993a300] Error splitting the input into NAL units.
+[h264 @ 00000248e91848c0] Invalid NAL unit size (0 > 198).
+[h264 @ 00000248e91848c0] Error splitting the input into NAL units.
+[h264 @ 00000248e9185040] Invalid NAL unit size (0 > 515).
+[h264 @ 00000248e9185040] Error splitting the input into NAL units.
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 33).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 37
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 33).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 37
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 37).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 41
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 35).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 39
+[h264 @ 00000248e91857c0] Invalid NAL unit size (0 > 158).
+[h264 @ 00000248e91857c0] Error splitting the input into NAL units.
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 33).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 37
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 33).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 37
+[h264 @ 00000248e95dc680] Invalid NAL unit size (0 > 316).
+[h264 @ 00000248e95dc680] Error splitting the input into NAL units.
+[h264 @ 00000248e95dce00] Invalid NAL unit size (0 > 517).
+[h264 @ 00000248e95dce00] Error splitting the input into NAL units.
+[h264 @ 00000248e95dd6c0] Invalid NAL unit size (0 > 67).
+[h264 @ 00000248e95dd6c0] Error splitting the input into NAL units.
+[h264 @ 00000248e9717ec0] Invalid NAL unit size (0 > 82).
+[h264 @ 00000248e9717ec0] Error splitting the input into NAL units.
+[h264 @ 00000248e9717000] Invalid NAL unit size (0 > 52).
+[h264 @ 00000248e9717000] Error splitting the input into NAL units.
+[h264 @ 00000248e9717380] Invalid NAL unit size (0 > 572).
+[h264 @ 00000248e9717380] Error splitting the input into NAL units.
+[h264 @ 00000248e97164c0] Invalid NAL unit size (0 > 132).
+[h264 @ 00000248e97164c0] Error splitting the input into NAL units.
+[h264 @ 00000248e9716c40] Invalid NAL unit size (0 > 102).
+[h264 @ 00000248e9716c40] Error splitting the input into NAL units.
+[h264 @ 00000248e9716880] Invalid NAL unit size (0 > 734).
+[h264 @ 00000248e9716880] Error splitting the input into NAL units.
+[aac @ 00000248e97f6c80] channel element 0.0 duplicate
+[vist#0:0/h264 @ 00000248e9186100] [dec:h264 @ 00000248e9639dc0] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 00000248e9186100] [dec:h264 @ 00000248e9639dc0] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 00000248e95e4ac0] Invalid NAL unit size (0 > 129).
+[h264 @ 00000248e95e4ac0] Error splitting the input into NAL units.
+[aist#0:1/aac @ 00000248e95c3500] [dec:aac @ 00000248e97f4400] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 00000248e95c3500] [dec:aac @ 00000248e97f4400] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 00000248e95c3500] [dec:aac @ 00000248e97f4400] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 00000248e95c3500] [dec:aac @ 00000248e97f4400] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 00000248e95e3e40] Invalid NAL unit size (0 > 37).
+[h264 @ 00000248e95e3e40] missing picture in access unit with size 41
+[vist#0:0/h264 @ 00000248e9186100] [dec:h264 @ 00000248e9639dc0] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 00000248e9186100] [dec:h264 @ 00000248e9639dc0] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 best[ext=mp4][height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] ho0sge1nch8: Requested format is not available. Use --list-formats for a list of available formats
+格式 best[height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] ho0sge1nch8: Requested format is not available. Use --list-formats for a list of available formats
+
+[35] 我不是 你的人-詹雅雯-台-0264
+可重試：https://www.youtube.com/watch?v=-nmZOK7L_2w&list=RD-nmZOK7L_2w&index=1 | 我不是 你的人-詹雅雯-台-0264
+失敗步驟：步驟 1/5 下載影片（格式嘗試 4/4）
+錯誤：所有下載格式均失敗：
+:h264 @ 00000182e8ee3e00] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 00000182e6b67700] [dec:h264 @ 00000182e8ee3e00] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 00000182e6b678c0] [dec:aac @ 00000182e878d880] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 00000182e87045c0] Invalid NAL unit size (0 > 33).
+[h264 @ 00000182e87045c0] Error splitting the input into NAL units.
+[h264 @ 00000182e8b56d80] missing picture in access unit with size 86
+[vist#0:0/h264 @ 00000182e6b67700] [dec:h264 @ 00000182e8ee3e00] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 00000182e6b67700] [dec:h264 @ 00000182e8ee3e00] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]：轉檔後驗證失敗（return code 3199971767）：@ 000001ecac5c5b40] Invalid NAL unit size (0 > 829).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 833
+[h264 @ 000001ecac41bb80] Invalid NAL unit size (0 > 346).
+[h264 @ 000001ecac41bb80] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 1452).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 1456
+[h264 @ 000001ecac41bf40] Invalid NAL unit size (0 > 49).
+[h264 @ 000001ecac41bf40] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 2082).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 2086
+[h264 @ 000001ecaa2eb440] Invalid NAL unit size (0 > 2452).
+[h264 @ 000001ecaa2eb440] Error splitting the input into NAL units.
+[h264 @ 000001ecac1242c0] Invalid NAL unit size (0 > 373).
+[h264 @ 000001ecac1242c0] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 1326).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 1330
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 1488).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 1492
+[h264 @ 000001ecac12cd00] Invalid NAL unit size (0 > 363).
+[h264 @ 000001ecac12cd00] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c3240] Invalid NAL unit size (0 > 108).
+[h264 @ 000001ecac5c3240] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 886).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 890
+[h264 @ 000001ecac12d200] Invalid NAL unit size (0 > 1391).
+[h264 @ 000001ecac12d200] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 345).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 349
+[h264 @ 000001ecaa2e5180] Invalid NAL unit size (0 > 2235).
+[h264 @ 000001ecaa2e5180] Error splitting the input into NAL units.
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 231).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 235
+[aac @ 000001ecac485400] channel element 0.0 duplicate
+[aist#0:1/aac @ 000001ecac2ced80] [dec:aac @ 000001ecac198a00] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 000001ecac2ced80] [dec:aac @ 000001ecac198a00] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 000001ecac5c5b40] Invalid NAL unit size (0 > 623).
+[h264 @ 000001ecac5c5b40] missing picture in access unit with size 627
+[h264 @ 000001ecaa2e5700] Invalid NAL unit size (0 > 1436).
+[h264 @ 000001ecaa2e5700] Error splitting the input into NAL units.
+[aist#0:1/aac @ 000001ecac2ced80] [dec:aac @ 000001ecac198a00] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 000001ecac2ced80] [dec:aac @ 000001ecac198a00] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 000001ecac253d40] error while decoding MB 35 25, bytestream -8
+[h264 @ 000001ecaa2e6000] Invalid NAL unit size (0 > 829).
+[h264 @ 000001ecaa2e6000] Error splitting the input into NAL units.
+[h264 @ 000001ecaa2e7440] Invalid NAL unit size (0 > 1452).
+[h264 @ 000001ecaa2e7440] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 000001ecac2cebc0] [dec:h264 @ 000001ecac211400] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 000001ecac2cebc0] [dec:h264 @ 000001ecac211400] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 000001ecac253d40] Invalid NAL unit size (0 > 2082).
+[h264 @ 000001ecac253d40] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 000001ecac2cebc0] [dec:h264 @ 000001ecac211400] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 000001ecac2cebc0] [dec:h264 @ 000001ecac211400] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 best[ext=mp4][height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] -nmZOK7L_2w: Requested format is not available. Use --list-formats for a list of available formats
+格式 best[height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] -nmZOK7L_2w: Requested format is not available. Use --list-formats for a list of available formats
+
+[38] 一生陪 伴你-詹雅雯-台-0270
+可重試：https://www.youtube.com/watch?v=_-WpHWMv0Gs&list=RD-nmZOK7L_2w&index=3 | 一生陪 伴你-詹雅雯-台-0270
+失敗步驟：步驟 1/5 下載影片（格式嘗試 4/4）
+錯誤：所有下載格式均失敗：
+001bbca5bb680] [dec:h264 @ 000001bbca5bb840] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 000001bbca5bb300] Invalid NAL unit size (0 > 37).
+[h264 @ 000001bbca5bb300] missing picture in access unit with size 41
+[aac @ 000001bbcac09480] channel element 0.0 duplicate
+[aist#0:1/aac @ 000001bbc8aa8b40] [dec:aac @ 000001bbcab9eac0] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 000001bbc8aa8b40] [dec:aac @ 000001bbcab9eac0] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 000001bbc8aa8b40] [dec:aac @ 000001bbcab9eac0] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 000001bbc8aa8b40] [dec:aac @ 000001bbcab9eac0] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]：轉檔後驗證失敗（return code 3199971767）：699e4c0] Error splitting the input into NAL units.
+[h264 @ 000001e918aaa1c0] Invalid NAL unit size (0 > 433).
+[h264 @ 000001e918aaa1c0] Error splitting the input into NAL units.
+[h264 @ 000001e918ac0500] Invalid NAL unit size (0 > 427).
+[h264 @ 000001e918ac0500] Error splitting the input into NAL units.
+[h264 @ 000001e918871380] Invalid NAL unit size (0 > 112).
+[h264 @ 000001e918871380] Error splitting the input into NAL units.
+[h264 @ 000001e918d13ec0] Invalid NAL unit size (0 > 90).
+[h264 @ 000001e918d13ec0] Error splitting the input into NAL units.
+[h264 @ 000001e918d13b40] Invalid NAL unit size (0 > 154).
+[h264 @ 000001e918d13b40] Error splitting the input into NAL units.
+[h264 @ 000001e918d15500] Invalid NAL unit size (0 > 385).
+[h264 @ 000001e918d15500] Error splitting the input into NAL units.
+[h264 @ 000001e918d14d80] Invalid NAL unit size (0 > 117).
+[h264 @ 000001e918d14d80] Error splitting the input into NAL units.
+[h264 @ 000001e918d14280] Invalid NAL unit size (0 > 319).
+[h264 @ 000001e918d14280] Error splitting the input into NAL units.
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 127).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 131
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 719).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 723
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 125).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 129
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 65).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 69
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 143).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 147
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 802).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 806
+[h264 @ 000001e918d14640] Invalid NAL unit size (0 > 528).
+[h264 @ 000001e918d14640] Error splitting the input into NAL units.
+[h264 @ 000001e91695da00] Invalid NAL unit size (0 > 124).
+[h264 @ 000001e91695da00] Error splitting the input into NAL units.
+[h264 @ 000001e91695e380] Invalid NAL unit size (0 > 108).
+[h264 @ 000001e91695e380] Error splitting the input into NAL units.
+[aac @ 000001e918bda340] decode_band_types: Input buffer exhausted before END element found
+[aist#0:1/aac @ 000001e918a1ec80] [dec:aac @ 000001e91896b0c0] Error submitting packet to decoder: Invalid data found when processing input
+[aist#0:1/aac @ 000001e918a1ec80] [dec:aac @ 000001e91896b0c0] Error processing packet in decoder: Invalid data found when processing input
+[aist#0:1/aac @ 000001e918a1ec80] [dec:aac @ 000001e91896b0c0] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[aist#0:1/aac @ 000001e918a1ec80] [dec:aac @ 000001e91896b0c0] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+[h264 @ 000001e918b6e640] Invalid NAL unit size (0 > 136).
+[h264 @ 000001e918b6e640] missing picture in access unit with size 140
+[h264 @ 000001e91695f280] Invalid NAL unit size (0 > 123).
+[h264 @ 000001e91695f280] Error splitting the input into NAL units.
+[h264 @ 000001e9188e7580] Invalid NAL unit size (0 > 423).
+[h264 @ 000001e9188e7580] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 000001e9169538c0] [dec:h264 @ 000001e918d24e40] Error submitting packet to decoder: Invalid data found when processing input
+[vist#0:0/h264 @ 000001e9169538c0] [dec:h264 @ 000001e918d24e40] Error processing packet in decoder: Invalid data found when processing input
+[h264 @ 000001e91699d300] Invalid NAL unit size (0 > 97).
+[h264 @ 000001e91699d300] Error splitting the input into NAL units.
+[vist#0:0/h264 @ 000001e9169538c0] [dec:h264 @ 000001e918d24e40] Task finished with error code: -1094995529 (Invalid data found when processing input)
+[vist#0:0/h264 @ 000001e9169538c0] [dec:h264 @ 000001e918d24e40] Terminating thread with return code -1094995529 (Invalid data found when processing input)
+格式 best[ext=mp4][height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] _-WpHWMv0Gs: Requested format is not available. Use --list-formats for a list of available formats
+格式 best[height<=720]：下載失敗（1）：WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is enabled by default; to use another runtime add  --js-runtimes RUNTIME[:PATH]  to your command/config. YouTube extraction without a JS runtime has been deprecated, and some formats may be missing. See  https://github.com/yt-dlp/yt-dlp/wiki/EJS  for details on installing one
+ERROR: [youtube] _-WpHWMv0Gs: Requested format is not available. Use --list-formats for a list of available formats
+
