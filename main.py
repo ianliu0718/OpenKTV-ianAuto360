@@ -50,6 +50,9 @@ import json
 import time
 import webbrowser
 import ipaddress
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
@@ -195,6 +198,14 @@ TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing")
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
 audio_loudness_cache = {}
 
+LYRICS_PROVIDERS = {
+    'lrclib': {
+        'name': 'LRCLIB（同步歌詞）',
+        'base_url': 'https://lrclib.net/api',
+    },
+}
+LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
+
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 
@@ -322,6 +333,112 @@ def get_subtitle_list():
         if filename.lower().endswith('.vtt')
     }
     return json.dumps(sorted(subtitles), ensure_ascii=False)
+
+def split_song_filename(song_filename):
+    """Extract the title and artist from title-artist-language-number filenames."""
+    stem = os.path.splitext(os.path.basename(song_filename))[0]
+    parts = stem.rsplit('-', 3)
+    if len(parts) == 4:
+        return parts[0].strip(), parts[1].strip()
+    return stem.strip(), ''
+
+def lyrics_provider_request(provider_id, path, query=None):
+    """Request JSON from a registered lyrics provider."""
+    provider = LYRICS_PROVIDERS.get(provider_id)
+    if not provider:
+        raise ValueError('不支援的歌詞伺服器')
+    url = f"{provider['base_url']}{path}"
+    if query:
+        url = f'{url}?{urlencode(query)}'
+    request = Request(url, headers={'User-Agent': LYRICS_USER_AGENT, 'Accept': 'application/json'})
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except HTTPError as error:
+        try:
+            detail = error.read().decode('utf-8', errors='replace')
+        except OSError:
+            detail = ''
+        raise RuntimeError(f'歌詞伺服器回應 HTTP {error.code}：{detail[-500:]}') from error
+    except (URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise RuntimeError(f'無法連線歌詞伺服器：{error}') from error
+
+@app.route('/api/lyrics/providers')
+def get_lyrics_providers():
+    """Return the lyrics providers currently available to the admin UI."""
+    return json.dumps([
+        {'id': provider_id, 'name': provider['name']}
+        for provider_id, provider in LYRICS_PROVIDERS.items()
+    ], ensure_ascii=False)
+
+@app.route('/api/lyrics/search')
+def search_lyrics():
+    """Search a lyrics provider using an optional local-song filename and query override."""
+    provider_id = request.args.get('provider', 'lrclib').strip().lower()
+    song_filename = os.path.basename(request.args.get('song', '').strip())
+    query_override = request.args.get('query', '').strip()
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(os.path.join(SONGS_DIR, song_filename)):
+        return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
+    title, artist = split_song_filename(song_filename)
+    if not query_override and not title:
+        return json.dumps({'success': False, 'error': '找不到歌名，請自行輸入搜尋關鍵字'}), 400
+    try:
+        query = {'q': query_override} if query_override else {'track_name': title, 'artist_name': artist}
+        records = lyrics_provider_request(provider_id, '/search', query)
+        results = []
+        for record in records if isinstance(records, list) else []:
+            results.append({
+                'id': record.get('id'),
+                'trackName': record.get('trackName') or record.get('name', ''),
+                'artistName': record.get('artistName', ''),
+                'albumName': record.get('albumName', ''),
+                'duration': record.get('duration'),
+                'hasSyncedLyrics': bool((record.get('syncedLyrics') or '').strip()),
+                'preview': (record.get('syncedLyrics') or record.get('plainLyrics') or '').strip()[:240],
+            })
+        return json.dumps({
+            'success': True,
+            'song': song_filename,
+            'suggested_title': title,
+            'suggested_artist': artist,
+            'query': query_override or f'{title} {artist}'.strip(),
+            'results': results,
+        }, ensure_ascii=False)
+    except (RuntimeError, ValueError) as error:
+        return json.dumps({'success': False, 'error': str(error)}, ensure_ascii=False), 502
+
+@app.route('/api/lyrics/download', methods=['POST'])
+def download_lyrics():
+    """Fetch selected synchronized lyrics and save them as the song's WebVTT file."""
+    global is_processing
+    data = request.get_json(silent=True) or {}
+    provider_id = str(data.get('provider', 'lrclib')).strip().lower()
+    song_filename = os.path.basename(str(data.get('song', '')).strip())
+    record_id = data.get('id')
+    overwrite = bool(data.get('overwrite', False))
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    if is_processing:
+        return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
+    try:
+        record_id = int(record_id)
+    except (TypeError, ValueError):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
+    output_path = os.path.join(SONGS_DIR, output_name)
+    if os.path.exists(output_path) and not overwrite:
+        return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
+    try:
+        record = lyrics_provider_request(provider_id, f'/get/{record_id}')
+        synced_lyrics = str(record.get('syncedLyrics') or '').strip()
+        if not synced_lyrics:
+            return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
+        output_name = save_subtitle(song_filename, synced_lyrics, 'lrc')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': output_name, 'trackName': record.get('trackName', ''), 'artistName': record.get('artistName', '')}, ensure_ascii=False)
+    except (RuntimeError, ValueError, OSError) as error:
+        return json.dumps({'success': False, 'error': f'歌詞下載失敗：{error}'}, ensure_ascii=False), 502
 
 @app.route('/api/subtitles/upload', methods=['POST'])
 def upload_subtitle():

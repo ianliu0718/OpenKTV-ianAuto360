@@ -26,6 +26,11 @@
         .lyric-line-time { font-family: monospace; color: #607D8B; }
         .lyric-line-actions { display: flex; gap: 4px; }
         .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
+        #lyrics_search_results { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+        #lyrics_search_results li { display: grid; gap: 4px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        #lyrics_search_results li.selected { border-color: #FF9800; background: #fff8e8; }
+        .lyrics-result-meta { color: #607D8B; font-size: 13px; }
+        .lyrics-result-preview { color: #555; font-size: 13px; white-space: pre-wrap; max-height: 60px; overflow: hidden; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -85,6 +90,19 @@
             <textarea id="converter_text" class="subtitle-input" placeholder="或直接貼上 SRT、LRC、VTT 格式文字"></textarea>
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
             <p id="converter_status"></p>
+        </details>
+        <details class="lyrics-downloader">
+            <summary>進階：下載線上同步歌詞</summary>
+            <label for="lyrics_provider">歌詞伺服器：</label>
+            <select id="lyrics_provider"><option value="">載入歌詞伺服器中...</option></select>
+            <label for="lyrics_song">選擇本地歌曲：</label>
+            <select id="lyrics_song"><option value="">載入歌曲中...</option></select>
+            <label for="lyrics_query">搜尋關鍵字（可留空，自動使用檔名中的歌名／歌手）：</label>
+            <input type="text" id="lyrics_query" placeholder="例如：落山風 江蕙">
+            <button id="btn_lyrics_search" class="btn-update" onclick="searchOnlineLyrics()">搜尋歌詞</button>
+            <ul id="lyrics_search_results"><li>請選擇歌曲後搜尋</li></ul>
+            <button id="btn_lyrics_download" class="btn-update" onclick="downloadSelectedLyrics()" disabled>下載並儲存同步歌詞</button>
+            <p id="lyrics_download_status"></p>
         </details>
         <details class="manual-lyric-editor">
             <summary>進階：手動製作歌詞檔</summary>
@@ -157,7 +175,16 @@
         const manualLyricTime = document.getElementById('manual_lyric_time');
         const manualLyricsList = document.getElementById('manual_lyrics_list');
         const manualLyricStatus = document.getElementById('manual_lyric_status');
+        const lyricsProvider = document.getElementById('lyrics_provider');
+        const lyricsSong = document.getElementById('lyrics_song');
+        const lyricsQuery = document.getElementById('lyrics_query');
+        const lyricsSearchButton = document.getElementById('btn_lyrics_search');
+        const lyricsSearchResults = document.getElementById('lyrics_search_results');
+        const lyricsDownloadButton = document.getElementById('btn_lyrics_download');
+        const lyricsDownloadStatus = document.getElementById('lyrics_download_status');
         let manualLyricLines = [];
+        let onlineLyricsResults = [];
+        let selectedOnlineLyrics = null;
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
         function formatManualLyricTime(seconds) {
@@ -169,6 +196,105 @@
         /** Escapes lyric text before it is rendered into the timing list. @param {string} text @returns {string} */
         function escapeManualLyricHtml(text) {
             return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+        }
+
+        /** Loads the registered online lyrics providers. */
+        function loadLyricsProviders() {
+            fetch('/api/lyrics/providers').then((response) => response.json()).then((providers) => {
+                lyricsProvider.innerHTML = providers.map((provider) => `<option value="${escapeManualLyricHtml(provider.id)}">${escapeManualLyricHtml(provider.name)}</option>`).join('');
+            }).catch(() => { lyricsProvider.innerHTML = '<option value="lrclib">LRCLIB（同步歌詞）</option>'; });
+        }
+
+        /** Loads the local songs used by the online lyrics downloader. */
+        function loadLyricsSongs() {
+            fetch('/api/list').then((response) => response.json()).then((songs) => {
+                lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            });
+        }
+
+        /** Renders searchable lyrics results without trusting remote text as HTML. */
+        function renderOnlineLyricsResults() {
+            lyricsSearchResults.replaceChildren();
+            if (!onlineLyricsResults.length) {
+                lyricsSearchResults.innerHTML = '<li>找不到歌詞結果，請修改關鍵字或更換歌曲。</li>';
+                return;
+            }
+            onlineLyricsResults.forEach((result, index) => {
+                const item = document.createElement('li');
+                if (selectedOnlineLyrics && selectedOnlineLyrics.id === result.id) item.classList.add('selected');
+                const title = document.createElement('strong');
+                title.textContent = `${result.trackName || '未命名'} - ${result.artistName || '未知歌手'}`;
+                const meta = document.createElement('span');
+                meta.className = 'lyrics-result-meta';
+                meta.textContent = `${result.albumName || '未知專輯'}｜${result.hasSyncedLyrics ? '同步歌詞' : '無時間碼歌詞'}`;
+                const preview = document.createElement('span');
+                preview.className = 'lyrics-result-preview';
+                preview.textContent = result.preview || '沒有歌詞預覽';
+                const button = document.createElement('button');
+                button.className = 'btn-update';
+                button.textContent = result.hasSyncedLyrics ? '選擇此結果' : '沒有同步時間碼';
+                button.disabled = !result.hasSyncedLyrics;
+                button.onclick = () => {
+                    selectedOnlineLyrics = onlineLyricsResults[index];
+                    renderOnlineLyricsResults();
+                    lyricsDownloadButton.disabled = false;
+                    lyricsDownloadStatus.innerText = `已選擇：${result.trackName} - ${result.artistName}`;
+                };
+                item.append(title, meta, preview, button);
+                lyricsSearchResults.appendChild(item);
+            });
+        }
+
+        /** Searches the selected lyrics provider using filename-derived or custom keywords. */
+        async function searchOnlineLyrics() {
+            if (!lyricsSong.value) {
+                lyricsDownloadStatus.innerText = '請先選擇本地歌曲。';
+                return;
+            }
+            selectedOnlineLyrics = null;
+            onlineLyricsResults = [];
+            lyricsDownloadButton.disabled = true;
+            lyricsSearchButton.disabled = true;
+            lyricsSearchResults.innerHTML = '<li>搜尋中，請稍候...</li>';
+            try {
+                const params = new URLSearchParams({ provider: lyricsProvider.value, song: lyricsSong.value });
+                if (lyricsQuery.value.trim()) params.set('query', lyricsQuery.value.trim());
+                const response = await fetch(`/api/lyrics/search?${params}`);
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || `搜尋失敗（HTTP ${response.status}）`);
+                onlineLyricsResults = data.results || [];
+                lyricsDownloadStatus.innerText = `搜尋關鍵字：${data.query}，找到 ${onlineLyricsResults.length} 筆結果。`;
+                renderOnlineLyricsResults();
+            } catch (error) {
+                lyricsSearchResults.innerHTML = '<li>搜尋失敗，請查看下方訊息。</li>';
+                lyricsDownloadStatus.innerText = `歌詞搜尋失敗：${error.message}`;
+            } finally {
+                lyricsSearchButton.disabled = false;
+            }
+        }
+
+        /** Downloads the selected synchronized lyrics and asks before replacing an existing VTT. */
+        async function downloadSelectedLyrics(overwrite = false) {
+            if (!selectedOnlineLyrics || !lyricsSong.value) return;
+            lyricsDownloadButton.disabled = true;
+            lyricsDownloadStatus.innerText = '歌詞下載與轉換中，請稍候...';
+            try {
+                const response = await fetch('/api/lyrics/download', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: lyricsProvider.value, song: lyricsSong.value, id: selectedOnlineLyrics.id, overwrite }),
+                });
+                const data = await response.json();
+                if (response.status === 409 && data.requires_overwrite && confirm(`${data.filename} 已存在，是否覆蓋？`)) {
+                    await downloadSelectedLyrics(true);
+                    return;
+                }
+                if (!response.ok || !data.success) throw new Error(data.error || `下載失敗（HTTP ${response.status}）`);
+                lyricsDownloadStatus.innerText = `已儲存：${data.filename}`;
+            } catch (error) {
+                lyricsDownloadStatus.innerText = `歌詞下載失敗：${error.message}`;
+            } finally {
+                lyricsDownloadButton.disabled = false;
+            }
         }
 
         /** Refreshes the manual lyric song selector from the server song list. */
@@ -255,6 +381,8 @@
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
         loadManualLyricSongs();
+        loadLyricsProviders();
+        loadLyricsSongs();
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
