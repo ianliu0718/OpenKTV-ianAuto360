@@ -196,6 +196,7 @@
         let onlineLyricsResults = [];
         let selectedOnlineLyrics = null;
         let manualLyricSongs = [];
+        let manualLyricSearchTimer = null;
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
         function formatManualLyricTime(seconds) {
@@ -322,12 +323,19 @@
             const selectedSong = manualLyricSong.value;
             const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
             manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
-            if (keyword && filteredSongs.length) {
-                manualLyricSong.value = filteredSongs[0];
-                if (selectedSong !== filteredSongs[0]) manualLyricSong.dispatchEvent(new Event('change'));
-            } else if (filteredSongs.includes(selectedSong)) {
+            if (filteredSongs.includes(selectedSong)) {
                 manualLyricSong.value = selectedSong;
             }
+        }
+
+        /** Selects the first song currently matched by the search field. */
+        function selectFirstManualLyricSong() {
+            const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
+            const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            if (!keyword || !filteredSongs.length) return;
+            const previousSong = manualLyricSong.value;
+            manualLyricSong.value = filteredSongs[0];
+            if (previousSong !== filteredSongs[0]) manualLyricSong.dispatchEvent(new Event('change'));
         }
 
         /** Clears the complete lyric text and timing rows when the selected song changes. */
@@ -464,10 +472,16 @@
             manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
             loadExistingManualLyrics();
         });
+        manualLyricSongSearch.addEventListener('input', () => {
+            clearTimeout(manualLyricSearchTimer);
+            manualLyricSearchTimer = setTimeout(renderManualLyricSongOptions, 250);
+        });
         manualLyricSongSearch.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
+                clearTimeout(manualLyricSearchTimer);
                 renderManualLyricSongOptions();
+                selectFirstManualLyricSong();
             }
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
