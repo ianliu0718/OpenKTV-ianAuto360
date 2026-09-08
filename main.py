@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.1"
+APP_VERSION = "v1.0.6.6"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -426,7 +426,7 @@ def optimize_video():
         command = [
             ffmpeg_path, '-y', '-i', source_path,
             '-map', '0:v:0', '-map', '0:a?',
-            '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
+            '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
             '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
             '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
@@ -541,20 +541,23 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
     command = [
-        ffmpeg_path, '-y', '-fflags', '+genpts', '-i', source_path,
+        ffmpeg_path, '-y', '-fflags', '+genpts', '-err_detect', 'ignore_err', '-i', source_path,
         '-map', '0:v:0', '-map', '0:a?',
-        '-vf', "scale=w='min(1280,iw)':h=-2:force_original_aspect_ratio=decrease,fps=30",
+        '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
         '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
         '-af', 'aresample=async=1:first_pts=0',
         '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', output_path,
     ]
-    subprocess.run(
-        command, check=True, stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    result = subprocess.run(
+        command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        encoding='utf-8', errors='replace',
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
     )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-4000:]
+        raise RuntimeError(f'FFmpeg 轉檔失敗（return code {result.returncode}）：{detail}')
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
         raise RuntimeError('下載影片播放相容化失敗：輸出檔案不存在或為空')
     validation_command = [
@@ -562,11 +565,14 @@ def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
         '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
         'NUL' if os.name == 'nt' else '/dev/null',
     ]
-    subprocess.run(
-        validation_command, check=True, stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    validation_result = subprocess.run(
+        validation_command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        encoding='utf-8', errors='replace',
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
     )
+    if validation_result.returncode != 0:
+        detail = (validation_result.stderr or validation_result.stdout or 'FFmpeg 驗證未提供錯誤訊息').strip()[-4000:]
+        raise RuntimeError(f'轉檔後驗證失敗（return code {validation_result.returncode}）：{detail}')
 
 @app.route('/api/videos/ai-vocal-remove', methods=['POST'])
 def ai_vocal_remove_video():
@@ -1097,6 +1103,8 @@ def handle_start_batch_download(data):
         is_processing = True
         socketio.emit('task_status', {'status': 'busy', 'batch': True, 'total': len(valid_jobs)})
         success_count = 0
+        failures = []
+        batch_started_at = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         try:
             processor = KTVProcessor(log_cb=broadcast_log)
             for index, job in enumerate(valid_jobs, start=1):
@@ -1107,6 +1115,24 @@ def handle_start_batch_download(data):
                     socketio.emit('refresh_list')
                 else:
                     broadcast_log(f"⚠️ 批量任務 {index}/{len(valid_jobs)} 失敗，繼續處理下一首。")
+                    failures.append({
+                        'index': index,
+                        'title': job['title'],
+                        'url': job['url'],
+                        'step': processor.last_failure.get('step', '未知步驟') if processor.last_failure else '未知步驟',
+                        'error': processor.last_failure.get('error', '未提供錯誤詳情') if processor.last_failure else '未提供錯誤詳情',
+                    })
+            if failures:
+                error_path = os.path.join(BASE_DIR, f'batch_{batch_started_at}.error')
+                with open(error_path, 'w', encoding='utf-8', newline='\n') as error_file:
+                    error_file.write(f'ianAutoKTV 批量新增失敗清單\n建立時間：{datetime.now().isoformat(timespec="seconds")}\n')
+                    error_file.write(f'失敗數量：{len(failures)}\n\n')
+                    for failure in failures:
+                        error_file.write(f"[{failure['index']}] {failure['title']}\n")
+                        error_file.write(f"可重試：{failure['url']} | {failure['title']}\n")
+                        error_file.write(f"失敗步驟：{failure['step']}\n")
+                        error_file.write(f"錯誤：{failure['error']}\n\n")
+                broadcast_log(f'📄 失敗清單已儲存：{os.path.basename(error_path)}')
             broadcast_log(f"✅ 批量新增完成：成功 {success_count} 首，失敗 {len(valid_jobs) - success_count} 首。")
         finally:
             is_processing = False
@@ -1158,12 +1184,15 @@ def run_server_thread():
 class KTVProcessor:
     def __init__(self, log_cb):
         self.log = log_cb
+        self.last_failure = None
 
     def sanitize_filename(self, name):
         return "".join([c for c in name if c not in r'\/:*?"<>|'])
 
     def process_song(self, url, manual_title, ai_engine='spleeter', normalize_volume=True):
         job_temp_dir = None
+        current_step = '初始化'
+        self.last_failure = None
         try:
             safe_title = self.sanitize_filename(manual_title)
             self.log(f"目標歌曲：{safe_title}")
@@ -1176,35 +1205,78 @@ class KTVProcessor:
             temp_optimized = os.path.join(job_temp_dir, "input_optimized.mp4")
             temp_output = os.path.join(job_temp_dir, "output.mp4")
 
+            current_step = '步驟 1/5 下載影片'
             self.log("步驟 1/5: 下載影片...")
             ffmpeg_location = get_ffmpeg_location()
-            cmd_dl = get_ytdlp_command() + ([
-                "--ffmpeg-location", ffmpeg_location
-            ] if ffmpeg_location else []) + [
-                "--force-overwrites",  
-                "--no-playlist",       
-                "-f", "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+best[ext=mp4][height<=1080]/best",
-                "-o", temp_input, 
-                url
-            ]
-            
-            subprocess.run(
-                cmd_dl, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
-            )
-
-            self.log("步驟 2/5: 轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...")
             ffmpeg_path = os.path.join(ffmpeg_location, 'ffmpeg.exe') if ffmpeg_location else shutil.which('ffmpeg')
             if not ffmpeg_path:
                 raise Exception("找不到 FFmpeg")
-            _optimize_downloaded_video(ffmpeg_path, temp_input, temp_optimized)
+
+            format_candidates = [
+                ('720p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=720]+bestaudio[ext=m4a]'),
+                ('720p AVC HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=720][protocol^=m3u8]+bestaudio[ext=m4a]'),
+                ('480p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]'),
+                ('480p AVC HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=480][protocol^=m3u8]+bestaudio[ext=m4a]'),
+                ('720p VP9 HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=vp09][height<=720][protocol^=m3u8]+bestaudio[ext=m4a]'),
+                ('720p AV1 影像 + m4a 音訊', 'bestvideo[vcodec^=av01][height<=720]+bestaudio[ext=m4a]'),
+                ('720p MP4 progressive（影像與音訊合一）', 'best[ext=mp4][height<=720]'),
+                ('其他 720p 分離影像與音訊格式', 'bestvideo[height<=720]+bestaudio'),
+            ]
+            download_errors = []
+            selected_format_name = ''
+            for format_index, (format_name, format_selector) in enumerate(format_candidates, start=1):
+                current_step = f'步驟 1/5 下載影片（格式嘗試 {format_index}/{len(format_candidates)}）'
+                self.log(f"步驟 1/5: 嘗試格式 {format_index}/{len(format_candidates)}：{format_name}")
+                self.log(f"🔎 yt-dlp 格式選擇器：{format_selector}")
+                cmd_dl = get_ytdlp_command() + ([
+                    "--ffmpeg-location", ffmpeg_location
+                ] if ffmpeg_location else []) + [
+                    "--force-overwrites", "--no-playlist",
+                    "--retries", "10", "--fragment-retries", "10",
+                    "--extractor-retries", "3", "--file-access-retries", "3",
+                    "--retry-sleep", "fragment:exp=1:10",
+                    "--concurrent-fragments", "1", "--abort-on-unavailable-fragments",
+                    "-f", format_selector, "-o", temp_input, url,
+                ]
+                download_result = subprocess.run(
+                    cmd_dl, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                    encoding='utf-8', errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+                if download_result.returncode != 0:
+                    detail = (download_result.stderr or download_result.stdout or 'yt-dlp 未提供錯誤訊息').strip()[-1200:]
+                    self.log(f"⚠️ 格式失敗：{format_name}（return code {download_result.returncode}），準備換下一種格式。")
+                    download_errors.append(f'格式 {format_name}（{format_selector}）：下載失敗（{download_result.returncode}）：{detail}')
+                    for stale_path in (temp_input, temp_optimized):
+                        if os.path.exists(stale_path):
+                            os.remove(stale_path)
+                    self.log(f"🧹 已清除 {format_name} 的下載半成品。")
+                    continue
+                try:
+                    self.log(f"✅ 下載完成：{format_name}，開始轉檔與完整性驗證。")
+                    current_step = f'步驟 2/5 轉換影片（格式嘗試 {format_index}/{len(format_candidates)}）'
+                    self.log(f"步驟 2/5: 使用 {format_name} 轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...")
+                    _optimize_downloaded_video(ffmpeg_path, temp_input, temp_optimized)
+                    selected_format_name = format_name
+                    self.log(f"✅ 格式驗證成功：{format_name}，後續使用此影片進行 AI 去人聲。")
+                    break
+                except Exception as conversion_error:
+                    self.log(f"⚠️ 格式驗證失敗：{format_name}，清除半成品並換下一種格式。")
+                    download_errors.append(f'格式 {format_name}（{format_selector}）：{conversion_error}')
+                    for stale_path in (temp_input, temp_optimized):
+                        if os.path.exists(stale_path):
+                            os.remove(stale_path)
+                    self.log(f"🧹 已清除 {format_name} 的下載與轉檔半成品。")
+            else:
+                raise RuntimeError('所有下載格式均失敗：\n' + '\n'.join(download_errors)[-6000:])
             shutil.move(temp_optimized, temp_input)
 
             engine_names = {'spleeter': 'Spleeter', 'mdxnet': 'MDX-Net'}
             engine_name = engine_names.get(ai_engine)
             if engine_name is None:
                 raise ValueError(f"不支援的 AI 去人聲引擎：{ai_engine}")
-            self.log(f"步驟 3/5: AI 去人聲 ({engine_name})... (這需要一點時間)")
+            current_step = f'步驟 3/5 AI 去人聲（{engine_name}）'
+            self.log(f"步驟 3/5: 使用 {selected_format_name} 的有效影片進行 AI 去人聲 ({engine_name})... (這需要一點時間)")
             
             # 【終極修復】PyInstaller 打包後沒有 spleeter.exe 可用 subprocess 呼叫。
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。
@@ -1216,10 +1288,13 @@ class KTVProcessor:
             
             if p.exitcode != 0:
                 error_log = os.path.join(job_temp_dir, "spleeter_error.log")
+                spleeter_detail = ''
                 if os.path.exists(error_log):
                     with open(error_log, encoding="utf-8") as error_file:
-                        self.log(error_file.read())
-                raise Exception(f"Spleeter 分離失敗，子進程異常結束 (Exit code: {p.exitcode})")
+                        spleeter_detail = error_file.read().strip()
+                    self.log(spleeter_detail)
+                detail = spleeter_detail[-4000:] if spleeter_detail else '未產生 Spleeter 錯誤日誌'
+                raise Exception(f"Spleeter 分離失敗（Exit code: {p.exitcode}）：{detail}")
             
             # Spleeter CLI 預設會建立一個以輸入檔名為名稱的資料夾，所以路徑稍微改變
             base_name = os.path.splitext(os.path.basename(temp_input))[0] # 會得到 "input"
@@ -1229,6 +1304,7 @@ class KTVProcessor:
             if not os.path.exists(voc_path) or not os.path.exists(acc_path):
                 raise Exception("Spleeter 分離失敗，找不到音軌檔")
 
+            current_step = '步驟 4/5 合成六聲道'
             self.log("步驟 4/5: 合成六聲道（原聲 / 導唱 / 伴奏）...")
             ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
             if not ffmpeg_path or not ffprobe_path:
@@ -1238,6 +1314,7 @@ class KTVProcessor:
                 temp_output, normalize_volume,
             )
 
+            current_step = '步驟 5/5 儲存檔案'
             self.log(f"步驟 5/5: 儲存為 {safe_title}.mp4")
             final = os.path.join(SONGS_DIR, f"{safe_title}.mp4")
             
@@ -1249,11 +1326,10 @@ class KTVProcessor:
             self.log("✅ 製作完成！已自動同步至歌單（六聲道：原聲 / 導唱 / 伴奏）。")
             return os.path.basename(final)
 
-        except subprocess.CalledProcessError as e:
-            self.log(f"❌ 執行失敗 (Code {e.returncode})")
-            return None
         except Exception as e:
-            self.log(f"❌ 執行失敗：{e}")
+            error_text = str(e)
+            self.last_failure = {'step': current_step, 'error': error_text}
+            self.log(f"❌ 執行失敗：{error_text}")
             return None
         finally:
             if job_temp_dir and os.path.exists(job_temp_dir):
