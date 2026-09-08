@@ -58,7 +58,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.5"
+APP_VERSION = "v1.0.6.6"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -1214,9 +1214,13 @@ class KTVProcessor:
 
             format_candidates = [
                 ('720p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=720]+bestaudio[ext=m4a]'),
+                ('720p AVC HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=720][protocol^=m3u8]+bestaudio[ext=m4a]'),
                 ('480p AVC 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]'),
+                ('480p AVC HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=avc1][height<=480][protocol^=m3u8]+bestaudio[ext=m4a]'),
+                ('720p VP9 HLS 影像 + m4a 音訊', 'bestvideo[vcodec^=vp09][height<=720][protocol^=m3u8]+bestaudio[ext=m4a]'),
+                ('720p AV1 影像 + m4a 音訊', 'bestvideo[vcodec^=av01][height<=720]+bestaudio[ext=m4a]'),
                 ('720p MP4 progressive（影像與音訊合一）', 'best[ext=mp4][height<=720]'),
-                ('其他 720p 格式', 'best[height<=720]'),
+                ('其他 720p 分離影像與音訊格式', 'bestvideo[height<=720]+bestaudio'),
             ]
             download_errors = []
             selected_format_name = ''
