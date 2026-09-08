@@ -26,6 +26,8 @@
         .lyric-line-time { font-family: monospace; color: #607D8B; }
         .lyric-line-actions { display: flex; gap: 4px; }
         .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
+        .lyric-shift-actions { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 8px; align-items: center; }
+        .lyric-shift-actions input { margin: 0; text-align: center; }
         #lyrics_search_results { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
         #lyrics_search_results li { display: grid; gap: 4px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
         #lyrics_search_results li.selected { border-color: #FF9800; background: #fff8e8; }
@@ -108,13 +110,19 @@
             <summary>進階：手動製作歌詞檔</summary>
             <div class="lyric-editor">
                 <label for="manual_lyric_song">選擇歌曲：</label>
+                <input type="search" id="manual_lyric_song_search" placeholder="搜尋歌名或歌手..." autocomplete="off">
                 <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
                 <video id="manual_lyric_video" controls preload="metadata"></video>
                 <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
-                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="請在這裡貼上完整歌詞，每行一句"></textarea>
+                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="沒有既有歌詞時，請在這裡貼上完整歌詞，每行一句"></textarea>
                 <div class="lyric-actions">
                     <button class="btn-update" onclick="toggleManualLyricPlayback()">播放 / 暫停</button>
                     <button class="btn-update" onclick="buildManualLyricLines()">建立歌詞行</button>
+                </div>
+                <div class="lyric-shift-actions">
+                    <button type="button" class="btn-update" onclick="shiftManualLyricTimeline(-1)">整體提前</button>
+                    <input type="number" id="manual_lyric_shift_seconds" min="0.01" max="60" step="0.01" value="0.5" aria-label="時間軸平移秒數">
+                    <button type="button" class="btn-update" onclick="shiftManualLyricTimeline(1)">整體延後</button>
                 </div>
                 <ol id="manual_lyrics_list"><li>請先貼上完整歌詞並建立歌詞行</li></ol>
                 <button id="btn_save_manual_lyrics" class="btn-update" onclick="saveManualLyrics()">儲存歌詞檔</button>
@@ -170,11 +178,13 @@
         const batchDownloadButton = document.getElementById('btn_batch_dl');
         const batchDownloadStatus = document.getElementById('batch_download_status');
         const manualLyricSong = document.getElementById('manual_lyric_song');
+        const manualLyricSongSearch = document.getElementById('manual_lyric_song_search');
         const manualLyricVideo = document.getElementById('manual_lyric_video');
         const manualLyricText = document.getElementById('manual_lyric_text');
         const manualLyricTime = document.getElementById('manual_lyric_time');
         const manualLyricsList = document.getElementById('manual_lyrics_list');
         const manualLyricStatus = document.getElementById('manual_lyric_status');
+        const manualLyricShiftSeconds = document.getElementById('manual_lyric_shift_seconds');
         const lyricsProvider = document.getElementById('lyrics_provider');
         const lyricsSong = document.getElementById('lyrics_song');
         const lyricsQuery = document.getElementById('lyrics_query');
@@ -185,6 +195,7 @@
         let manualLyricLines = [];
         let onlineLyricsResults = [];
         let selectedOnlineLyrics = null;
+        let manualLyricSongs = [];
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
         function formatManualLyricTime(seconds) {
@@ -300,8 +311,23 @@
         /** Refreshes the manual lyric song selector from the server song list. */
         function loadManualLyricSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
-                manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${song}">${song}</option>`).join('');
+                manualLyricSongs = songs;
+                renderManualLyricSongOptions();
             });
+        }
+
+        /** Filters the manual lyric song selector by title or artist text. */
+        function renderManualLyricSongOptions() {
+            const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
+            const selectedSong = manualLyricSong.value;
+            const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            if (keyword && filteredSongs.length) {
+                manualLyricSong.value = filteredSongs[0];
+                if (selectedSong !== filteredSongs[0]) manualLyricSong.dispatchEvent(new Event('change'));
+            } else if (filteredSongs.includes(selectedSong)) {
+                manualLyricSong.value = selectedSong;
+            }
         }
 
         /** Clears the complete lyric text and timing rows when the selected song changes. */
@@ -310,6 +336,36 @@
             manualLyricText.value = '';
             manualLyricStatus.innerText = '';
             manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
+        }
+
+        /** Loads an existing VTT into the manual lyric editor, or leaves a blank editor. */
+        async function loadExistingManualLyrics() {
+            if (!manualLyricSong.value) {
+                resetManualLyricEditor();
+                return;
+            }
+            manualLyricStatus.innerText = '正在讀取既有歌詞...';
+            try {
+                const response = await fetch(`/api/subtitles/manual?song=${encodeURIComponent(manualLyricSong.value)}`);
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || '歌詞讀取失敗');
+                if (!data.exists || !data.cues.length) {
+                    resetManualLyricEditor();
+                    manualLyricStatus.innerText = '此歌曲尚無歌詞，請貼上歌詞後建立歌詞行。';
+                    return;
+                }
+                manualLyricLines = data.cues.map((cue) => ({
+                    text: cue.text,
+                    start: Number(cue.start),
+                    end: Number(cue.end),
+                }));
+                manualLyricText.value = manualLyricLines.map((line) => line.text).join('\n');
+                renderManualLyricLines();
+                manualLyricStatus.innerText = `已載入既有歌詞 ${manualLyricLines.length} 行，可直接編輯時間碼或文字。`;
+            } catch (error) {
+                resetManualLyricEditor();
+                manualLyricStatus.innerText = `既有歌詞讀取失敗：${error.message}`;
+            }
         }
 
         /** Toggles playback of the selected song in the manual lyric editor. */
@@ -326,14 +382,42 @@
                 manualLyricStatus.innerText = '請選擇歌曲並貼上完整歌詞。';
                 return;
             }
-            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null })).filter((line) => line.text);
+            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null, end: null })).filter((line) => line.text);
             renderManualLyricLines();
             manualLyricStatus.innerText = `已建立 ${manualLyricLines.length} 行，播放時可逐行加入時間碼。`;
         }
 
         /** Renders lyric rows with their current timestamp state and controls. */
         function renderManualLyricLines() {
-            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><span>${escapeManualLyricHtml(line.text)}</span><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
+                input.addEventListener('input', () => { manualLyricLines[index].text = input.value; });
+            });
+        }
+
+        /** Shifts every existing lyric cue earlier or later while preserving cue durations. */
+        function shiftManualLyricTimeline(direction) {
+            const shiftSeconds = Number(manualLyricShiftSeconds.value);
+            const timedLines = manualLyricLines.filter((line) => line.start !== null);
+            if (!timedLines.length || !Number.isFinite(shiftSeconds) || shiftSeconds <= 0) {
+                manualLyricStatus.innerText = '請先載入或建立歌詞，並輸入有效的平移秒數。';
+                return;
+            }
+            const requestedOffset = direction * shiftSeconds;
+            const earliestStart = Math.min(...timedLines.map((line) => line.start));
+            const offset = direction < 0 ? Math.max(requestedOffset, -earliestStart) : requestedOffset;
+            if (offset === 0) {
+                manualLyricStatus.innerText = '歌詞已經在最前方，無法再提前。';
+                return;
+            }
+            manualLyricLines.forEach((line) => {
+                if (line.start === null) return;
+                const duration = line.end !== null && line.end > line.start ? line.end - line.start : null;
+                line.start = Math.max(0, line.start + offset);
+                line.end = duration === null ? line.end : line.start + duration;
+            });
+            renderManualLyricLines();
+            manualLyricStatus.innerText = `已將有時間碼的歌詞整體${direction < 0 ? '提前' : '延後'} ${shiftSeconds.toFixed(2)} 秒。`;
         }
 
         /** Adds or removes the current playback time from one lyric row. @param {number} index */
@@ -365,7 +449,7 @@
             const cues = timestampedLines.map((line, index) => ({
                 text: line.text,
                 start: line.start,
-                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : finalEnd,
+                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : (line.end || finalEnd),
             }));
             const response = await fetch('/api/subtitles/manual', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -378,6 +462,13 @@
         manualLyricSong.addEventListener('change', () => {
             resetManualLyricEditor();
             manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
+            loadExistingManualLyrics();
+        });
+        manualLyricSongSearch.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                renderManualLyricSongOptions();
+            }
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
         loadManualLyricSongs();

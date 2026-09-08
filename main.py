@@ -334,6 +334,59 @@ def get_subtitle_list():
     }
     return json.dumps(sorted(subtitles), ensure_ascii=False)
 
+def parse_vtt_timestamp(timestamp):
+    """Convert a WebVTT timestamp into seconds."""
+    match = re.match(r'^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$', timestamp.strip())
+    if not match:
+        raise ValueError('VTT 時間格式錯誤')
+    hours, minutes, seconds, milliseconds = match.groups()
+    return (int(hours or 0) * 3600) + (int(minutes) * 60) + int(seconds) + int(milliseconds) / 1000
+
+def parse_vtt_cues(content):
+    """Parse simple WebVTT cues used by the KTV lyric editor."""
+    lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    cues = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if '-->' not in line:
+            index += 1
+            continue
+        start_text, end_text = [part.strip().split(' ', 1)[0] for part in line.split('-->', 1)]
+        try:
+            start = parse_vtt_timestamp(start_text)
+            end = parse_vtt_timestamp(end_text)
+        except ValueError:
+            index += 1
+            continue
+        index += 1
+        text_lines = []
+        while index < len(lines) and lines[index].strip():
+            text_lines.append(re.sub(r'<[^>]*>', '', lines[index].strip()))
+            index += 1
+        text = '\n'.join(text_lines).strip()
+        if text and end > start:
+            cues.append({'start': start, 'end': end, 'text': text})
+        index += 1
+    return cues
+
+@app.route('/api/subtitles/manual')
+def get_manual_subtitle():
+    """Return an existing song's VTT cues for editing in the admin tool."""
+    song_filename = os.path.basename(request.args.get('song', '').strip())
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(song_filename)[0] + '.vtt')
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
+    if not os.path.exists(subtitle_path):
+        return json.dumps({'success': True, 'exists': False, 'cues': []}, ensure_ascii=False)
+    try:
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
+            cues = parse_vtt_cues(subtitle_file.read())
+        return json.dumps({'success': True, 'exists': True, 'cues': cues}, ensure_ascii=False)
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return json.dumps({'success': False, 'error': f'既有歌詞讀取失敗：{error}'}, ensure_ascii=False), 400
+
 def split_song_filename(song_filename):
     """Extract the title and artist from title-artist-language-number filenames."""
     stem = os.path.splitext(os.path.basename(song_filename))[0]
