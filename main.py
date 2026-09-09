@@ -61,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.8"
+APP_VERSION = "v1.0.7.5"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -645,8 +645,8 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
         '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
         '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
-        'join=inputs=6:channel_layout=6.0:map=0.0-FL|1.0-FR|2.0-FC|3.0-BC|4.0-SL|5.0-SR,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=6.0[audio]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     subprocess.run(
         [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
@@ -660,20 +660,24 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment];'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
+        '[accompaniment_mono]asplit=4[guide_acc_l_raw][guide_acc_r_raw][accompaniment_l_raw][accompaniment_r_raw];'
+        '[guide_acc_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_l];'
+        '[guide_acc_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_r];'
+        '[accompaniment_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
+        '[accompaniment_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
+        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
         '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
         f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
         '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
+        '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
