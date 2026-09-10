@@ -1040,9 +1040,10 @@ def handle_qr_visibility(data):
 @socketio.on('set_random_play')
 def handle_random_play(data):
     """Update and broadcast whether idle playback should choose random songs."""
-    global random_play_enabled, last_user_action_time
+    global random_play_enabled
+    # 啟用/停用「無點歌時隨機播歌」不是使用者手動點歌行為，
+    # 因此不能更新 last_user_action_time，否則空隊列時會被 1.5 秒冷卻鎖住。
     random_play_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
-    last_user_action_time = time.monotonic()
     emit('random_play', {'enabled': random_play_enabled}, broadcast=True)
     if random_play_enabled and not playlist_queue and can_start_random_song():
         start_random_song()
