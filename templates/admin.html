@@ -98,9 +98,8 @@
             <label for="lyrics_provider">歌詞伺服器：</label>
             <select id="lyrics_provider"><option value="">載入歌詞伺服器中...</option></select>
             <label for="lyrics_song">選擇本地歌曲：</label>
+            <input type="text" id="lyrics_query" placeholder="搜尋歌名、歌手、歌曲代號...">
             <select id="lyrics_song"><option value="">載入歌曲中...</option></select>
-            <label for="lyrics_query">搜尋關鍵字（可留空，自動使用檔名中的歌名／歌手）：</label>
-            <input type="text" id="lyrics_query" placeholder="例如：落山風 江蕙">
             <button id="btn_lyrics_search" class="btn-update" onclick="searchOnlineLyrics()">搜尋歌詞</button>
             <ul id="lyrics_search_results"><li>請選擇歌曲後搜尋</li></ul>
             <button id="btn_lyrics_download" class="btn-update" onclick="downloadSelectedLyrics()" disabled>下載並儲存同步歌詞</button>
@@ -110,7 +109,7 @@
             <summary>進階：手動製作歌詞檔</summary>
             <div class="lyric-editor">
                 <label for="manual_lyric_song">選擇歌曲：</label>
-                <input type="search" id="manual_lyric_song_search" placeholder="搜尋歌名或歌手..." autocomplete="off">
+                <input type="search" id="manual_lyric_song_search" placeholder="搜尋歌名、歌手、歌曲代號..." autocomplete="off">
                 <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
                 <video id="manual_lyric_video" controls preload="metadata"></video>
                 <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
@@ -196,6 +195,7 @@
         let onlineLyricsResults = [];
         let selectedOnlineLyrics = null;
         let manualLyricSongs = [];
+        let lyricsSongs = [];
         let manualLyricSearchTimer = null;
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
@@ -217,11 +217,23 @@
             }).catch(() => { lyricsProvider.innerHTML = '<option value="lrclib">LRCLIB（同步歌詞）</option>'; });
         }
 
-        /** Loads the local songs used by the online lyrics downloader. */
+        /** Loads the local songs used by the online lyrics downloader and keeps them searchable. */
         function loadLyricsSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
-                lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+                lyricsSongs = songs;
+                renderLyricsSongOptions();
             });
+        }
+
+        /** Filters the local song dropdown in the same way as the manual lyric search box. */
+        function renderLyricsSongOptions() {
+            const keyword = lyricsQuery.value.trim().toLocaleLowerCase();
+            const selectedSong = lyricsSong.value;
+            const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            if (filteredSongs.includes(selectedSong)) {
+                lyricsSong.value = selectedSong;
+            }
         }
 
         /** Renders searchable lyrics results without trusting remote text as HTML. */
@@ -482,6 +494,19 @@
                 clearTimeout(manualLyricSearchTimer);
                 renderManualLyricSongOptions();
                 selectFirstManualLyricSong();
+            }
+        });
+        lyricsQuery.addEventListener('input', () => {
+            renderLyricsSongOptions();
+        });
+        lyricsQuery.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                renderLyricsSongOptions();
+                const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(lyricsQuery.value.trim().toLocaleLowerCase()));
+                if (filteredSongs.length) {
+                    lyricsSong.value = filteredSongs[0];
+                }
             }
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
