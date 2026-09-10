@@ -312,6 +312,7 @@ def _play_video_payload(filename):
         'audio_channels': get_audio_channel_count(filename),
         'audio_channel_layout': get_audio_channel_layout(filename),
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
+        'track_mode': current_track_mode,
     }
 
 @app.route('/subtitles/<path:filename>')
@@ -954,6 +955,7 @@ subtitle_font_size = 100
 qr_visible = True
 random_play_enabled = False
 playback_rate = 1.0
+current_track_mode = 'original'
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
@@ -1015,6 +1017,7 @@ def handle_connect():
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('apply_effect', {'playback_rate': playback_rate})
+    emit('set_audio', {'mode': current_track_mode})
 
 @socketio.on('set_seek_correction')
 def handle_set_seek_correction(data):
@@ -1207,9 +1210,11 @@ def handle_effect(data):
 
 @socketio.on('change_track')
 def handle_track(mode):
-    """Switch the playback mode immediately and calculate its LUFS asynchronously."""
+    """Switch the playback mode immediately and keep it active for all subsequent songs until changed again."""
+    global current_track_mode
     if mode not in {'original', 'guide', 'instrumental'}:
         return
+    current_track_mode = mode
     filename = playlist_queue[0] if playlist_queue else ''
     emit('set_audio', {
         'mode': mode,
