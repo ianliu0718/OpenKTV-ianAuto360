@@ -228,7 +228,7 @@
          */
         function applySubtitleFontSize(fontSize) {
             const size = Number(fontSize);
-            if (![80, 100, 120, 200].includes(size)) return;
+            if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
         }
 
@@ -406,7 +406,7 @@
             showSongAnnouncement(data.filename);
             currentKey = 0;
             updateKeyStatus(currentKey);
-            setSubtitle(data.filename, false);
+            setSubtitle(data.filename, Boolean(data.visible));
             setAudioKey(0);
             video.pause();
             audioTrack.pause();

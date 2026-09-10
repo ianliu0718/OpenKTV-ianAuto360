@@ -305,7 +305,7 @@ def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
 def _play_video_payload(filename):
-    """Build a playback event payload with server-confirmed audio metadata."""
+    """Build a playback event payload with server-confirmed audio metadata and persistent subtitle state."""
     return {
         'filename': filename,
         'title': filename,
@@ -313,6 +313,8 @@ def _play_video_payload(filename):
         'audio_channel_layout': get_audio_channel_layout(filename),
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
     }
 
 @app.route('/subtitles/<path:filename>')
@@ -978,7 +980,6 @@ def can_start_random_song():
 """
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
-    global subtitle_visible
     if not can_start_random_song():
         return False
     songs = [filename for filename in os.listdir(SONGS_DIR) if filename.lower().endswith('.mp4')]
@@ -986,7 +987,6 @@ def start_random_song():
         return False
     filename = random.choice(songs)
     playlist_queue.append(filename)
-    subtitle_visible = False
     emit('update_queue', playlist_queue, broadcast=True)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
     emit('play_video', _play_video_payload(filename), broadcast=True)
@@ -1065,7 +1065,6 @@ def handle_add_queue(data):
 
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
-        subtitle_visible = False
         seek_offset = 0.0
         emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
@@ -1103,12 +1102,13 @@ def handle_set_subtitle_font_size(data):
     """Update and broadcast the shared subtitle font size in percent."""
     global subtitle_font_size
     try:
-        requested_size = int(data.get('font_size', 100)) if isinstance(data, dict) else 100
+        requested_size = int(data.get('font_size', 120)) if isinstance(data, dict) else 120
     except (TypeError, ValueError):
         return
-    if requested_size not in {80, 100, 120}:
-        return
-    subtitle_font_size = requested_size
+    subtitle_font_size = max(80, min(200, requested_size))
+    if subtitle_font_size % 20 != 0:
+        subtitle_font_size = round(subtitle_font_size / 20) * 20
+    subtitle_font_size = max(80, min(200, subtitle_font_size))
     emit('subtitle_state', {
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
@@ -1135,7 +1135,6 @@ def handle_song_ended():
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0)
-        subtitle_visible = False
         seek_offset = 0.0
         emit('update_queue', playlist_queue, broadcast=True)
 
