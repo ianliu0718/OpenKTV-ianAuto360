@@ -401,6 +401,17 @@ const socket = io();
             return seekCorrectionEnabled && audioTrack;
         }
 
+        /**
+         * In dual-media seek-correction mode only the audioTrack should remain audible.
+         * Keeping the video element unmuted causes the same song to play twice and
+         * masks the active channel mode switch (original / guide / instrumental).
+         */
+        function syncMediaMuteState() {
+            const dualMode = isDualMediaSeekCorrectionActive();
+            if (video) video.muted = dualMode;
+            if (audioTrack) audioTrack.muted = !dualMode;
+        }
+
         function initSystem() {
             if(!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -549,6 +560,7 @@ const socket = io();
 
         socket.on('seek_correction', (data) => {
             seekCorrectionEnabled = Boolean(data && data.enabled);
+            syncMediaMuteState();
             updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
             if (!seekCorrectionEnabled) {
                 audioTrack.pause();
@@ -574,6 +586,7 @@ const socket = io();
             setAudioKey(0);
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             if (isDualMediaSeekCorrectionActive()) {
+                syncMediaMuteState();
                 video.src = songUrl;
                 audioTrack.src = songUrl;
                 video.addEventListener('loadedmetadata', () => {
