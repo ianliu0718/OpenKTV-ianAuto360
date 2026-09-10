@@ -125,11 +125,11 @@
                 <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">&lt;0.1</button>
-                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
@@ -524,7 +524,9 @@
          */
         function seekVideo(seconds) {
             if (![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
-            if (!seekCorrectionEnabled) return;
+            // 伺服器端已經驗證秒數合法，且本次使用情境下功能開關由伺服器主控。
+            // 若在這裡再擋一次 local seekCorrectionEnabled，會讓按鈕點擊完全沒有反應，
+            // 導致遠端 UI 看起來可點但實際不發送任何 seek_video 事件。
             socket.emit('seek_video', { seconds });
         }
 

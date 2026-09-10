@@ -196,6 +196,7 @@ const socket = io();
         let audioSetupPromise;
         let useSoundTouch = false;
         let seekCorrectionEnabled = false;
+        let currentSeekOffset = 0;
         let currentMode = 'original';
         let currentKey = 0; 
         let currentVolume = 1;
@@ -401,6 +402,27 @@ const socket = io();
             return seekCorrectionEnabled && audioTrack;
         }
 
+        function getDualMediaDelaySeconds() {
+            if (!Number.isFinite(currentSeekOffset)) return 0;
+            return Math.abs(currentSeekOffset);
+        }
+
+        function syncDualMediaTimeline() {
+            if (!isDualMediaSeekCorrectionActive()) return;
+            if (!Number.isFinite(audioTrack.currentTime)) return;
+            const delay = getDualMediaDelaySeconds();
+            const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
+            if (Number.isFinite(video.duration) && video.currentTime !== targetVideoTime) {
+                video.currentTime = Math.min(video.duration, targetVideoTime);
+            }
+        }
+
+        audioTrack.addEventListener('timeupdate', () => {
+            if (isDualMediaSeekCorrectionActive()) {
+                syncDualMediaTimeline();
+            }
+        });
+
         /**
          * In dual-media seek-correction mode only the audioTrack should remain audible.
          * Keeping the video element unmuted causes the same song to play twice and
@@ -410,6 +432,58 @@ const socket = io();
             const dualMode = isDualMediaSeekCorrectionActive();
             if (video) video.muted = dualMode;
             if (audioTrack) audioTrack.muted = !dualMode;
+        }
+
+        function resetAudioGraph() {
+            if (source) {
+                try { source.disconnect(); } catch (error) {}
+                source = null;
+            }
+            if (splitter) {
+                try { splitter.disconnect(); } catch (error) {}
+                splitter = null;
+            }
+            if (merger) {
+                try { merger.disconnect(); } catch (error) {}
+                merger = null;
+            }
+            if (masterGain) {
+                try { masterGain.disconnect(); } catch (error) {}
+                masterGain = null;
+            }
+            if (soundTouchNode) {
+                try { soundTouchNode.disconnect(); } catch (error) {}
+                soundTouchNode = null;
+            }
+            if (pitchShift && typeof pitchShift.dispose === 'function') {
+                try { pitchShift.dispose(); } catch (error) {}
+            }
+            isAudioSetup = false;
+            audioSetupPromise = null;
+        }
+
+        function reloadCurrentSongForDualMedia() {
+            if (!currentFilename) return;
+            const songUrl = "/songs/" + encodeURIComponent(currentFilename) + "?t=" + new Date().getTime();
+            resetAudioGraph();
+            const previousMode = currentMode;
+            video.pause();
+            audioTrack.pause();
+            video.src = songUrl;
+            audioTrack.src = songUrl;
+            video.muted = true;
+            audioTrack.muted = false;
+            video.addEventListener('loadedmetadata', () => {
+                setupAudio().then(() => {
+                    configureSourceChannels();
+                    return Promise.all([video.play(), audioTrack.play()]);
+                }).catch(() => {
+                    overlay.innerText = '⚠️ 請點擊畫面開始播放';
+                });
+            }, { once: true });
+            video.load();
+            audioTrack.load();
+            currentMode = previousMode;
         }
 
         function initSystem() {
@@ -559,12 +633,19 @@ const socket = io();
         });
 
         socket.on('seek_correction', (data) => {
-            seekCorrectionEnabled = Boolean(data && data.enabled);
+            const enabled = Boolean(data && data.enabled);
+            const wasDual = seekCorrectionEnabled;
+            seekCorrectionEnabled = enabled;
+            currentSeekOffset = 0;
             syncMediaMuteState();
             updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
             if (!seekCorrectionEnabled) {
                 audioTrack.pause();
                 audioTrack.src = '';
+                return;
+            }
+            if (enabled && !wasDual && currentFilename) {
+                reloadCurrentSongForDualMedia();
             }
         });
 
@@ -653,9 +734,12 @@ const socket = io();
             const seconds = Number(data.seconds);
             if (!Number.isFinite(seconds)) return;
             if (isDualMediaSeekCorrectionActive()) {
-                const targetTime = seconds === 0 ? audioTrack.currentTime : video.currentTime - seconds;
+                // 這裡的語意是：「畫面比音訊延後 X 秒」
+                // 如果音訊時間軸是 01:00.00，畫面應該是 00:55.00。
+                // 因此 videoTime = audioTime - delaySeconds。
+                const audioNow = Number.isFinite(audioTrack.currentTime) ? audioTrack.currentTime : 0;
+                const targetTime = seconds === 0 ? audioNow : audioNow - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
-                audioTrack.currentTime = video.currentTime;
             } else {
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));

@@ -1164,25 +1164,32 @@ def handle_control(action):
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
-    """Broadcast a bounded single-video playback-position adjustment and its accumulated offset."""
+    """Broadcast a bounded video-delay adjustment using the same behavior as the stable v1.0.6.8 flow."""
     global seek_offset
-    if not seek_correction_enabled:
-        return
     try:
         seconds = float(data.get('seconds', 0)) if isinstance(data, dict) else 0
     except (TypeError, ValueError):
         return
     if seconds not in {-0.5, -0.1, 0, 0.1, 0.5}:
         return
+    # 這裡不再用伺服器端的狀態旗標硬擋使用者指令，因為畫面進度修正的有效性
+    # 已由前端與伺服器共同控制；維持 v1.0.6.8 的行為可避免在開啟功能後
+    # 按下 [0.5>>] / [0.1>] 等按鈕完全無反應。
     seek_offset = 0.0 if seconds == 0 else round(seek_offset + seconds, 1)
     emit('seek_video', {'seconds': seconds, 'offset': seek_offset}, broadcast=True)
 
 # ------------------------------------------
-# (以下原本的音效與下載事件保留不動)
+# 音效與升降 KEY 控制（單一入口，避免重複事件註冊造成按鍵無反應）
+# ------------------------------------------
 @socketio.on('control_effect')
 def handle_effect(data):
+    """Normalize and broadcast audio control updates for volume, pitch, and playback rate."""
     global playback_rate
-    if isinstance(data, dict) and 'playback_rate' in data:
+    if not isinstance(data, dict):
+        return
+
+    # 只接受已定義的播放速度範圍，避免非法值破壞播放邏輯。
+    if 'playback_rate' in data:
         try:
             requested_rate = float(data['playback_rate'])
         except (TypeError, ValueError):
@@ -1190,22 +1197,8 @@ def handle_effect(data):
         if requested_rate not in {0.75, 1.0, 1.25}:
             return
         playback_rate = requested_rate
-    emit('apply_effect', data, broadcast=True)
 
-# ...後面的 @socketio.on('change_track') 等等都不用動...
-
-@socketio.on('control_effect')
-def handle_effect(data):
-    # 收到音量、升降 KEY 或播放速度指令後，同步廣播給所有設備
-    global playback_rate
-    if isinstance(data, dict) and 'playback_rate' in data:
-        try:
-            requested_rate = float(data['playback_rate'])
-        except (TypeError, ValueError):
-            return
-        if requested_rate not in {0.75, 1.0, 1.25}:
-            return
-        playback_rate = requested_rate
+    # 升降 KEY / 音量 / 速度都以同一個事件廣播，讓遙控器與播放器同步。
     emit('apply_effect', data, broadcast=True)
 
 @socketio.on('change_track')
