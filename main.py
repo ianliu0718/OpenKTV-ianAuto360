@@ -955,6 +955,7 @@ qr_visible = True
 random_play_enabled = False
 playback_rate = 1.0
 seek_offset = 0.0
+seek_correction_enabled = False
 
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
@@ -993,7 +994,19 @@ def handle_connect():
     })
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
+    emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('apply_effect', {'playback_rate': playback_rate})
+
+@socketio.on('set_seek_correction')
+def handle_set_seek_correction(data):
+    """Update and broadcast whether single-video playback-position correction is enabled."""
+    global seek_correction_enabled, seek_offset
+    seek_correction_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    if not seek_correction_enabled:
+        seek_offset = 0.0
+    socketio.emit('seek_correction', {'enabled': seek_correction_enabled}, broadcast=True)
+    if not seek_correction_enabled:
+        socketio.emit('seek_video', {'seconds': 0, 'offset': 0}, broadcast=True)
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -1120,8 +1133,10 @@ def handle_control(action):
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
-    """Broadcast a bounded video seek adjustment and its accumulated offset."""
+    """Broadcast a bounded single-video playback-position adjustment and its accumulated offset."""
     global seek_offset
+    if not seek_correction_enabled:
+        return
     try:
         seconds = float(data.get('seconds', 0)) if isinstance(data, dict) else 0
     except (TypeError, ValueError):
@@ -1541,6 +1556,17 @@ class ServerApp(tk.Tk):
         self.lbl_size = tk.Label(stat_frame, text="佔用空間: 載入中...", font=("Microsoft JhengHei", 12, "bold"), bg="#f4f4f9")
         self.lbl_size.pack(anchor="w", pady=5)
 
+        self.seek_correction_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            self,
+            text="啟用畫面進度調整（低效能電腦建議關閉）",
+            variable=self.seek_correction_var,
+            command=self.toggle_seek_correction,
+            font=("Microsoft JhengHei", 10),
+            bg="#f4f4f9",
+            activebackground="#f4f4f9",
+        ).pack(anchor="w", padx=20, pady=2)
+
         # 增加一個實體的 GUI 日誌框，用來接聽攔截到的錯誤訊息
         self.log_txt = tk.Text(self, height=8, state="disabled", bg="#222", fg="#0f0", font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True, padx=20, pady=10)
@@ -1549,6 +1575,10 @@ class ServerApp(tk.Tk):
         
         # 啟動背景佇列監聽器
         self.check_log_queue()
+
+    def toggle_seek_correction(self):
+        """Apply the server-side video progress correction setting."""
+        handle_set_seek_correction({'enabled': bool(self.seek_correction_var.get())})
 
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")

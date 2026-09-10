@@ -49,8 +49,8 @@
     <div id="ktv-subtitle" aria-live="polite"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
-    <div id="waiting" onclick="initAudioContext()">📺 KTV 準備就緒 (點我啟動音效)</div>
-    <video id="vid" playsinline muted crossorigin="anonymous">
+    <div id="waiting" onclick="initAudioContext()">📺 點擊此處啟動音效引擎：單媒體</div>
+    <video id="vid" playsinline crossorigin="anonymous">
         <track id="subtitle-track" kind="subtitles" srclang="zh" label="字幕">
     </video>
     <audio id="audio-track" crossorigin="anonymous"></audio>
@@ -78,6 +78,7 @@
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
+        let seekCorrectionEnabled = false;
         let currentMode = 'stereo';
         let currentVolume = 1;
         let currentKey = 0;
@@ -137,6 +138,15 @@
             clearTimeout(seekStatusTimer);
             seekStatus.classList.add('visible');
             seekStatusTimer = setTimeout(() => seekStatus.classList.remove('visible'), 3000);
+        }
+
+        function updatePlaybackModeStatus(mode) {
+            if (!waiting) return;
+            if (mode === 'dual') {
+                waiting.innerText = '📺 點擊此處啟動音效引擎：雙媒體';
+            } else {
+                waiting.innerText = '📺 點擊此處啟動音效引擎：單媒體';
+            }
         }
 
         /**
@@ -268,6 +278,10 @@
             ktvSubtitle.replaceChildren();
         }
 
+        function isDualMediaSeekCorrectionActive() {
+            return seekCorrectionEnabled && audioTrack;
+        }
+
         function initAudioContext() {
             if(!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -289,7 +303,8 @@
             if(audioSetupPromise) return audioSetupPromise;
             if(!audioCtx) initAudioContext();
             audioSetupPromise = (async () => {
-                source = audioCtx.createMediaElementSource(audioTrack);
+                const mediaElement = isDualMediaSeekCorrectionActive() ? audioTrack : video;
+                source = audioCtx.createMediaElementSource(mediaElement);
                 source.channelInterpretation = 'discrete';
                 splitter = audioCtx.createChannelSplitter(6);
                 splitter.channelInterpretation = 'discrete';
@@ -370,7 +385,17 @@
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線主機"; });
 
+        socket.on('seek_correction', (data) => {
+            seekCorrectionEnabled = Boolean(data && data.enabled);
+            updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
+            if (!seekCorrectionEnabled) {
+                audioTrack.pause();
+                audioTrack.src = '';
+            }
+        });
+
         socket.on('play_video', (data) => {
+            updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             waiting.style.display = 'none';
             overlay.innerText = "正在播放: " + data.title;
             currentMode = 'original';
@@ -386,18 +411,32 @@
             video.pause();
             audioTrack.pause();
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
-            video.src = songUrl;
-            audioTrack.src = songUrl;
-            /** Builds the audio graph after the media element exposes its real channel count. */
-            video.addEventListener('loadedmetadata', () => {
-                setupAudio().then(() => {
-                    configureSourceChannels();
-                    return Promise.all([video.play(), audioTrack.play()]);
-                }).catch(() => {
-                    overlay.innerText = "⚠️ 請點擊畫面開始播放";
-                });
-            }, { once: true });
-            video.load();
+            if (isDualMediaSeekCorrectionActive()) {
+                video.src = songUrl;
+                audioTrack.src = songUrl;
+                video.addEventListener('loadedmetadata', () => {
+                    setupAudio().then(() => {
+                        configureSourceChannels();
+                        return Promise.all([video.play(), audioTrack.play()]);
+                    }).catch(() => {
+                        overlay.innerText = "⚠️ 請點擊畫面開始播放";
+                    });
+                }, { once: true });
+                video.load();
+                audioTrack.load();
+            } else {
+                audioTrack.src = '';
+                video.src = songUrl;
+                video.addEventListener('loadedmetadata', () => {
+                    setupAudio().then(() => {
+                        configureSourceChannels();
+                        return video.play();
+                    }).catch(() => {
+                        overlay.innerText = "⚠️ 請點擊畫面開始播放";
+                    });
+                }, { once: true });
+                video.load();
+            }
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
@@ -413,14 +452,19 @@
 
         socket.on('command', (cmd) => {
             if (cmd === 'pause') {
-                if (video.paused) Promise.all([video.play(), audioTrack.play()]);
-                else { video.pause(); audioTrack.pause(); }
+                if (isDualMediaSeekCorrectionActive()) {
+                    if (video.paused) Promise.all([video.play(), audioTrack.play()]);
+                    else { video.pause(); audioTrack.pause(); }
+                } else {
+                    if (video.paused) video.play();
+                    else video.pause();
+                }
             }
             if (cmd === 'stop') {
                 video.pause();
-                audioTrack.pause();
+                if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
                 video.src = "";
-                audioTrack.src = "";
+                if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
                 waiting.style.display = 'block';
                 overlay.innerText = "⏹ 已停止";
                 songAnnouncement.classList.remove('visible');
@@ -432,9 +476,9 @@
             if (data && data.filename && data.filename !== currentFilename) return;
             clearCurrentSubtitle();
             video.pause();
-            audioTrack.pause();
+            if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
             video.src = "";
-            audioTrack.src = "";
+            if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
             currentFilename = '';
             waiting.style.display = 'block';
             overlay.innerText = "⏹ 已停止";
@@ -444,11 +488,16 @@
 
         socket.on('seek_video', (data) => {
             const seconds = Number(data.seconds);
-            if (Number.isFinite(seconds)) {
+            if (!Number.isFinite(seconds)) return;
+            if (isDualMediaSeekCorrectionActive()) {
                 const targetTime = seconds === 0 ? audioTrack.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
-                updateSeekStatus(Number(data.offset) || 0);
+                audioTrack.currentTime = video.currentTime;
+            } else {
+                const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
+                video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             }
+            updateSeekStatus(Number(data.offset) || 0);
         });
 
         socket.on('set_audio', (data) => {

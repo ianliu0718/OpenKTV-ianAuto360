@@ -96,7 +96,7 @@
         <div id="next-info">下一首：無</div>
         <div id="overlay">等待連線...</div>
         <div id="key-status">KEY：原 KEY (0)</div>
-        <div id="seek-status">畫面延遲：0 秒</div>
+        <div id="seek-status">播放位置偏移：0 秒</div>
         <div id="song-announcement"></div>
         <div id="queue-add-announcement"></div>
         <div id="ktv-subtitle" aria-live="polite"></div>
@@ -105,10 +105,10 @@
         <div id="fs-btn" onclick="toggleFullScreen()">⛶ 全螢幕</div>
         
         <div id="idle-screen" ondblclick="toggleFullScreen()">
-            <div id="waiting" onclick="initSystem()">📺 點擊此處啟動音效引擎</div>
+            <div id="waiting" onclick="initSystem()">📺 點擊此處啟動音效引擎：單媒體</div>
         </div>
         
-        <video id="vid" playsinline muted crossorigin="anonymous" ondblclick="toggleFullScreen()">
+        <video id="vid" playsinline crossorigin="anonymous" ondblclick="toggleFullScreen()">
             <track id="subtitle-track" kind="subtitles" srclang="zh" label="字幕">
         </video>
         <audio id="audio-track" crossorigin="anonymous"></audio>
@@ -184,6 +184,7 @@ const socket = io();
         const waitingBtn = document.getElementById('waiting');
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
+        const playbackModeStatus = document.getElementById('playback-mode-status');
         const subtitleTrack = document.getElementById('subtitle-track');
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const songAnnouncement = document.getElementById('song-announcement');
@@ -195,6 +196,7 @@ const socket = io();
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
+        let seekCorrectionEnabled = false;
         let currentMode = 'original';
         let currentKey = 0; 
         let currentVolume = 1;
@@ -225,13 +227,23 @@ const socket = io();
          */
         function updateSeekStatus(seconds) {
             seekStatus.innerText = seconds === 0
-                ? '畫面同步'
+                ? '播放位置同步'
                 : seconds > 0
-                    ? `畫面延遲：${seconds.toFixed(1)} 秒（聲音提前）`
-                    : `畫面提前：${Math.abs(seconds).toFixed(1)} 秒（聲音落後）`;
+                    ? `播放位置延後：${seconds.toFixed(1)} 秒`
+                    : `播放位置提前：${Math.abs(seconds).toFixed(1)} 秒`;
             clearTimeout(seekStatusTimer);
             seekStatus.classList.add('visible');
             seekStatusTimer = setTimeout(() => seekStatus.classList.remove('visible'), 3000);
+        }
+
+        function updatePlaybackModeStatus(mode) {
+            const waitingText = document.getElementById('waiting');
+            if (!waitingText) return;
+            if (mode === 'dual') {
+                waitingText.innerHTML = '📺 點擊此處啟動音效引擎：雙媒體';
+            } else {
+                waitingText.innerHTML = '📺 點擊此處啟動音效引擎：單媒體';
+            }
         }
 
         /**
@@ -385,6 +397,10 @@ const socket = io();
             }
         });
 
+        function isDualMediaSeekCorrectionActive() {
+            return seekCorrectionEnabled && audioTrack;
+        }
+
         function initSystem() {
             if(!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -406,7 +422,8 @@ const socket = io();
             if(audioSetupPromise) return audioSetupPromise;
             if(!audioCtx) initSystem();
             audioSetupPromise = (async () => {
-                source = audioCtx.createMediaElementSource(audioTrack);
+                const mediaElement = isDualMediaSeekCorrectionActive() ? audioTrack : video;
+                source = audioCtx.createMediaElementSource(mediaElement);
                 source.channelInterpretation = 'discrete';
                 splitter = audioCtx.createChannelSplitter(6);
                 splitter.channelInterpretation = 'discrete';
@@ -530,8 +547,18 @@ const socket = io();
             }
         });
 
+        socket.on('seek_correction', (data) => {
+            seekCorrectionEnabled = Boolean(data && data.enabled);
+            updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
+            if (!seekCorrectionEnabled) {
+                audioTrack.pause();
+                audioTrack.src = '';
+            }
+        });
+
         // 👑 修正點 1：刪除重複的 play_video 事件，合併為一個乾淨的版本
         socket.on('play_video', (data) => {
+            updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             idleScreen.style.display = 'none';
             video.style.display = 'block';
             overlay.innerText = "播放中: " + data.title;
@@ -545,23 +572,39 @@ const socket = io();
             updateKeyStatus(currentKey);
             setSubtitle(data.filename, false);
             setAudioKey(0);
-            audioTrack.pause();
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
-            video.src = songUrl;
-            audioTrack.src = songUrl;
-            /** Builds the audio graph after the media element exposes its real channel count. */
-            video.addEventListener('loadedmetadata', () => {
-                setupAudio().then(() => {
-                    configureSourceChannels();
-                    return Promise.all([video.play(), audioTrack.play()]);
-                }).then(() => {
-                    updateEffect();
-                    socket.emit('control_effect', { pitch: 0 });
-                }).catch(() => {
-                    overlay.innerText = "⚠️ 請點擊畫面開始播放";
-                });
-            }, { once: true });
-            video.load();
+            if (isDualMediaSeekCorrectionActive()) {
+                video.src = songUrl;
+                audioTrack.src = songUrl;
+                video.addEventListener('loadedmetadata', () => {
+                    setupAudio().then(() => {
+                        configureSourceChannels();
+                        return Promise.all([video.play(), audioTrack.play()]);
+                    }).then(() => {
+                        updateEffect();
+                        socket.emit('control_effect', { pitch: 0 });
+                    }).catch(() => {
+                        overlay.innerText = "⚠️ 請點擊畫面開始播放";
+                    });
+                }, { once: true });
+                video.load();
+                audioTrack.load();
+            } else {
+                audioTrack.src = '';
+                video.src = songUrl;
+                video.addEventListener('loadedmetadata', () => {
+                    setupAudio().then(() => {
+                        configureSourceChannels();
+                        return video.play();
+                    }).then(() => {
+                        updateEffect();
+                        socket.emit('control_effect', { pitch: 0 });
+                    }).catch(() => {
+                        overlay.innerText = "⚠️ 請點擊畫面開始播放";
+                    });
+                }, { once: true });
+                video.load();
+            }
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
@@ -581,7 +624,11 @@ const socket = io();
         socket.on('stop_video', (data) => {
             if (data && data.filename && data.filename !== currentFilename) return;
             clearCurrentSubtitle();
-            video.pause(); audioTrack.pause(); video.src = ""; audioTrack.src = ""; video.style.display = 'none';
+            video.pause();
+            if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
+            video.src = "";
+            if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
+            video.style.display = 'none';
             currentFilename = '';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
             nextInfo.style.display = 'none';
@@ -591,17 +638,27 @@ const socket = io();
 
         socket.on('seek_video', (data) => {
             const seconds = Number(data.seconds);
-            if (Number.isFinite(seconds)) {
+            if (!Number.isFinite(seconds)) return;
+            if (isDualMediaSeekCorrectionActive()) {
                 const targetTime = seconds === 0 ? audioTrack.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
-                updateSeekStatus(Number(data.offset) || 0);
+                audioTrack.currentTime = video.currentTime;
+            } else {
+                const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
+                video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             }
+            updateSeekStatus(Number(data.offset) || 0);
         });
 
         socket.on('command', (cmd) => {
             if (cmd === 'pause') {
-                if (video.paused) Promise.all([video.play(), audioTrack.play()]);
-                else { video.pause(); audioTrack.pause(); }
+                if (isDualMediaSeekCorrectionActive()) {
+                    if (video.paused) Promise.all([video.play(), audioTrack.play()]);
+                    else { video.pause(); audioTrack.pause(); }
+                } else {
+                    if (video.paused) video.play();
+                    else video.pause();
+                }
             }
         });
 

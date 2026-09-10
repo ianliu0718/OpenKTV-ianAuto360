@@ -150,6 +150,7 @@
         let currentSubtitleFontSize = 200;
         let songScrollTop = 0;
         let seekOffset = 0;
+        let seekCorrectionEnabled = false;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
@@ -522,7 +523,23 @@
          */
         function seekVideo(seconds) {
             if (![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            if (!seekCorrectionEnabled) return;
             socket.emit('seek_video', { seconds });
+        }
+
+        /**
+         * Updates the server-controlled video progress correction state.
+         * @param {boolean} enabled Whether video-only progress correction is enabled.
+         */
+        function updateSeekCorrectionState(enabled) {
+            seekCorrectionEnabled = Boolean(enabled);
+            document.querySelectorAll('.seek-control').forEach((button) => {
+                button.disabled = !seekCorrectionEnabled;
+                button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
+            });
+            document.getElementById('seek-val').innerText = seekCorrectionEnabled
+                ? (seekOffset === 0 ? '0 秒' : `${seekOffset.toFixed(1)} 秒`)
+                : '伺服器已關閉';
         }
 
         /**
@@ -539,6 +556,7 @@
         }
 
         socket.on('seek_video', (data) => updateSeekOffset(Number(data.offset) || 0));
+        socket.on('seek_correction', (data) => updateSeekCorrectionState(Boolean(data && data.enabled)));
 
         // 接收伺服器廣播，同步更新介面狀態 (若有其他手機也在操作)
         socket.on('apply_effect', (data) => {
