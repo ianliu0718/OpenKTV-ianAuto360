@@ -956,10 +956,29 @@ random_play_enabled = False
 playback_rate = 1.0
 seek_offset = 0.0
 seek_correction_enabled = False
+last_user_action_time = 0.0
 
+
+"""
+判斷是否允許在空閒狀態啟動隨機播放。
+@returns {boolean} 當待播清單為空且近期沒有使用者手動點歌時，才允許自動補播。
+"""
+def can_start_random_song():
+    """Return True only when the queue is empty and no recent user action should block auto-fill."""
+    if not random_play_enabled or playlist_queue:
+        return False
+    return (time.monotonic() - last_user_action_time) >= 1.5
+
+
+"""
+以隨機方式補一首歌曲進入播放佇列。
+@returns {boolean} 若成功補播則為 true，否則為 false。
+"""
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
     global subtitle_visible
+    if not can_start_random_song():
+        return False
     songs = [filename for filename in os.listdir(SONGS_DIR) if filename.lower().endswith('.mp4')]
     if not songs:
         return False
@@ -1018,22 +1037,29 @@ def handle_qr_visibility(data):
 @socketio.on('set_random_play')
 def handle_random_play(data):
     """Update and broadcast whether idle playback should choose random songs."""
-    global random_play_enabled
+    global random_play_enabled, last_user_action_time
     random_play_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    last_user_action_time = time.monotonic()
     emit('random_play', {'enabled': random_play_enabled}, broadcast=True)
-    if random_play_enabled and not playlist_queue:
+    if random_play_enabled and not playlist_queue and can_start_random_song():
         start_random_song()
 
+"""
+使用者手動點歌時，標記近期操作時間並避免隨機播放在同一時段插隊。
+@param {object} data 點歌事件內容，包含 filename 欄位。
+"""
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
-    global subtitle_visible, seek_offset
+    """Append a user-selected song while blocking random fill for a short cooldown period."""
+    global subtitle_visible, seek_offset, last_user_action_time
     filename = data['filename']
+    last_user_action_time = time.monotonic()
     playlist_queue.append(filename)
-    
+
     # 廣播更新所有設備上的歌單畫面
     emit('update_queue', playlist_queue, broadcast=True)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
-    
+
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
         subtitle_visible = False
@@ -1101,22 +1127,24 @@ def handle_remove_from_queue(data):
 
 @socketio.on('song_ended')
 def handle_song_ended():
-    global subtitle_visible, seek_offset
+    """Advance the queue while preventing random idle fill from racing user-selected songs."""
+    global subtitle_visible, seek_offset, last_user_action_time
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
-        playlist_queue.pop(0) 
+        playlist_queue.pop(0)
         subtitle_visible = False
         seek_offset = 0.0
         emit('update_queue', playlist_queue, broadcast=True)
-        
+
         # 檢查是否還有下一首
         if len(playlist_queue) > 0:
             next_song = playlist_queue[0]
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
-            if random_play_enabled and start_random_song():
-                return
+            if random_play_enabled and can_start_random_song():
+                if start_random_song():
+                    return
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
             broadcast_current_song()
