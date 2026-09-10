@@ -45,8 +45,10 @@
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
-        #ktv-subtitle .subtitle-char { display: inline-block; animation: ktv-char-pop 360ms cubic-bezier(.2, 1.5, .4, 1) both; animation-delay: calc(var(--char-index) * 38ms); }
-        @keyframes ktv-char-pop { 0% { opacity: 0; transform: scale(.72) translateY(10px); } 70% { transform: scale(1.12) translateY(-2px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+        #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
+        @media (prefers-reduced-motion: reduce) {
+            #ktv-subtitle .subtitle-char { animation: none; transition: none; }
+        }
 
         /* --- 遙控器區塊 UI --- */
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
@@ -210,6 +212,7 @@ const socket = io();
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
         let seekStatusTimer;
+        let lastDualSyncTime = 0;
 
         /**
          * Updates the KEY value shown on the all-in-one playback screen.
@@ -409,18 +412,20 @@ const socket = io();
 
         function syncDualMediaTimeline() {
             if (!isDualMediaSeekCorrectionActive()) return;
-            if (!Number.isFinite(audioTrack.currentTime)) return;
+            if (!Number.isFinite(audioTrack.currentTime) || !Number.isFinite(video.duration)) return;
             const delay = getDualMediaDelaySeconds();
             const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
-            if (Number.isFinite(video.duration) && video.currentTime !== targetVideoTime) {
-                video.currentTime = Math.min(video.duration, targetVideoTime);
-            }
+            const diff = Math.abs(video.currentTime - targetVideoTime);
+            if (diff < 0.08) return;
+            video.currentTime = Math.min(video.duration, targetVideoTime);
         }
 
         audioTrack.addEventListener('timeupdate', () => {
-            if (isDualMediaSeekCorrectionActive()) {
-                syncDualMediaTimeline();
-            }
+            if (!isDualMediaSeekCorrectionActive()) return;
+            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            if (now - lastDualSyncTime < 120) return;
+            lastDualSyncTime = now;
+            syncDualMediaTimeline();
         });
 
         /**
