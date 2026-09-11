@@ -95,6 +95,8 @@
         let keyStatusTimer;
         let seekStatusTimer;
         let lastDualSyncTime = 0;
+        // 播放端若因瀏覽器 autoplay 限制暫時無法播放，保留最後一筆播放資料供使用者點擊後重試。
+        let pendingPlaybackData = null;
 
         /** Toggles fullscreen for the playback page. */
         function toggleFullScreen() {
@@ -411,6 +413,11 @@
             }
             waiting.innerText = "🔊 音效引擎已啟動，等待點歌...";
             waiting.style.color = "#4CAF50";
+            if (pendingPlaybackData && video.paused) {
+                const playbackData = pendingPlaybackData;
+                pendingPlaybackData = null;
+                handlePlayVideo(playbackData);
+            }
         }
 
         /**
@@ -526,7 +533,8 @@
             }
         });
 
-        socket.on('play_video', (data) => {
+        function handlePlayVideo(data) {
+            pendingPlaybackData = data;
             updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             waiting.style.display = 'none';
             const songName = stripFileExtension(data.filename || data.title || '');
@@ -553,6 +561,7 @@
                         configureSourceChannels();
                         return Promise.all([video.play(), audioTrack.play()]);
                     }).catch(() => {
+                        pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
                     });
                 }, { once: true });
@@ -566,12 +575,15 @@
                         configureSourceChannels();
                         return video.play();
                     }).catch(() => {
+                        pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
                     });
                 }, { once: true });
                 video.load();
             }
-        });
+        }
+
+        socket.on('play_video', handlePlayVideo);
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
 
@@ -587,7 +599,17 @@
             }
         });
 
-        socket.on('current_song', (data) => applySubtitleFontSize(data.font_size));
+        socket.on('current_song', (data) => {
+            applySubtitleFontSize(data.font_size);
+            // 新連線只會收到 current_song；若尚未收到 play_video，補載入目前正在播放的歌曲。
+            if (data.filename && !currentFilename && !video.currentSrc) {
+                handlePlayVideo({
+                    filename: data.filename,
+                    visible: data.visible,
+                    track_mode: currentMode,
+                });
+            }
+        });
 
         socket.on('command', (cmd) => {
             if (cmd === 'pause') {

@@ -38,6 +38,17 @@
         .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
         .setting-button input { width: auto; flex: 0 0 auto; }
         .tab-panel[hidden] { display: none; }
+        /* 待播歌曲備註面板，採用固定面板避免推動遙控器內容。 */
+        #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 20; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+        #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
+        #song-note-panel label { display: block; margin: 10px 0; color: #ddd; }
+        #song-note-panel textarea { width: 100%; box-sizing: border-box; padding: 9px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        #song-note-panel textarea { min-height: 80px; resize: vertical; }
+        .note-key-controls { display: flex; gap: 8px; }
+        .note-key-controls .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-indicator { color: #ffd54f; margin-left: 6px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -139,6 +150,24 @@
         </div>
     </section>
 
+    <div id="song-note-panel" role="dialog" aria-modal="true" aria-labelledby="song-note-title">
+        <h4 id="song-note-title">歌曲備註</h4>
+        <label id="note-lyrics-label"><input type="checkbox" id="note-lyrics"> 想加入歌詞</label>
+        <label>適合的 KEY</label>
+        <div class="note-key-controls">
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(-1)">−</button>
+            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原 KEY</button>
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(1)">＋</button>
+        </div>
+        <label>自填文字
+            <textarea id="note-custom-text" maxlength="500" placeholder="例如：請幫我補歌詞"></textarea>
+        </label>
+        <div class="note-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeSongNote()">取消</button>
+            <button class="btn" style="background:#009688;" type="button" onclick="saveSongNote()">儲存</button>
+        </div>
+    </div>
+
     <script>
         const socket = io();
         let allSongs = [];
@@ -150,6 +179,10 @@
         let songScrollTop = 0;
         let seekOffset = 0;
         let seekCorrectionEnabled = false;
+        let currentPlaylist = [];
+        let songNotes = {};
+        let editingSongFilename = '';
+        let editingNoteKeyValue = 0;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
@@ -177,16 +210,30 @@
          * @param {string[]} playlist Ordered filenames, with the currently playing song first.
          */
         function renderQueue(playlist) {
+            currentPlaylist = Array.isArray(playlist) ? playlist : [];
             const queueList = document.getElementById('queue-list');
             queueList.innerHTML = '';
-            if (!playlist.length) {
+            if (!currentPlaylist.length) {
                 queueList.innerHTML = '<li>(無)</li>';
                 return;
             }
-            playlist.forEach((filename, index) => {
+            currentPlaylist.forEach((filename, index) => {
                 const item = document.createElement('li');
                 const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
-                item.innerHTML = `<span>${name}</span>`;
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = name;
+                item.appendChild(nameSpan);
+                if (hasMeaningfulSongNote(songNotes[filename])) {
+                    const noteIndicator = document.createElement('span');
+                    noteIndicator.className = 'note-indicator';
+                    noteIndicator.textContent = '📝';
+                    nameSpan.appendChild(noteIndicator);
+                }
+                const noteButton = document.createElement('button');
+                noteButton.className = 'song-btn';
+                noteButton.textContent = '備註';
+                noteButton.addEventListener('click', () => openSongNote(filename));
+                item.appendChild(noteButton);
                 if (index === 0) {
                     item.style.color = '#4CAF50';
                 } else {
@@ -200,6 +247,70 @@
             });
         }
 
+        // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
+        function hasMeaningfulSongNote(note) {
+            return Boolean(note && (
+                (Array.isArray(note.selected_options) && note.selected_options.length > 0)
+                || (note.key_value && note.key_value !== '原 Key')
+                || String(note.custom_text || '').trim()
+            ));
+        }
+
+        // 開啟指定待播歌曲的備註面板，資料來源只限該歌曲檔名。
+        function openSongNote(filename) {
+            editingSongFilename = filename;
+            const note = songNotes[filename] || {};
+            document.getElementById('song-note-title').textContent = `歌曲備註：${filename.replace('.mp4', '')}`;
+            const hasSubtitle = subtitleSongs.has(filename);
+            const lyricsOption = hasSubtitle ? '歌詞錯誤待修改' : '想加入歌詞';
+            document.getElementById('note-lyrics-label').lastChild.textContent = ` ${lyricsOption}`;
+            document.getElementById('note-lyrics').checked = (note.selected_options || []).some((option) => option === lyricsOption || (hasSubtitle && option === '想加入歌詞'));
+            editingNoteKeyValue = parseNoteKey(note.key_value);
+            renderNoteKeyValue();
+            document.getElementById('note-custom-text').value = note.custom_text || '';
+            document.getElementById('song-note-panel').style.display = 'block';
+        }
+
+        function parseNoteKey(value) {
+            const keyNumber = Number.parseInt(String(value || '0').replace('原 Key', '0'), 10);
+            return Number.isFinite(keyNumber) ? Math.max(-12, Math.min(12, keyNumber)) : 0;
+        }
+
+        function renderNoteKeyValue() {
+            const label = editingNoteKeyValue === 0 ? '原 KEY' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`;
+            document.getElementById('note-key-value').textContent = label;
+        }
+
+        // 透過左右按鈕快速調整半音，連續點擊即可設定 +2、-2 等數值。
+        function adjustNoteKey(step) {
+            editingNoteKeyValue = Math.max(-12, Math.min(12, editingNoteKeyValue + step));
+            renderNoteKeyValue();
+        }
+
+        function resetNoteKey() {
+            editingNoteKeyValue = 0;
+            renderNoteKeyValue();
+        }
+
+        function closeSongNote() {
+            document.getElementById('song-note-panel').style.display = 'none';
+            editingSongFilename = '';
+        }
+
+        // 將目前面板內容送到 server，由 server 驗證歌曲仍在待播清單中。
+        function saveSongNote() {
+            if (!editingSongFilename) return;
+            const selectedOptions = [];
+            if (document.getElementById('note-lyrics').checked) selectedOptions.push(subtitleSongs.has(editingSongFilename) ? '歌詞錯誤待修改' : '想加入歌詞');
+            socket.emit('song_note_submit', {
+                song_filename: editingSongFilename,
+                selected_options: selectedOptions,
+                key_value: editingNoteKeyValue === 0 ? '原 Key' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`,
+                custom_text: document.getElementById('note-custom-text').value,
+            });
+            closeSongNote();
+        }
+
         /**
          * Requests removal of one waiting song from the server queue.
          * @param {number} queueIndex Zero-based queue index; index zero is protected.
@@ -209,6 +320,15 @@
         }
 
         socket.on('update_queue', renderQueue);
+        socket.on('song_notes', (notes) => {
+            songNotes = notes && typeof notes === 'object' ? notes : {};
+            renderQueue(currentPlaylist);
+        });
+        socket.on('song_note_updated', (note) => {
+            if (!note || !note.song_filename) return;
+            songNotes[note.song_filename] = note;
+            renderQueue(currentPlaylist);
+        });
 
         // --- 歌單與基本控制 ---
         socket.on('update_list', (songs) => {

@@ -110,6 +110,17 @@
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
         .song-btn.added { background: #607d8b; cursor: wait; }
+        /* 待播歌曲備註面板，採用固定面板避免影響播放器版面。 */
+        #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 60; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+        #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
+        #song-note-panel label { display: block; margin: 10px 0; color: #ddd; }
+        #song-note-panel textarea { width: 100%; box-sizing: border-box; padding: 9px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        #song-note-panel textarea { min-height: 80px; resize: vertical; }
+        .note-key-controls { display: flex; gap: 8px; }
+        .note-key-controls .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-indicator { color: #ffd54f; margin-left: 6px; }
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -204,6 +215,24 @@
             <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
         </div>
         <ul id="list"></ul>
+    </div>
+
+    <div id="song-note-panel" role="dialog" aria-modal="true" aria-labelledby="song-note-title">
+        <h4 id="song-note-title">歌曲備註</h4>
+        <label id="note-lyrics-label"><input type="checkbox" id="note-lyrics"> 想加入歌詞</label>
+        <label>適合的 KEY</label>
+        <div class="note-key-controls">
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(-1)">−</button>
+            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原 KEY</button>
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(1)">＋</button>
+        </div>
+        <label>自填文字
+            <textarea id="note-custom-text" maxlength="500" placeholder="例如：請幫我補歌詞"></textarea>
+        </label>
+        <div class="note-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeSongNote()">取消</button>
+            <button class="btn" style="background:#009688;" type="button" onclick="saveSongNote()">儲存</button>
+        </div>
     </div>
 
     <script>
@@ -342,6 +371,9 @@ const socket = io();
         });
 
         let currentQueueHistory = [];
+        let songNotes = {};
+        let editingSongFilename = '';
+        let editingNoteKeyValue = 0;
         let currentEngineSummary = '音訊引擎：尚未啟動';
         let engineDebugEnabled = false;
 
@@ -1026,11 +1058,11 @@ const socket = io();
 
         socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
 
-        socket.on('update_queue', (playlist) => {
+        function renderQueue(playlist) {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
             renderEngineStatus();
-            if(playlist.length > 1) {
-                nextInfo.innerText = "下一首：" + playlist[1].replace('.mp4', '');
+            if(currentQueueHistory.length > 1) {
+                nextInfo.innerText = "下一首：" + currentQueueHistory[1].replace('.mp4', '');
                 nextInfo.style.display = 'block';
             } else {
                 nextInfo.style.display = 'none';
@@ -1038,14 +1070,113 @@ const socket = io();
 
             const qList = document.getElementById('queue-list');
             qList.innerHTML = "";
-            if(playlist.length === 0) {
+            if(currentQueueHistory.length === 0) {
                 qList.innerHTML = "<li>(無)</li>";
             } else {
-                playlist.forEach((s, index) => {
+                currentQueueHistory.forEach((s, index) => {
                     const name = index === 0 ? `🎵 播放中：${s.replace('.mp4', '')}` : s.replace('.mp4', '');
-                    qList.innerHTML += `<li${index === 0 ? ' style="color:#4CAF50; font-weight:bold;"' : ''}><span>${name}</span>${index === 0 ? '' : `<button class="song-btn" onclick="removeQueuedSong(${index})">刪除</button>`}</li>`;
+                    const item = document.createElement('li');
+                    if (index === 0) item.style.cssText = 'color:#4CAF50; font-weight:bold;';
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = name;
+                    if (hasMeaningfulSongNote(songNotes[s])) {
+                        const noteIndicator = document.createElement('span');
+                        noteIndicator.className = 'note-indicator';
+                        noteIndicator.textContent = '📝';
+                        nameSpan.appendChild(noteIndicator);
+                    }
+                    item.appendChild(nameSpan);
+                    const noteButton = document.createElement('button');
+                    noteButton.className = 'song-btn';
+                    noteButton.textContent = '備註';
+                    noteButton.addEventListener('click', () => openSongNote(s));
+                    item.appendChild(noteButton);
+                    if (index !== 0) {
+                        const removeButton = document.createElement('button');
+                        removeButton.className = 'song-btn';
+                        removeButton.textContent = '刪除';
+                        removeButton.addEventListener('click', () => removeQueuedSong(index));
+                        item.appendChild(removeButton);
+                    }
+                    qList.appendChild(item);
                 });
             }
+        }
+
+        // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
+        function hasMeaningfulSongNote(note) {
+            return Boolean(note && (
+                (Array.isArray(note.selected_options) && note.selected_options.length > 0)
+                || (note.key_value && note.key_value !== '原 Key')
+                || String(note.custom_text || '').trim()
+            ));
+        }
+
+        socket.on('update_queue', renderQueue);
+
+        // 開啟指定待播歌曲的備註面板，既有備註會先填回表單。
+        function openSongNote(filename) {
+            editingSongFilename = filename;
+            const note = songNotes[filename] || {};
+            document.getElementById('song-note-title').textContent = `歌曲備註：${filename.replace('.mp4', '')}`;
+            const hasSubtitle = subtitleSongs.has(filename);
+            const lyricsOption = hasSubtitle ? '歌詞錯誤待修改' : '想加入歌詞';
+            document.getElementById('note-lyrics-label').lastChild.textContent = ` ${lyricsOption}`;
+            document.getElementById('note-lyrics').checked = (note.selected_options || []).some((option) => option === lyricsOption || (hasSubtitle && option === '想加入歌詞'));
+            editingNoteKeyValue = parseNoteKey(note.key_value);
+            renderNoteKeyValue();
+            document.getElementById('note-custom-text').value = note.custom_text || '';
+            document.getElementById('song-note-panel').style.display = 'block';
+        }
+
+        function parseNoteKey(value) {
+            const keyNumber = Number.parseInt(String(value || '0').replace('原 Key', '0'), 10);
+            return Number.isFinite(keyNumber) ? Math.max(-12, Math.min(12, keyNumber)) : 0;
+        }
+
+        function renderNoteKeyValue() {
+            const label = editingNoteKeyValue === 0 ? '原 KEY' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`;
+            document.getElementById('note-key-value').textContent = label;
+        }
+
+        // 透過左右按鈕快速調整半音，連續點擊即可設定 +2、-2 等數值。
+        function adjustNoteKey(step) {
+            editingNoteKeyValue = Math.max(-12, Math.min(12, editingNoteKeyValue + step));
+            renderNoteKeyValue();
+        }
+
+        function resetNoteKey() {
+            editingNoteKeyValue = 0;
+            renderNoteKeyValue();
+        }
+
+        function closeSongNote() {
+            document.getElementById('song-note-panel').style.display = 'none';
+            editingSongFilename = '';
+        }
+
+        // 將表單送到 server，由 server 驗證歌曲仍存在於待播清單。
+        function saveSongNote() {
+            if (!editingSongFilename) return;
+            const selectedOptions = [];
+            if (document.getElementById('note-lyrics').checked) selectedOptions.push(subtitleSongs.has(editingSongFilename) ? '歌詞錯誤待修改' : '想加入歌詞');
+            socket.emit('song_note_submit', {
+                song_filename: editingSongFilename,
+                selected_options: selectedOptions,
+                key_value: editingNoteKeyValue === 0 ? '原 Key' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`,
+                custom_text: document.getElementById('note-custom-text').value,
+            });
+            closeSongNote();
+        }
+
+        socket.on('song_notes', (notes) => {
+            songNotes = notes && typeof notes === 'object' ? notes : {};
+            renderQueue(currentQueueHistory);
+        });
+        socket.on('song_note_updated', (note) => {
+            if (!note || !note.song_filename) return;
+            songNotes[note.song_filename] = note;
+            renderQueue(currentQueueHistory);
         });
 
         /**

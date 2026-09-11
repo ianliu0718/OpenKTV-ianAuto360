@@ -71,6 +71,8 @@ else:
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
+# 待播備註獨立保存於專案目錄，避免重啟 server 後遺失。
+SONG_NOTES_FILE = os.path.join(BASE_DIR, "song_notes.json")
 
 def get_ytdlp_command():
     if os.path.exists(YT_DLP_PATH):
@@ -961,6 +963,42 @@ def format_vtt_time(milliseconds):
 # SocketIO 事件處理 & 待播清單
 # ------------------------------------------
 playlist_queue = []
+# 待播歌曲備註獨立儲存，不把備註寫入歌曲或 queue 項目本身。
+def _load_song_notes():
+    """從 JSON 檔載入備註；檔案不存在或格式錯誤時使用空資料。"""
+    try:
+        with open(SONG_NOTES_FILE, 'r', encoding='utf-8') as notes_file:
+            notes = json.load(notes_file)
+        return notes if isinstance(notes, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _normalize_song_notes(notes):
+    """已有歌詞的歌曲不再保留「想加入歌詞」選項，等同將該選項設為 False。"""
+    changed = False
+    for filename, note in notes.items():
+        if not isinstance(note, dict) or not _song_has_subtitle(filename):
+            continue
+        selected_options = note.get('selected_options', [])
+        if not isinstance(selected_options, list) or '想加入歌詞' not in selected_options:
+            continue
+        note['selected_options'] = [option for option in selected_options if option != '想加入歌詞']
+        changed = True
+    return changed
+
+
+def _save_song_notes():
+    """以暫存檔取代方式保存備註，避免寫檔中斷留下不完整 JSON。"""
+    temporary_file = SONG_NOTES_FILE + '.tmp'
+    with open(temporary_file, 'w', encoding='utf-8') as notes_file:
+        json.dump(song_notes, notes_file, ensure_ascii=False, indent=2)
+    os.replace(temporary_file, SONG_NOTES_FILE)
+
+
+song_notes = _load_song_notes()
+if _normalize_song_notes(song_notes):
+    _save_song_notes()
 subtitle_visible = False
 subtitle_font_size = 100
 qr_visible = True
@@ -1043,6 +1081,8 @@ def handle_connect():
     """Send the current queue to each newly connected client."""
     current_filename = playlist_queue[0] if playlist_queue else ''
     emit('update_queue', playlist_queue)
+    # 新連線先同步目前所有歌曲備註，讓遙控器與播放端畫面一致。
+    emit('song_notes', song_notes)
     emit('current_song', {
         'filename': current_filename,
         'visible': subtitle_visible and _song_has_subtitle(current_filename),
@@ -1172,6 +1212,51 @@ def handle_remove_from_queue(data):
         return
     playlist_queue.pop(queue_index)
     emit('update_queue', playlist_queue, broadcast=True)
+
+@socketio.on('song_note_submit')
+def handle_song_note_submit(data):
+    """Validate and save one note for a song currently present in the queue."""
+    if not isinstance(data, dict):
+        return
+    song_filename = os.path.basename(str(data.get('song_filename', '')).strip())
+    if not song_filename or song_filename not in playlist_queue:
+        return
+
+    allowed_options = {'想加入歌詞', '歌詞錯誤待修改'}
+    selected_options = data.get('selected_options', [])
+    if not isinstance(selected_options, list):
+        selected_options = []
+    selected_options = [option for option in selected_options if option in allowed_options]
+    # 已有字幕的歌曲強制清除「想加入歌詞」，避免舊版 client 寫回錯誤狀態。
+    if _song_has_subtitle(song_filename):
+        selected_options = [option for option in selected_options if option != '想加入歌詞']
+
+    allowed_keys = {'原 Key'}
+    key_value = str(data.get('key_value', '原 Key')).strip()
+    if key_value not in allowed_keys:
+        try:
+            key_number = max(-12, min(12, int(key_value)))
+            key_value = '原 Key' if key_number == 0 else f'{key_number:+d}'
+        except (TypeError, ValueError):
+            key_value = '原 Key'
+    if key_value not in allowed_keys and not re.fullmatch(r'[+-]\d+', key_value):
+        key_value = '原 Key'
+
+    custom_text = str(data.get('custom_text', '')).strip()[:500]
+    note = {
+        'song_filename': song_filename,
+        'selected_options': selected_options,
+        'key_value': key_value,
+        'custom_text': custom_text,
+        'updated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+    }
+    # 備註以檔名為 key，獨立保存到 JSON，不改動既有歌曲資料結構。
+    song_notes[song_filename] = note
+    try:
+        _save_song_notes()
+    except OSError:
+        return
+    emit('song_note_updated', note, broadcast=True)
 
 @socketio.on('song_ended')
 def handle_song_ended():
