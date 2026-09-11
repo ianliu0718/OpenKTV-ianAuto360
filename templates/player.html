@@ -14,7 +14,7 @@
         #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 70px); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #seek-status.visible { opacity: 1; visibility: visible; }
         #waiting { font-size: 50px; color: #555; cursor: pointer; }
-        #engine-status { position: absolute; bottom: 15px; left: 20px; z-index: 10; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #engine-status { position: absolute; bottom: 15px; left: 20px; z-index: 10; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
         #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
         #remote-qr-label { font-size: 14px; font-weight: bold; }
@@ -153,13 +153,17 @@
             }
         }
 
+        function stripFileExtension(filename) {
+            return String(filename || '').replace(/\.(mp4|mkv|avi|mov)$/i, '');
+        }
+
         /**
          * Shows the filename that was successfully added to the playback queue.
          * @param {string} filename Newly queued song filename.
          */
         function showQueueAddAnnouncement(filename) {
             clearTimeout(queueAddAnnouncementTimer);
-            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.textContent = `已加入待播：${stripFileExtension(filename)}`;
             queueAddAnnouncement.classList.add('visible');
             queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
         }
@@ -170,7 +174,7 @@
          */
         function showSongAnnouncement(filename) {
             clearTimeout(announcementTimer);
-            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.textContent = stripFileExtension(filename);
             songAnnouncement.classList.add('visible');
             announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
         }
@@ -201,6 +205,22 @@
         createRemoteQrCode();
         socket.on('qr_visibility', updateRemoteQrVisibility);
 
+        let currentQueueHistory = [];
+        let currentEngineSummary = '音訊引擎：尚未啟動';
+        let engineDebugEnabled = false;
+
+        function buildQueueHistoryText(playlist) {
+            const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
+            if (!queueEntries.length) return '播放清單：無';
+            const visibleEntries = queueEntries.slice(0, 3);
+            const suffix = queueEntries.length > 3 ? ' | ...' : '';
+            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+        }
+
+        function renderEngineStatus() {
+            engineStatus.innerText = engineDebugEnabled ? currentEngineSummary : buildQueueHistoryText(currentQueueHistory);
+        }
+
         /**
          * Shows the audio processor currently used by the player.
          * @param {string} message Engine name and optional diagnostic detail.
@@ -210,7 +230,8 @@
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
-            engineStatus.innerText = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            renderEngineStatus();
         }
 
         /**
@@ -483,6 +504,11 @@
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線主機"; });
 
+        socket.on('engine_status_config', (data) => {
+            engineDebugEnabled = Boolean(data && data.debug);
+            renderEngineStatus();
+        });
+
         socket.on('seek_correction', (data) => {
             const enabled = Boolean(data && data.enabled);
             const wasDual = seekCorrectionEnabled;
@@ -503,7 +529,8 @@
         socket.on('play_video', (data) => {
             updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             waiting.style.display = 'none';
-            overlay.innerText = "正在播放: " + data.title;
+            const songName = stripFileExtension(data.filename || data.title || '');
+            overlay.innerText = songName ? `正在播放: ${songName}` : `正在播放: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
             currentChannelLayout = data.audio_channel_layout || '';
@@ -547,6 +574,11 @@
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
+
+        socket.on('update_queue', (playlist) => {
+            currentQueueHistory = Array.isArray(playlist) ? playlist : [];
+            renderEngineStatus();
+        });
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {

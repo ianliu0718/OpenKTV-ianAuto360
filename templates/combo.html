@@ -31,7 +31,7 @@
         #idle-screen { text-align: center; width: 100%; }
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
-        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
         #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
         #remote-qr-label { font-size: 12px; font-weight: bold; }
@@ -285,13 +285,17 @@ const socket = io();
             }
         }
 
+        function stripFileExtension(filename) {
+            return String(filename || '').replace(/\.(mp4|mkv|avi|mov)$/i, '');
+        }
+
         /**
          * Shows the filename that was successfully added to the all-in-one queue.
          * @param {string} filename Newly queued song filename.
          */
         function showQueueAddAnnouncement(filename) {
             clearTimeout(queueAddAnnouncementTimer);
-            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.textContent = `已加入待播：${stripFileExtension(filename)}`;
             queueAddAnnouncement.classList.add('visible');
             queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
         }
@@ -302,7 +306,7 @@ const socket = io();
          */
         function showSongAnnouncement(filename) {
             clearTimeout(announcementTimer);
-            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.textContent = stripFileExtension(filename);
             songAnnouncement.classList.add('visible');
             announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
         }
@@ -332,6 +336,26 @@ const socket = io();
 
         createRemoteQrCode();
         socket.on('qr_visibility', updateRemoteQrVisibility);
+        socket.on('engine_status_config', (data) => {
+            engineDebugEnabled = Boolean(data && data.debug);
+            renderEngineStatus();
+        });
+
+        let currentQueueHistory = [];
+        let currentEngineSummary = '音訊引擎：尚未啟動';
+        let engineDebugEnabled = false;
+
+        function buildQueueHistoryText(playlist) {
+            const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
+            if (!queueEntries.length) return '播放清單：無';
+            const visibleEntries = queueEntries.slice(0, 3);
+            const suffix = queueEntries.length > 3 ? ' | ...' : '';
+            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+        }
+
+        function renderEngineStatus() {
+            engineStatus.innerText = engineDebugEnabled ? currentEngineSummary : buildQueueHistoryText(currentQueueHistory);
+        }
 
         /**
          * Shows the audio processor currently used by the all-in-one player.
@@ -342,7 +366,8 @@ const socket = io();
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
-            engineStatus.innerText = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            renderEngineStatus();
         }
 
         /**
@@ -703,7 +728,8 @@ const socket = io();
             updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             idleScreen.style.display = 'none';
             video.style.display = 'block';
-            overlay.innerText = "播放中: " + data.title;
+            const songName = stripFileExtension(data.filename || data.title || '');
+            overlay.innerText = songName ? `播放中: ${songName}` : `播放中: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
             currentChannelLayout = data.audio_channel_layout || '';
@@ -1001,6 +1027,8 @@ const socket = io();
         socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
 
         socket.on('update_queue', (playlist) => {
+            currentQueueHistory = Array.isArray(playlist) ? playlist : [];
+            renderEngineStatus();
             if(playlist.length > 1) {
                 nextInfo.innerText = "下一首：" + playlist[1].replace('.mp4', '');
                 nextInfo.style.display = 'block';

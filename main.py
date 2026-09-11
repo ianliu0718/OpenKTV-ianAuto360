@@ -970,6 +970,31 @@ current_track_mode = 'original'
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
+engine_debug_enabled = False
+
+
+def _format_queue_label(filename):
+    """Return a compact title without extension for queue/history display."""
+    if not filename:
+        return ''
+    return os.path.splitext(os.path.basename(filename))[0]
+
+
+def _build_engine_status_history():
+    """Build compact playback queue text for the status strip without A/B/C labels."""
+    if not playlist_queue:
+        return '播放清單：無'
+    visible_items = [_format_queue_label(name) for name in playlist_queue[:3]]
+    if len(playlist_queue) > 3:
+        visible_items.append('...')
+    return '播放清單：' + ' | '.join(visible_items)
+
+
+def broadcast_engine_status_state():
+    """Sync the single engine-debug toggle to all clients."""
+    socketio.emit('engine_status_config', {
+        'debug': engine_debug_enabled,
+    }, broadcast=True)
 
 
 """
@@ -1027,8 +1052,16 @@ def handle_connect():
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
+    emit('engine_status_config', {'debug': engine_debug_enabled})
     emit('apply_effect', {'playback_rate': playback_rate})
     emit('set_audio', {'mode': current_track_mode})
+
+@socketio.on('set_engine_debug')
+def handle_set_engine_debug(data):
+    """Toggle verbose engine diagnostics for the status strip; when off, show compact playback history."""
+    global engine_debug_enabled
+    engine_debug_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    broadcast_engine_status_state()
 
 @socketio.on('set_seek_correction')
 def handle_set_seek_correction(data):
@@ -1604,6 +1637,17 @@ class ServerApp(tk.Tk):
             activebackground="#f4f4f9",
         ).pack(anchor="w", padx=20, pady=2)
 
+        self.engine_debug_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            self,
+            text="啟用音訊引擎除錯資訊",
+            variable=self.engine_debug_var,
+            command=self.toggle_engine_debug,
+            font=("Microsoft JhengHei", 10),
+            bg="#f4f4f9",
+            activebackground="#f4f4f9",
+        ).pack(anchor="w", padx=20, pady=2)
+
         # 增加一個實體的 GUI 日誌框，用來接聽攔截到的錯誤訊息
         self.log_txt = tk.Text(self, height=8, state="disabled", bg="#222", fg="#0f0", font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True, padx=20, pady=10)
@@ -1616,6 +1660,10 @@ class ServerApp(tk.Tk):
     def toggle_seek_correction(self):
         """Apply the server-side video progress correction setting."""
         handle_set_seek_correction({'enabled': bool(self.seek_correction_var.get())})
+
+    def toggle_engine_debug(self):
+        """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""
+        handle_set_engine_debug({'enabled': bool(self.engine_debug_var.get())})
 
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")
