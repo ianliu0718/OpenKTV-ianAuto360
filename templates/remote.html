@@ -49,6 +49,14 @@
         .note-actions { display: flex; gap: 8px; margin-top: 12px; }
         .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
         .note-indicator { color: #ffd54f; margin-left: 6px; }
+        .danmaku-button { background: #e91e63; }
+        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        #danmaku-panel h4 { margin: 0 0 12px; }
+        .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .danmaku-actions .btn { flex: 1; margin: 0; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -111,6 +119,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
         </div>
 
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
@@ -149,6 +158,21 @@
             <ul id="queue-list"><li>(無)</li></ul>
         </div>
     </section>
+
+    <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
+        <h4 id="danmaku-title">發送彈幕</h4>
+        <div class="danmaku-presets">
+            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+        </div>
+        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+        <div class="danmaku-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+        </div>
+    </div>
 
     <div id="song-note-panel" role="dialog" aria-modal="true" aria-labelledby="song-note-title">
         <h4 id="song-note-title">歌曲備註</h4>
@@ -295,6 +319,26 @@
         function closeSongNote() {
             document.getElementById('song-note-panel').style.display = 'none';
             editingSongFilename = '';
+        }
+
+        function openDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'block';
+            document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function closeDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'none';
+        }
+
+        // 預設或自訂彈幕都透過 server 廣播給播放端與其他遙控器。
+        function sendDanmaku(text) {
+            const message = String(text || '').trim();
+            if (!message) return;
+            socket.emit('danmaku_submit', { text: message });
+        }
+
+        function sendCustomDanmaku() {
+            sendDanmaku(document.getElementById('danmaku-custom-text').value);
         }
 
         // 將目前面板內容送到 server，由 server 驗證歌曲仍在待播清單中。

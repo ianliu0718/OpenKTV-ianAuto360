@@ -1291,6 +1291,17 @@ def handle_control(action):
         # 其他指令 (例如 pause) 照常發送
         emit('command', action, broadcast=True)
 
+@socketio.on('danmaku_submit')
+def handle_danmaku_submit(data):
+    """Validate and broadcast one temporary danmaku message to all playback screens."""
+    if not isinstance(data, dict):
+        return
+    text = str(data.get('text', '')).strip()[:100]
+    if not text:
+        return
+    # 彈幕是即時氣氛訊息，不寫入歌曲或備註檔案。
+    emit('danmaku_show', {'text': text}, broadcast=True)
+
 @socketio.on('seek_video')
 def handle_seek_video(data):
     """Broadcast a bounded video-delay adjustment using the same behavior as the stable v1.0.6.8 flow."""

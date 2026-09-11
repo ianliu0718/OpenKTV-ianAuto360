@@ -37,6 +37,9 @@
         #remote-qr-label { font-size: 12px; font-weight: bold; }
         #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 25; width: min(82%, 720px); padding: 14px 22px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(20px, 3vw, 36px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
         #song-announcement.visible { opacity: 1; }
+        #danmaku-overlay { position: absolute; inset: 0; z-index: 26; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
+        #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(18px, 3vw, 34px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
+        @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
         #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
         #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
@@ -121,6 +124,14 @@
         .note-actions { display: flex; gap: 8px; margin-top: 12px; }
         .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
         .note-indicator { color: #ffd54f; margin-left: 6px; }
+        .danmaku-button { background: #e91e63; }
+        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        #danmaku-panel h4 { margin: 0 0 12px; }
+        .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .danmaku-actions .btn { flex: 1; margin: 0; }
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -145,6 +156,7 @@
         <div id="key-status">KEY：原 KEY (0)</div>
         <div id="seek-status">播放位置偏移：0 秒</div>
         <div id="song-announcement"></div>
+        <div id="danmaku-overlay"></div>
         <div id="queue-add-announcement"></div>
         <div id="ktv-subtitle" aria-live="polite"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
@@ -184,6 +196,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
         </div>
 
 <div class="control-group">
@@ -215,6 +228,21 @@
             <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
         </div>
         <ul id="list"></ul>
+    </div>
+
+    <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
+        <h4 id="danmaku-title">發送彈幕</h4>
+        <div class="danmaku-presets">
+            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+        </div>
+        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+        <div class="danmaku-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+        </div>
     </div>
 
     <div id="song-note-panel" role="dialog" aria-modal="true" aria-labelledby="song-note-title">
@@ -254,6 +282,7 @@ const socket = io();
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
+        const danmakuOverlay = document.getElementById('danmaku-overlay');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
@@ -338,6 +367,36 @@ const socket = io();
             songAnnouncement.textContent = stripFileExtension(filename);
             songAnnouncement.classList.add('visible');
             announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
+        }
+
+        function showDanmaku(text) {
+            const danmakuItem = document.createElement('span');
+            danmakuItem.className = 'danmaku-item';
+            danmakuItem.textContent = text;
+            danmakuItem.style.top = `${15 + Math.random() * 65}%`;
+            danmakuItem.style.setProperty('--danmaku-duration', `${10 + Math.random() * 4}s`);
+            danmakuItem.addEventListener('animationend', () => danmakuItem.remove(), { once: true });
+            danmakuOverlay.appendChild(danmakuItem);
+        }
+
+        function openDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'block';
+            document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function closeDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'none';
+        }
+
+        // 預設或自訂彈幕都透過 server 廣播給播放端與其他遙控器。
+        function sendDanmaku(text) {
+            const message = String(text || '').trim();
+            if (!message) return;
+            socket.emit('danmaku_submit', { text: message });
+        }
+
+        function sendCustomDanmaku() {
+            sendDanmaku(document.getElementById('danmaku-custom-text').value);
         }
 
         /**
@@ -809,6 +868,9 @@ const socket = io();
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
+        socket.on('danmaku_show', (data) => {
+            if (data && data.text) showDanmaku(data.text);
+        });
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {
