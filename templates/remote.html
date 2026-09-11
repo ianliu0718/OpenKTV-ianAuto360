@@ -74,12 +74,11 @@
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
             <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕字體大小</span><span id="subtitle-size-label">標準（200%）</span>
+                <span>字幕字體大小</span><span id="subtitle-size-label">大字（120%）</span>
             </div>
             <div style="display:flex; gap:6px; margin-top:5px;">
-                <button id="subtitle-size-small" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(80)">小字</button>
-                <button id="subtitle-size-normal" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(100)">標準</button>
-                <button id="subtitle-size-large" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="setSubtitleFontSize(120)">大字</button>
+                <button id="subtitle-size-decrease" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(-20)">-</button>
+                <button id="subtitle-size-increase" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(20)">+</button>
             </div>
         </div>
 
@@ -126,11 +125,11 @@
                 <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">&lt;0.1</button>
-                <button class="btn" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
-                <button class="btn" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
@@ -147,9 +146,10 @@
         let currentKey = 0;
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
-        let currentSubtitleFontSize = 200;
+        let currentSubtitleFontSize = 120;
         let songScrollTop = 0;
         let seekOffset = 0;
+        let seekCorrectionEnabled = false;
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
@@ -306,9 +306,10 @@
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
             currentSubtitleVisible = Boolean(data.visible);
-            currentSubtitleFontSize = Number(data.font_size) || 200;
+            currentSubtitleFontSize = Number(data.font_size) || 120;
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
+            renderSubtitleFontSizeControl();
         }
 
         /**
@@ -319,27 +320,28 @@
         }
 
         /**
-         * Sets the shared subtitle font size for all playback screens.
-         * @param {number} fontSize Subtitle size percentage.
+         * Adjusts the shared subtitle font size by a controlled step and clamps it to a safe range.
+         * @param {number} step Amount to change the subtitle scale in percentage points.
          */
-        function setSubtitleFontSize(fontSize) {
-            if (![80, 100, 120].includes(fontSize)) return;
-            currentSubtitleFontSize = fontSize;
+        function changeSubtitleFontSize(step) {
+            const nextSize = Math.min(200, Math.max(80, currentSubtitleFontSize + step));
+            currentSubtitleFontSize = nextSize;
             renderSubtitleFontSizeControl();
-            socket.emit('set_subtitle_font_size', { font_size: fontSize });
+            socket.emit('set_subtitle_font_size', { font_size: nextSize });
         }
 
         /**
-         * Updates the remote control label and selected subtitle size button.
+         * Updates the remote control label and size buttons based on the current subtitle scale.
          */
         function renderSubtitleFontSizeControl() {
-            const labels = { 80: '小字（80%）', 100: '標準（100%）', 120: '大字（120%）', 200: '預設（200%）' };
-            document.getElementById('subtitle-size-label').textContent = labels[currentSubtitleFontSize] || labels[200];
-            [80, 100, 120].forEach((size) => {
-                const button = document.getElementById({ 80: 'subtitle-size-small', 100: 'subtitle-size-normal', 120: 'subtitle-size-large' }[size]);
-                button.setAttribute('aria-pressed', String(size === currentSubtitleFontSize));
-                button.style.background = size === currentSubtitleFontSize ? '#2aa894' : '#536d7a';
-            });
+            const label = `${currentSubtitleFontSize}%`;
+            document.getElementById('subtitle-size-label').textContent = label;
+            const increaseButton = document.getElementById('subtitle-size-increase');
+            const decreaseButton = document.getElementById('subtitle-size-decrease');
+            increaseButton.disabled = currentSubtitleFontSize >= 200;
+            decreaseButton.disabled = currentSubtitleFontSize <= 80;
+            increaseButton.style.opacity = increaseButton.disabled ? '0.55' : '1';
+            decreaseButton.style.opacity = decreaseButton.disabled ? '0.55' : '1';
         }
 
         socket.on('current_song', updateCurrentSong);
@@ -522,7 +524,25 @@
          */
         function seekVideo(seconds) {
             if (![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            // 伺服器端已經驗證秒數合法，且本次使用情境下功能開關由伺服器主控。
+            // 若在這裡再擋一次 local seekCorrectionEnabled，會讓按鈕點擊完全沒有反應，
+            // 導致遠端 UI 看起來可點但實際不發送任何 seek_video 事件。
             socket.emit('seek_video', { seconds });
+        }
+
+        /**
+         * Updates the server-controlled video progress correction state.
+         * @param {boolean} enabled Whether video-only progress correction is enabled.
+         */
+        function updateSeekCorrectionState(enabled) {
+            seekCorrectionEnabled = Boolean(enabled);
+            document.querySelectorAll('.seek-control').forEach((button) => {
+                button.disabled = !seekCorrectionEnabled;
+                button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
+            });
+            document.getElementById('seek-val').innerText = seekCorrectionEnabled
+                ? (seekOffset === 0 ? '0 秒' : `${seekOffset.toFixed(1)} 秒`)
+                : '伺服器已關閉';
         }
 
         /**
@@ -539,6 +559,7 @@
         }
 
         socket.on('seek_video', (data) => updateSeekOffset(Number(data.offset) || 0));
+        socket.on('seek_correction', (data) => updateSeekCorrectionState(Boolean(data && data.enabled)));
 
         // 接收伺服器廣播，同步更新介面狀態 (若有其他手機也在操作)
         socket.on('apply_effect', (data) => {

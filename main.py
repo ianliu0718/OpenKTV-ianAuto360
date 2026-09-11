@@ -50,6 +50,9 @@ import json
 import time
 import webbrowser
 import ipaddress
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
@@ -58,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.6.6"
+APP_VERSION = "v1.0.8.1"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -195,6 +198,14 @@ TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing")
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
 audio_loudness_cache = {}
 
+LYRICS_PROVIDERS = {
+    'lrclib': {
+        'name': 'LRCLIB（同步歌詞）',
+        'base_url': 'https://lrclib.net/api',
+    },
+}
+LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
+
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 
@@ -294,13 +305,16 @@ def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
 def _play_video_payload(filename):
-    """Build a playback event payload with server-confirmed audio metadata."""
+    """Build a playback event payload with server-confirmed audio metadata and persistent subtitle state."""
     return {
         'filename': filename,
         'title': filename,
         'audio_channels': get_audio_channel_count(filename),
         'audio_channel_layout': get_audio_channel_layout(filename),
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
+        'track_mode': current_track_mode,
+        'visible': subtitle_visible,
+        'font_size': subtitle_font_size,
     }
 
 @app.route('/subtitles/<path:filename>')
@@ -322,6 +336,165 @@ def get_subtitle_list():
         if filename.lower().endswith('.vtt')
     }
     return json.dumps(sorted(subtitles), ensure_ascii=False)
+
+def parse_vtt_timestamp(timestamp):
+    """Convert a WebVTT timestamp into seconds."""
+    match = re.match(r'^(?:(\d+):)?(\d{2}):(\d{2})\.(\d{3})$', timestamp.strip())
+    if not match:
+        raise ValueError('VTT 時間格式錯誤')
+    hours, minutes, seconds, milliseconds = match.groups()
+    return (int(hours or 0) * 3600) + (int(minutes) * 60) + int(seconds) + int(milliseconds) / 1000
+
+def parse_vtt_cues(content):
+    """Parse simple WebVTT cues used by the KTV lyric editor."""
+    lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    cues = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        if '-->' not in line:
+            index += 1
+            continue
+        start_text, end_text = [part.strip().split(' ', 1)[0] for part in line.split('-->', 1)]
+        try:
+            start = parse_vtt_timestamp(start_text)
+            end = parse_vtt_timestamp(end_text)
+        except ValueError:
+            index += 1
+            continue
+        index += 1
+        text_lines = []
+        while index < len(lines) and lines[index].strip():
+            text_lines.append(re.sub(r'<[^>]*>', '', lines[index].strip()))
+            index += 1
+        text = '\n'.join(text_lines).strip()
+        if text and end > start:
+            cues.append({'start': start, 'end': end, 'text': text})
+        index += 1
+    return cues
+
+@app.route('/api/subtitles/manual')
+def get_manual_subtitle():
+    """Return an existing song's VTT cues for editing in the admin tool."""
+    song_filename = os.path.basename(request.args.get('song', '').strip())
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(song_filename)[0] + '.vtt')
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
+    if not os.path.exists(subtitle_path):
+        return json.dumps({'success': True, 'exists': False, 'cues': []}, ensure_ascii=False)
+    try:
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
+            cues = parse_vtt_cues(subtitle_file.read())
+        return json.dumps({'success': True, 'exists': True, 'cues': cues}, ensure_ascii=False)
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        return json.dumps({'success': False, 'error': f'既有歌詞讀取失敗：{error}'}, ensure_ascii=False), 400
+
+def split_song_filename(song_filename):
+    """Extract the title and artist from title-artist-language-number filenames."""
+    stem = os.path.splitext(os.path.basename(song_filename))[0]
+    parts = stem.rsplit('-', 3)
+    if len(parts) == 4:
+        return parts[0].strip(), parts[1].strip()
+    return stem.strip(), ''
+
+def lyrics_provider_request(provider_id, path, query=None):
+    """Request JSON from a registered lyrics provider."""
+    provider = LYRICS_PROVIDERS.get(provider_id)
+    if not provider:
+        raise ValueError('不支援的歌詞伺服器')
+    url = f"{provider['base_url']}{path}"
+    if query:
+        url = f'{url}?{urlencode(query)}'
+    request = Request(url, headers={'User-Agent': LYRICS_USER_AGENT, 'Accept': 'application/json'})
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except HTTPError as error:
+        try:
+            detail = error.read().decode('utf-8', errors='replace')
+        except OSError:
+            detail = ''
+        raise RuntimeError(f'歌詞伺服器回應 HTTP {error.code}：{detail[-500:]}') from error
+    except (URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise RuntimeError(f'無法連線歌詞伺服器：{error}') from error
+
+@app.route('/api/lyrics/providers')
+def get_lyrics_providers():
+    """Return the lyrics providers currently available to the admin UI."""
+    return json.dumps([
+        {'id': provider_id, 'name': provider['name']}
+        for provider_id, provider in LYRICS_PROVIDERS.items()
+    ], ensure_ascii=False)
+
+@app.route('/api/lyrics/search')
+def search_lyrics():
+    """Search a lyrics provider using an optional local-song filename and query override."""
+    provider_id = request.args.get('provider', 'lrclib').strip().lower()
+    song_filename = os.path.basename(request.args.get('song', '').strip())
+    query_override = request.args.get('query', '').strip()
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(os.path.join(SONGS_DIR, song_filename)):
+        return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
+    title, artist = split_song_filename(song_filename)
+    if not query_override and not title:
+        return json.dumps({'success': False, 'error': '找不到歌名，請自行輸入搜尋關鍵字'}), 400
+    try:
+        query = {'q': query_override} if query_override else {'track_name': title, 'artist_name': artist}
+        records = lyrics_provider_request(provider_id, '/search', query)
+        results = []
+        for record in records if isinstance(records, list) else []:
+            results.append({
+                'id': record.get('id'),
+                'trackName': record.get('trackName') or record.get('name', ''),
+                'artistName': record.get('artistName', ''),
+                'albumName': record.get('albumName', ''),
+                'duration': record.get('duration'),
+                'hasSyncedLyrics': bool((record.get('syncedLyrics') or '').strip()),
+                'preview': (record.get('syncedLyrics') or record.get('plainLyrics') or '').strip()[:240],
+            })
+        return json.dumps({
+            'success': True,
+            'song': song_filename,
+            'suggested_title': title,
+            'suggested_artist': artist,
+            'query': query_override or f'{title} {artist}'.strip(),
+            'results': results,
+        }, ensure_ascii=False)
+    except (RuntimeError, ValueError) as error:
+        return json.dumps({'success': False, 'error': str(error)}, ensure_ascii=False), 502
+
+@app.route('/api/lyrics/download', methods=['POST'])
+def download_lyrics():
+    """Fetch selected synchronized lyrics and save them as the song's WebVTT file."""
+    global is_processing
+    data = request.get_json(silent=True) or {}
+    provider_id = str(data.get('provider', 'lrclib')).strip().lower()
+    song_filename = os.path.basename(str(data.get('song', '')).strip())
+    record_id = data.get('id')
+    overwrite = bool(data.get('overwrite', False))
+    song_path = os.path.join(SONGS_DIR, song_filename)
+    if is_processing:
+        return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
+        return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
+    try:
+        record_id = int(record_id)
+    except (TypeError, ValueError):
+        return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
+    output_path = os.path.join(SONGS_DIR, output_name)
+    if os.path.exists(output_path) and not overwrite:
+        return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
+    try:
+        record = lyrics_provider_request(provider_id, f'/get/{record_id}')
+        synced_lyrics = str(record.get('syncedLyrics') or '').strip()
+        if not synced_lyrics:
+            return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
+        output_name = save_subtitle(song_filename, synced_lyrics, 'lrc')
+        socketio.emit('refresh_list')
+        return json.dumps({'success': True, 'filename': output_name, 'trackName': record.get('trackName', ''), 'artistName': record.get('artistName', '')}, ensure_ascii=False)
+    except (RuntimeError, ValueError, OSError) as error:
+        return json.dumps({'success': False, 'error': f'歌詞下載失敗：{error}'}, ensure_ascii=False), 502
 
 @app.route('/api/subtitles/upload', methods=['POST'])
 def upload_subtitle():
@@ -475,8 +648,8 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
         '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
         '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
-        'join=inputs=6:channel_layout=6.0:map=0.0-FL|1.0-FR|2.0-FC|3.0-BC|4.0-SL|5.0-SR,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=6.0[audio]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     subprocess.run(
         [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
@@ -490,20 +663,24 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment];'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
+        '[accompaniment_mono]asplit=4[guide_acc_l_raw][guide_acc_r_raw][accompaniment_l_raw][accompaniment_r_raw];'
+        '[guide_acc_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_l];'
+        '[guide_acc_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_r];'
+        '[accompaniment_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
+        '[accompaniment_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
+        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
         '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
         f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
         '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
+        '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
+        '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
@@ -780,17 +957,36 @@ subtitle_font_size = 100
 qr_visible = True
 random_play_enabled = False
 playback_rate = 1.0
+current_track_mode = 'original'
 seek_offset = 0.0
+seek_correction_enabled = False
+last_user_action_time = 0.0
 
+
+"""
+判斷是否允許在空閒狀態啟動隨機播放。
+@returns {boolean} 當待播清單為空且近期沒有使用者手動點歌時，才允許自動補播。
+"""
+def can_start_random_song():
+    """Return True only when the queue is empty and no recent user action should block auto-fill."""
+    if not random_play_enabled or playlist_queue:
+        return False
+    return (time.monotonic() - last_user_action_time) >= 1.5
+
+
+"""
+以隨機方式補一首歌曲進入播放佇列。
+@returns {boolean} 若成功補播則為 true，否則為 false。
+"""
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
-    global subtitle_visible
+    if not can_start_random_song():
+        return False
     songs = [filename for filename in os.listdir(SONGS_DIR) if filename.lower().endswith('.mp4')]
     if not songs:
         return False
     filename = random.choice(songs)
     playlist_queue.append(filename)
-    subtitle_visible = False
     emit('update_queue', playlist_queue, broadcast=True)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
     emit('play_video', _play_video_payload(filename), broadcast=True)
@@ -819,7 +1015,20 @@ def handle_connect():
     })
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
+    emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('apply_effect', {'playback_rate': playback_rate})
+    emit('set_audio', {'mode': current_track_mode})
+
+@socketio.on('set_seek_correction')
+def handle_set_seek_correction(data):
+    """Update and broadcast whether single-video playback-position correction is enabled."""
+    global seek_correction_enabled, seek_offset
+    seek_correction_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    if not seek_correction_enabled:
+        seek_offset = 0.0
+    socketio.emit('seek_correction', {'enabled': seek_correction_enabled}, broadcast=True)
+    if not seek_correction_enabled:
+        socketio.emit('seek_video', {'seconds': 0, 'offset': 0}, broadcast=True)
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -832,24 +1041,31 @@ def handle_qr_visibility(data):
 def handle_random_play(data):
     """Update and broadcast whether idle playback should choose random songs."""
     global random_play_enabled
+    # 啟用/停用「無點歌時隨機播歌」不是使用者手動點歌行為，
+    # 因此不能更新 last_user_action_time，否則空隊列時會被 1.5 秒冷卻鎖住。
     random_play_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
     emit('random_play', {'enabled': random_play_enabled}, broadcast=True)
-    if random_play_enabled and not playlist_queue:
+    if random_play_enabled and not playlist_queue and can_start_random_song():
         start_random_song()
 
+"""
+使用者手動點歌時，標記近期操作時間並避免隨機播放在同一時段插隊。
+@param {object} data 點歌事件內容，包含 filename 欄位。
+"""
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
-    global subtitle_visible, seek_offset
+    """Append a user-selected song while blocking random fill for a short cooldown period."""
+    global subtitle_visible, seek_offset, last_user_action_time
     filename = data['filename']
+    last_user_action_time = time.monotonic()
     playlist_queue.append(filename)
-    
+
     # 廣播更新所有設備上的歌單畫面
     emit('update_queue', playlist_queue, broadcast=True)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
-    
+
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
-        subtitle_visible = False
         seek_offset = 0.0
         emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
@@ -887,12 +1103,13 @@ def handle_set_subtitle_font_size(data):
     """Update and broadcast the shared subtitle font size in percent."""
     global subtitle_font_size
     try:
-        requested_size = int(data.get('font_size', 100)) if isinstance(data, dict) else 100
+        requested_size = int(data.get('font_size', 120)) if isinstance(data, dict) else 120
     except (TypeError, ValueError):
         return
-    if requested_size not in {80, 100, 120}:
-        return
-    subtitle_font_size = requested_size
+    subtitle_font_size = max(80, min(200, requested_size))
+    if subtitle_font_size % 20 != 0:
+        subtitle_font_size = round(subtitle_font_size / 20) * 20
+    subtitle_font_size = max(80, min(200, subtitle_font_size))
     emit('subtitle_state', {
         'filename': playlist_queue[0] if playlist_queue else '',
         'visible': subtitle_visible,
@@ -914,22 +1131,23 @@ def handle_remove_from_queue(data):
 
 @socketio.on('song_ended')
 def handle_song_ended():
-    global subtitle_visible, seek_offset
+    """Advance the queue while preventing random idle fill from racing user-selected songs."""
+    global subtitle_visible, seek_offset, last_user_action_time
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
-        playlist_queue.pop(0) 
-        subtitle_visible = False
+        playlist_queue.pop(0)
         seek_offset = 0.0
         emit('update_queue', playlist_queue, broadcast=True)
-        
+
         # 檢查是否還有下一首
         if len(playlist_queue) > 0:
             next_song = playlist_queue[0]
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
-            if random_play_enabled and start_random_song():
-                return
+            if random_play_enabled and can_start_random_song():
+                if start_random_song():
+                    return
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
             broadcast_current_song()
@@ -946,7 +1164,7 @@ def handle_control(action):
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
-    """Broadcast a bounded video seek adjustment and its accumulated offset."""
+    """Broadcast a bounded video-delay adjustment using the same behavior as the stable v1.0.6.8 flow."""
     global seek_offset
     try:
         seconds = float(data.get('seconds', 0)) if isinstance(data, dict) else 0
@@ -954,15 +1172,24 @@ def handle_seek_video(data):
         return
     if seconds not in {-0.5, -0.1, 0, 0.1, 0.5}:
         return
+    # 這裡不再用伺服器端的狀態旗標硬擋使用者指令，因為畫面進度修正的有效性
+    # 已由前端與伺服器共同控制；維持 v1.0.6.8 的行為可避免在開啟功能後
+    # 按下 [0.5>>] / [0.1>] 等按鈕完全無反應。
     seek_offset = 0.0 if seconds == 0 else round(seek_offset + seconds, 1)
     emit('seek_video', {'seconds': seconds, 'offset': seek_offset}, broadcast=True)
 
 # ------------------------------------------
-# (以下原本的音效與下載事件保留不動)
+# 音效與升降 KEY 控制（單一入口，避免重複事件註冊造成按鍵無反應）
+# ------------------------------------------
 @socketio.on('control_effect')
 def handle_effect(data):
+    """Normalize and broadcast audio control updates for volume, pitch, and playback rate."""
     global playback_rate
-    if isinstance(data, dict) and 'playback_rate' in data:
+    if not isinstance(data, dict):
+        return
+
+    # 只接受已定義的播放速度範圍，避免非法值破壞播放邏輯。
+    if 'playback_rate' in data:
         try:
             requested_rate = float(data['playback_rate'])
         except (TypeError, ValueError):
@@ -970,29 +1197,17 @@ def handle_effect(data):
         if requested_rate not in {0.75, 1.0, 1.25}:
             return
         playback_rate = requested_rate
-    emit('apply_effect', data, broadcast=True)
 
-# ...後面的 @socketio.on('change_track') 等等都不用動...
-
-@socketio.on('control_effect')
-def handle_effect(data):
-    # 收到音量、升降 KEY 或播放速度指令後，同步廣播給所有設備
-    global playback_rate
-    if isinstance(data, dict) and 'playback_rate' in data:
-        try:
-            requested_rate = float(data['playback_rate'])
-        except (TypeError, ValueError):
-            return
-        if requested_rate not in {0.75, 1.0, 1.25}:
-            return
-        playback_rate = requested_rate
+    # 升降 KEY / 音量 / 速度都以同一個事件廣播，讓遙控器與播放器同步。
     emit('apply_effect', data, broadcast=True)
 
 @socketio.on('change_track')
 def handle_track(mode):
-    """Switch the playback mode immediately and calculate its LUFS asynchronously."""
+    """Switch the playback mode immediately and keep it active for all subsequent songs until changed again."""
+    global current_track_mode
     if mode not in {'original', 'guide', 'instrumental'}:
         return
+    current_track_mode = mode
     filename = playlist_queue[0] if playlist_queue else ''
     emit('set_audio', {
         'mode': mode,
@@ -1367,6 +1582,17 @@ class ServerApp(tk.Tk):
         self.lbl_size = tk.Label(stat_frame, text="佔用空間: 載入中...", font=("Microsoft JhengHei", 12, "bold"), bg="#f4f4f9")
         self.lbl_size.pack(anchor="w", pady=5)
 
+        self.seek_correction_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            self,
+            text="啟用畫面進度調整（低效能電腦建議關閉）",
+            variable=self.seek_correction_var,
+            command=self.toggle_seek_correction,
+            font=("Microsoft JhengHei", 10),
+            bg="#f4f4f9",
+            activebackground="#f4f4f9",
+        ).pack(anchor="w", padx=20, pady=2)
+
         # 增加一個實體的 GUI 日誌框，用來接聽攔截到的錯誤訊息
         self.log_txt = tk.Text(self, height=8, state="disabled", bg="#222", fg="#0f0", font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True, padx=20, pady=10)
@@ -1375,6 +1601,10 @@ class ServerApp(tk.Tk):
         
         # 啟動背景佇列監聽器
         self.check_log_queue()
+
+    def toggle_seek_correction(self):
+        """Apply the server-side video progress correction setting."""
+        handle_set_seek_correction({'enabled': bool(self.seek_correction_var.get())})
 
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")

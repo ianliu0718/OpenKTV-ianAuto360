@@ -26,6 +26,13 @@
         .lyric-line-time { font-family: monospace; color: #607D8B; }
         .lyric-line-actions { display: flex; gap: 4px; }
         .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
+        .lyric-shift-actions { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 8px; align-items: center; }
+        .lyric-shift-actions input { margin: 0; text-align: center; }
+        #lyrics_search_results { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+        #lyrics_search_results li { display: grid; gap: 4px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        #lyrics_search_results li.selected { border-color: #FF9800; background: #fff8e8; }
+        .lyrics-result-meta { color: #607D8B; font-size: 13px; }
+        .lyrics-result-preview { color: #555; font-size: 13px; white-space: pre-wrap; max-height: 60px; overflow: hidden; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -86,17 +93,35 @@
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
             <p id="converter_status"></p>
         </details>
+        <details class="lyrics-downloader">
+            <summary>進階：下載線上同步歌詞</summary>
+            <label for="lyrics_provider">歌詞伺服器：</label>
+            <select id="lyrics_provider"><option value="">載入歌詞伺服器中...</option></select>
+            <label for="lyrics_song">選擇本地歌曲：</label>
+            <input type="text" id="lyrics_query" placeholder="搜尋歌名、歌手、歌曲代號...">
+            <select id="lyrics_song"><option value="">載入歌曲中...</option></select>
+            <button id="btn_lyrics_search" class="btn-update" onclick="searchOnlineLyrics()">搜尋歌詞</button>
+            <ul id="lyrics_search_results"><li>請選擇歌曲後搜尋</li></ul>
+            <button id="btn_lyrics_download" class="btn-update" onclick="downloadSelectedLyrics()" disabled>下載並儲存同步歌詞</button>
+            <p id="lyrics_download_status"></p>
+        </details>
         <details class="manual-lyric-editor">
             <summary>進階：手動製作歌詞檔</summary>
             <div class="lyric-editor">
                 <label for="manual_lyric_song">選擇歌曲：</label>
+                <input type="search" id="manual_lyric_song_search" placeholder="搜尋歌名、歌手、歌曲代號..." autocomplete="off">
                 <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
                 <video id="manual_lyric_video" controls preload="metadata"></video>
                 <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
-                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="請在這裡貼上完整歌詞，每行一句"></textarea>
+                <textarea id="manual_lyric_text" class="subtitle-input" placeholder="沒有既有歌詞時，請在這裡貼上完整歌詞，每行一句"></textarea>
                 <div class="lyric-actions">
                     <button class="btn-update" onclick="toggleManualLyricPlayback()">播放 / 暫停</button>
                     <button class="btn-update" onclick="buildManualLyricLines()">建立歌詞行</button>
+                </div>
+                <div class="lyric-shift-actions">
+                    <button type="button" class="btn-update" onclick="shiftManualLyricTimeline(-1)">整體提前</button>
+                    <input type="number" id="manual_lyric_shift_seconds" min="0.01" max="60" step="0.01" value="0.5" aria-label="時間軸平移秒數">
+                    <button type="button" class="btn-update" onclick="shiftManualLyricTimeline(1)">整體延後</button>
                 </div>
                 <ol id="manual_lyrics_list"><li>請先貼上完整歌詞並建立歌詞行</li></ol>
                 <button id="btn_save_manual_lyrics" class="btn-update" onclick="saveManualLyrics()">儲存歌詞檔</button>
@@ -152,12 +177,26 @@
         const batchDownloadButton = document.getElementById('btn_batch_dl');
         const batchDownloadStatus = document.getElementById('batch_download_status');
         const manualLyricSong = document.getElementById('manual_lyric_song');
+        const manualLyricSongSearch = document.getElementById('manual_lyric_song_search');
         const manualLyricVideo = document.getElementById('manual_lyric_video');
         const manualLyricText = document.getElementById('manual_lyric_text');
         const manualLyricTime = document.getElementById('manual_lyric_time');
         const manualLyricsList = document.getElementById('manual_lyrics_list');
         const manualLyricStatus = document.getElementById('manual_lyric_status');
+        const manualLyricShiftSeconds = document.getElementById('manual_lyric_shift_seconds');
+        const lyricsProvider = document.getElementById('lyrics_provider');
+        const lyricsSong = document.getElementById('lyrics_song');
+        const lyricsQuery = document.getElementById('lyrics_query');
+        const lyricsSearchButton = document.getElementById('btn_lyrics_search');
+        const lyricsSearchResults = document.getElementById('lyrics_search_results');
+        const lyricsDownloadButton = document.getElementById('btn_lyrics_download');
+        const lyricsDownloadStatus = document.getElementById('lyrics_download_status');
         let manualLyricLines = [];
+        let onlineLyricsResults = [];
+        let selectedOnlineLyrics = null;
+        let manualLyricSongs = [];
+        let lyricsSongs = [];
+        let manualLyricSearchTimer = null;
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
         function formatManualLyricTime(seconds) {
@@ -171,11 +210,144 @@
             return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
         }
 
+        /** Loads the registered online lyrics providers. */
+        function loadLyricsProviders() {
+            fetch('/api/lyrics/providers').then((response) => response.json()).then((providers) => {
+                lyricsProvider.innerHTML = providers.map((provider) => `<option value="${escapeManualLyricHtml(provider.id)}">${escapeManualLyricHtml(provider.name)}</option>`).join('');
+            }).catch(() => { lyricsProvider.innerHTML = '<option value="lrclib">LRCLIB（同步歌詞）</option>'; });
+        }
+
+        /** Loads the local songs used by the online lyrics downloader and keeps them searchable. */
+        function loadLyricsSongs() {
+            fetch('/api/list').then((response) => response.json()).then((songs) => {
+                lyricsSongs = songs;
+                renderLyricsSongOptions();
+            });
+        }
+
+        /** Filters the local song dropdown in the same way as the manual lyric search box. */
+        function renderLyricsSongOptions() {
+            const keyword = lyricsQuery.value.trim().toLocaleLowerCase();
+            const selectedSong = lyricsSong.value;
+            const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            if (filteredSongs.includes(selectedSong)) {
+                lyricsSong.value = selectedSong;
+            }
+        }
+
+        /** Renders searchable lyrics results without trusting remote text as HTML. */
+        function renderOnlineLyricsResults() {
+            lyricsSearchResults.replaceChildren();
+            if (!onlineLyricsResults.length) {
+                lyricsSearchResults.innerHTML = '<li>找不到歌詞結果，請修改關鍵字或更換歌曲。</li>';
+                return;
+            }
+            onlineLyricsResults.forEach((result, index) => {
+                const item = document.createElement('li');
+                if (selectedOnlineLyrics && selectedOnlineLyrics.id === result.id) item.classList.add('selected');
+                const title = document.createElement('strong');
+                title.textContent = `${result.trackName || '未命名'} - ${result.artistName || '未知歌手'}`;
+                const meta = document.createElement('span');
+                meta.className = 'lyrics-result-meta';
+                meta.textContent = `${result.albumName || '未知專輯'}｜${result.hasSyncedLyrics ? '同步歌詞' : '無時間碼歌詞'}`;
+                const preview = document.createElement('span');
+                preview.className = 'lyrics-result-preview';
+                preview.textContent = result.preview || '沒有歌詞預覽';
+                const button = document.createElement('button');
+                button.className = 'btn-update';
+                button.textContent = result.hasSyncedLyrics ? '選擇此結果' : '沒有同步時間碼';
+                button.disabled = !result.hasSyncedLyrics;
+                button.onclick = () => {
+                    selectedOnlineLyrics = onlineLyricsResults[index];
+                    renderOnlineLyricsResults();
+                    lyricsDownloadButton.disabled = false;
+                    lyricsDownloadStatus.innerText = `已選擇：${result.trackName} - ${result.artistName}`;
+                };
+                item.append(title, meta, preview, button);
+                lyricsSearchResults.appendChild(item);
+            });
+        }
+
+        /** Searches the selected lyrics provider using filename-derived or custom keywords. */
+        async function searchOnlineLyrics() {
+            if (!lyricsSong.value) {
+                lyricsDownloadStatus.innerText = '請先選擇本地歌曲。';
+                return;
+            }
+            selectedOnlineLyrics = null;
+            onlineLyricsResults = [];
+            lyricsDownloadButton.disabled = true;
+            lyricsSearchButton.disabled = true;
+            lyricsSearchResults.innerHTML = '<li>搜尋中，請稍候...</li>';
+            try {
+                const params = new URLSearchParams({ provider: lyricsProvider.value, song: lyricsSong.value });
+                if (lyricsQuery.value.trim()) params.set('query', lyricsQuery.value.trim());
+                const response = await fetch(`/api/lyrics/search?${params}`);
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || `搜尋失敗（HTTP ${response.status}）`);
+                onlineLyricsResults = data.results || [];
+                lyricsDownloadStatus.innerText = `搜尋關鍵字：${data.query}，找到 ${onlineLyricsResults.length} 筆結果。`;
+                renderOnlineLyricsResults();
+            } catch (error) {
+                lyricsSearchResults.innerHTML = '<li>搜尋失敗，請查看下方訊息。</li>';
+                lyricsDownloadStatus.innerText = `歌詞搜尋失敗：${error.message}`;
+            } finally {
+                lyricsSearchButton.disabled = false;
+            }
+        }
+
+        /** Downloads the selected synchronized lyrics and asks before replacing an existing VTT. */
+        async function downloadSelectedLyrics(overwrite = false) {
+            if (!selectedOnlineLyrics || !lyricsSong.value) return;
+            lyricsDownloadButton.disabled = true;
+            lyricsDownloadStatus.innerText = '歌詞下載與轉換中，請稍候...';
+            try {
+                const response = await fetch('/api/lyrics/download', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: lyricsProvider.value, song: lyricsSong.value, id: selectedOnlineLyrics.id, overwrite }),
+                });
+                const data = await response.json();
+                if (response.status === 409 && data.requires_overwrite && confirm(`${data.filename} 已存在，是否覆蓋？`)) {
+                    await downloadSelectedLyrics(true);
+                    return;
+                }
+                if (!response.ok || !data.success) throw new Error(data.error || `下載失敗（HTTP ${response.status}）`);
+                lyricsDownloadStatus.innerText = `已儲存：${data.filename}`;
+            } catch (error) {
+                lyricsDownloadStatus.innerText = `歌詞下載失敗：${error.message}`;
+            } finally {
+                lyricsDownloadButton.disabled = false;
+            }
+        }
+
         /** Refreshes the manual lyric song selector from the server song list. */
         function loadManualLyricSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
-                manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + songs.map((song) => `<option value="${song}">${song}</option>`).join('');
+                manualLyricSongs = songs;
+                renderManualLyricSongOptions();
             });
+        }
+
+        /** Filters the manual lyric song selector by title or artist text. */
+        function renderManualLyricSongOptions() {
+            const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
+            const selectedSong = manualLyricSong.value;
+            const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            if (filteredSongs.includes(selectedSong)) {
+                manualLyricSong.value = selectedSong;
+            }
+        }
+
+        /** Selects the first song currently matched by the search field. */
+        function selectFirstManualLyricSong() {
+            const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
+            const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
+            if (!keyword || !filteredSongs.length) return;
+            const previousSong = manualLyricSong.value;
+            manualLyricSong.value = filteredSongs[0];
+            if (previousSong !== filteredSongs[0]) manualLyricSong.dispatchEvent(new Event('change'));
         }
 
         /** Clears the complete lyric text and timing rows when the selected song changes. */
@@ -184,6 +356,36 @@
             manualLyricText.value = '';
             manualLyricStatus.innerText = '';
             manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
+        }
+
+        /** Loads an existing VTT into the manual lyric editor, or leaves a blank editor. */
+        async function loadExistingManualLyrics() {
+            if (!manualLyricSong.value) {
+                resetManualLyricEditor();
+                return;
+            }
+            manualLyricStatus.innerText = '正在讀取既有歌詞...';
+            try {
+                const response = await fetch(`/api/subtitles/manual?song=${encodeURIComponent(manualLyricSong.value)}`);
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || '歌詞讀取失敗');
+                if (!data.exists || !data.cues.length) {
+                    resetManualLyricEditor();
+                    manualLyricStatus.innerText = '此歌曲尚無歌詞，請貼上歌詞後建立歌詞行。';
+                    return;
+                }
+                manualLyricLines = data.cues.map((cue) => ({
+                    text: cue.text,
+                    start: Number(cue.start),
+                    end: Number(cue.end),
+                }));
+                manualLyricText.value = manualLyricLines.map((line) => line.text).join('\n');
+                renderManualLyricLines();
+                manualLyricStatus.innerText = `已載入既有歌詞 ${manualLyricLines.length} 行，可直接編輯時間碼或文字。`;
+            } catch (error) {
+                resetManualLyricEditor();
+                manualLyricStatus.innerText = `既有歌詞讀取失敗：${error.message}`;
+            }
         }
 
         /** Toggles playback of the selected song in the manual lyric editor. */
@@ -200,14 +402,42 @@
                 manualLyricStatus.innerText = '請選擇歌曲並貼上完整歌詞。';
                 return;
             }
-            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null })).filter((line) => line.text);
+            manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null, end: null })).filter((line) => line.text);
             renderManualLyricLines();
             manualLyricStatus.innerText = `已建立 ${manualLyricLines.length} 行，播放時可逐行加入時間碼。`;
         }
 
         /** Renders lyric rows with their current timestamp state and controls. */
         function renderManualLyricLines() {
-            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><span>${escapeManualLyricHtml(line.text)}</span><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
+                input.addEventListener('input', () => { manualLyricLines[index].text = input.value; });
+            });
+        }
+
+        /** Shifts every existing lyric cue earlier or later while preserving cue durations. */
+        function shiftManualLyricTimeline(direction) {
+            const shiftSeconds = Number(manualLyricShiftSeconds.value);
+            const timedLines = manualLyricLines.filter((line) => line.start !== null);
+            if (!timedLines.length || !Number.isFinite(shiftSeconds) || shiftSeconds <= 0) {
+                manualLyricStatus.innerText = '請先載入或建立歌詞，並輸入有效的平移秒數。';
+                return;
+            }
+            const requestedOffset = direction * shiftSeconds;
+            const earliestStart = Math.min(...timedLines.map((line) => line.start));
+            const offset = direction < 0 ? Math.max(requestedOffset, -earliestStart) : requestedOffset;
+            if (offset === 0) {
+                manualLyricStatus.innerText = '歌詞已經在最前方，無法再提前。';
+                return;
+            }
+            manualLyricLines.forEach((line) => {
+                if (line.start === null) return;
+                const duration = line.end !== null && line.end > line.start ? line.end - line.start : null;
+                line.start = Math.max(0, line.start + offset);
+                line.end = duration === null ? line.end : line.start + duration;
+            });
+            renderManualLyricLines();
+            manualLyricStatus.innerText = `已將有時間碼的歌詞整體${direction < 0 ? '提前' : '延後'} ${shiftSeconds.toFixed(2)} 秒。`;
         }
 
         /** Adds or removes the current playback time from one lyric row. @param {number} index */
@@ -239,7 +469,7 @@
             const cues = timestampedLines.map((line, index) => ({
                 text: line.text,
                 start: line.start,
-                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : finalEnd,
+                end: timestampedLines[index + 1] ? timestampedLines[index + 1].start : (line.end || finalEnd),
             }));
             const response = await fetch('/api/subtitles/manual', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -252,9 +482,37 @@
         manualLyricSong.addEventListener('change', () => {
             resetManualLyricEditor();
             manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
+            loadExistingManualLyrics();
+        });
+        manualLyricSongSearch.addEventListener('input', () => {
+            clearTimeout(manualLyricSearchTimer);
+            manualLyricSearchTimer = setTimeout(renderManualLyricSongOptions, 250);
+        });
+        manualLyricSongSearch.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                clearTimeout(manualLyricSearchTimer);
+                renderManualLyricSongOptions();
+                selectFirstManualLyricSong();
+            }
+        });
+        lyricsQuery.addEventListener('input', () => {
+            renderLyricsSongOptions();
+        });
+        lyricsQuery.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                renderLyricsSongOptions();
+                const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(lyricsQuery.value.trim().toLocaleLowerCase()));
+                if (filteredSongs.length) {
+                    lyricsSong.value = filteredSongs[0];
+                }
+            }
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
         loadManualLyricSongs();
+        loadLyricsProviders();
+        loadLyricsSongs();
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
