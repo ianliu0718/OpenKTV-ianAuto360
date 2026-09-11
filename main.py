@@ -50,7 +50,7 @@ import json
 import time
 import webbrowser
 import ipaddress
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta, timezone
@@ -61,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.8.1"
+APP_VERSION = "v1.0.9"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -71,6 +71,8 @@ else:
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
+# 待播備註獨立保存於專案目錄，避免重啟 server 後遺失。
+SONG_NOTES_FILE = os.path.join(BASE_DIR, "song_notes.json")
 
 def get_ytdlp_command():
     if os.path.exists(YT_DLP_PATH):
@@ -203,6 +205,14 @@ LYRICS_PROVIDERS = {
         'name': 'LRCLIB（同步歌詞）',
         'base_url': 'https://lrclib.net/api',
     },
+    'netease': {
+        'name': 'NetEase Cloud Music（同步歌詞）',
+        'base_url': 'https://music.163.com',
+    },
+    'lyrics_ovh': {
+        'name': 'lyrics.ovh（精確純文字查詢）',
+        'base_url': 'https://api.lyrics.ovh',
+    },
 }
 LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
 
@@ -304,8 +314,17 @@ def page_index(): return render_template('remote.html')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
+def _song_has_subtitle(filename):
+    """Returns True only when the current song actually has a matching VTT file."""
+    if not filename:
+        return False
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    return os.path.exists(subtitle_path)
+
+
 def _play_video_payload(filename):
-    """Build a playback event payload with server-confirmed audio metadata and persistent subtitle state."""
+    """Build a playback event payload with server-confirmed audio metadata and per-song subtitle state."""
+    visible = subtitle_visible and _song_has_subtitle(filename)
     return {
         'filename': filename,
         'title': filename,
@@ -313,7 +332,7 @@ def _play_video_payload(filename):
         'audio_channel_layout': get_audio_channel_layout(filename),
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
-        'visible': subtitle_visible,
+        'visible': visible,
         'font_size': subtitle_font_size,
     }
 
@@ -326,6 +345,11 @@ def serve_subtitle(filename):
 def get_song_list():
     songs = [f for f in os.listdir(SONGS_DIR) if f.lower().endswith('.mp4')]
     return json.dumps(songs) 
+
+@app.route('/api/song-notes')
+def get_song_notes():
+    """提供後台排序歌曲用的獨立備註資料，不修改歌曲本身結構。"""
+    return json.dumps(song_notes, ensure_ascii=False)
 
 @app.route('/api/subtitles')
 def get_subtitle_list():
@@ -419,6 +443,51 @@ def lyrics_provider_request(provider_id, path, query=None):
     except (URLError, TimeoutError, json.JSONDecodeError) as error:
         raise RuntimeError(f'無法連線歌詞伺服器：{error}') from error
 
+
+def netease_search_lyrics(query):
+    """搜尋 NetEase 歌曲並補上同步 LRC，轉成共用搜尋結果格式。"""
+    response = lyrics_provider_request('netease', '/api/search/get/web', {
+        's': query,
+        'type': 1,
+        'offset': 0,
+        'total': 'true',
+        'limit': 10,
+    })
+    songs = response.get('result', {}).get('songs', []) if isinstance(response, dict) else []
+    records = []
+    for song in songs[:10]:
+        song_id = song.get('id')
+        if not song_id:
+            continue
+        try:
+            lyric_response = lyrics_provider_request('netease', '/api/song/lyric', {
+                'id': song_id,
+                'lv': 1,
+                'kv': 1,
+                'tv': -1,
+            })
+        except RuntimeError:
+            # 單首歌詞查詢失敗時仍保留其他搜尋結果。
+            lyric_response = {}
+        synced_lyrics = lyric_response.get('lrc', {}).get('lyric', '') if isinstance(lyric_response, dict) else ''
+        artists = song.get('artists') or []
+        albums = song.get('album') or {}
+        records.append({
+            'id': song_id,
+            'trackName': song.get('name', ''),
+            'artistName': '、'.join(artist.get('name', '') for artist in artists),
+            'albumName': albums.get('name', ''),
+            'duration': (song.get('duration') or 0) / 1000,
+            'syncedLyrics': synced_lyrics,
+        })
+    return records
+
+
+def lyrics_ovh_get_lyrics(title, artist):
+    """取得 lyrics.ovh 純文字歌詞；此來源沒有時間碼。"""
+    path = f"/v1/{quote(artist or 'unknown', safe='')}/{quote(title, safe='')}"
+    return lyrics_provider_request('lyrics_ovh', path)
+
 @app.route('/api/lyrics/providers')
 def get_lyrics_providers():
     """Return the lyrics providers currently available to the admin UI."""
@@ -440,7 +509,25 @@ def search_lyrics():
         return json.dumps({'success': False, 'error': '找不到歌名，請自行輸入搜尋關鍵字'}), 400
     try:
         query = {'q': query_override} if query_override else {'track_name': title, 'artist_name': artist}
-        records = lyrics_provider_request(provider_id, '/search', query)
+        if provider_id == 'netease':
+            records = netease_search_lyrics(query_override or f'{title} {artist}'.strip())
+        elif provider_id == 'lyrics_ovh':
+            try:
+                plain_lyrics = lyrics_ovh_get_lyrics(query_override or title, artist)
+            except RuntimeError as error:
+                if 'HTTP 404' in str(error):
+                    return json.dumps({'success': False, 'error': 'lyrics.ovh 找不到這組歌手與歌名的精確歌詞，請改用 NetEase 或 LRCLIB 搜尋。'}, ensure_ascii=False), 404
+                raise
+            records = [{
+                'id': f'{artist}|{title}',
+                'trackName': title,
+                'artistName': artist,
+                'albumName': '',
+                'duration': None,
+                'plainLyrics': plain_lyrics.get('lyrics', '') if isinstance(plain_lyrics, dict) else '',
+            }]
+        else:
+            records = lyrics_provider_request(provider_id, '/search', query)
         results = []
         for record in records if isinstance(records, list) else []:
             results.append({
@@ -450,6 +537,7 @@ def search_lyrics():
                 'albumName': record.get('albumName', ''),
                 'duration': record.get('duration'),
                 'hasSyncedLyrics': bool((record.get('syncedLyrics') or '').strip()),
+                'plainLyrics': (record.get('plainLyrics') or '').strip(),
                 'preview': (record.get('syncedLyrics') or record.get('plainLyrics') or '').strip()[:240],
             })
         return json.dumps({
@@ -486,7 +574,17 @@ def download_lyrics():
     if os.path.exists(output_path) and not overwrite:
         return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
     try:
-        record = lyrics_provider_request(provider_id, f'/get/{record_id}')
+        if provider_id == 'netease':
+            record = lyrics_provider_request('netease', '/api/song/lyric', {'id': record_id, 'lv': 1, 'kv': 1, 'tv': -1})
+            record = {
+                'syncedLyrics': record.get('lrc', {}).get('lyric', '') if isinstance(record, dict) else '',
+                'trackName': '',
+                'artistName': '',
+            }
+        elif provider_id == 'lyrics_ovh':
+            return json.dumps({'success': False, 'error': 'lyrics.ovh 僅提供純文字歌詞，沒有同步時間碼，請使用 NetEase 或 LRCLIB'}), 400
+        else:
+            record = lyrics_provider_request(provider_id, f'/get/{record_id}')
         synced_lyrics = str(record.get('syncedLyrics') or '').strip()
         if not synced_lyrics:
             return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
@@ -952,6 +1050,42 @@ def format_vtt_time(milliseconds):
 # SocketIO 事件處理 & 待播清單
 # ------------------------------------------
 playlist_queue = []
+# 待播歌曲備註獨立儲存，不把備註寫入歌曲或 queue 項目本身。
+def _load_song_notes():
+    """從 JSON 檔載入備註；檔案不存在或格式錯誤時使用空資料。"""
+    try:
+        with open(SONG_NOTES_FILE, 'r', encoding='utf-8') as notes_file:
+            notes = json.load(notes_file)
+        return notes if isinstance(notes, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _normalize_song_notes(notes):
+    """已有歌詞的歌曲不再保留「想加入歌詞」選項，等同將該選項設為 False。"""
+    changed = False
+    for filename, note in notes.items():
+        if not isinstance(note, dict) or not _song_has_subtitle(filename):
+            continue
+        selected_options = note.get('selected_options', [])
+        if not isinstance(selected_options, list) or '想加入歌詞' not in selected_options:
+            continue
+        note['selected_options'] = [option for option in selected_options if option != '想加入歌詞']
+        changed = True
+    return changed
+
+
+def _save_song_notes():
+    """以暫存檔取代方式保存備註，避免寫檔中斷留下不完整 JSON。"""
+    temporary_file = SONG_NOTES_FILE + '.tmp'
+    with open(temporary_file, 'w', encoding='utf-8') as notes_file:
+        json.dump(song_notes, notes_file, ensure_ascii=False, indent=2)
+    os.replace(temporary_file, SONG_NOTES_FILE)
+
+
+song_notes = _load_song_notes()
+if _normalize_song_notes(song_notes):
+    _save_song_notes()
 subtitle_visible = False
 subtitle_font_size = 100
 qr_visible = True
@@ -961,6 +1095,31 @@ current_track_mode = 'original'
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
+engine_debug_enabled = False
+
+
+def _format_queue_label(filename):
+    """Return a compact title without extension for queue/history display."""
+    if not filename:
+        return ''
+    return os.path.splitext(os.path.basename(filename))[0]
+
+
+def _build_engine_status_history():
+    """Build compact playback queue text for the status strip without A/B/C labels."""
+    if not playlist_queue:
+        return '播放清單：無'
+    visible_items = [_format_queue_label(name) for name in playlist_queue[:3]]
+    if len(playlist_queue) > 3:
+        visible_items.append('...')
+    return '播放清單：' + ' | '.join(visible_items)
+
+
+def broadcast_engine_status_state():
+    """Sync the single engine-debug toggle to all clients."""
+    socketio.emit('engine_status_config', {
+        'debug': engine_debug_enabled,
+    }, broadcast=True)
 
 
 """
@@ -994,11 +1153,12 @@ def start_random_song():
     return True
 
 def broadcast_current_song():
-    """Broadcast the current song and its subtitle presentation state to all clients."""
+    """Broadcast the current song and its per-song subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
+    visible = subtitle_visible and _song_has_subtitle(filename)
     socketio.emit('current_song', {
         'filename': filename,
-        'visible': subtitle_visible,
+        'visible': visible,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
     })
@@ -1006,18 +1166,29 @@ def broadcast_current_song():
 @socketio.on('connect')
 def handle_connect():
     """Send the current queue to each newly connected client."""
+    current_filename = playlist_queue[0] if playlist_queue else ''
     emit('update_queue', playlist_queue)
+    # 新連線先同步目前所有歌曲備註，讓遙控器與播放端畫面一致。
+    emit('song_notes', song_notes)
     emit('current_song', {
-        'filename': playlist_queue[0] if playlist_queue else '',
-        'visible': subtitle_visible,
+        'filename': current_filename,
+        'visible': subtitle_visible and _song_has_subtitle(current_filename),
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
     })
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
+    emit('engine_status_config', {'debug': engine_debug_enabled})
     emit('apply_effect', {'playback_rate': playback_rate})
     emit('set_audio', {'mode': current_track_mode})
+
+@socketio.on('set_engine_debug')
+def handle_set_engine_debug(data):
+    """Toggle verbose engine diagnostics for the status strip; when off, show compact playback history."""
+    global engine_debug_enabled
+    engine_debug_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    broadcast_engine_status_state()
 
 @socketio.on('set_seek_correction')
 def handle_set_seek_correction(data):
@@ -1087,8 +1258,7 @@ def handle_toggle_subtitle(data):
     filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
     if not playlist_queue or filename != playlist_queue[0]:
         return
-    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
-    if not os.path.exists(subtitle_path):
+    if not _song_has_subtitle(filename):
         return
     subtitle_visible = not subtitle_visible
     emit('subtitle_state', {
@@ -1107,12 +1277,13 @@ def handle_set_subtitle_font_size(data):
     except (TypeError, ValueError):
         return
     subtitle_font_size = max(80, min(200, requested_size))
-    if subtitle_font_size % 20 != 0:
-        subtitle_font_size = round(subtitle_font_size / 20) * 20
+    subtitle_font_size = round(subtitle_font_size / 10) * 10
     subtitle_font_size = max(80, min(200, subtitle_font_size))
+    current_filename = playlist_queue[0] if playlist_queue else ''
+    visible = subtitle_visible and _song_has_subtitle(current_filename)
     emit('subtitle_state', {
-        'filename': playlist_queue[0] if playlist_queue else '',
-        'visible': subtitle_visible,
+        'filename': current_filename,
+        'visible': visible,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
@@ -1128,6 +1299,51 @@ def handle_remove_from_queue(data):
         return
     playlist_queue.pop(queue_index)
     emit('update_queue', playlist_queue, broadcast=True)
+
+@socketio.on('song_note_submit')
+def handle_song_note_submit(data):
+    """Validate and save one note for a song currently present in the queue."""
+    if not isinstance(data, dict):
+        return
+    song_filename = os.path.basename(str(data.get('song_filename', '')).strip())
+    if not song_filename or song_filename not in playlist_queue:
+        return
+
+    allowed_options = {'想加入歌詞', '歌詞錯誤待修改'}
+    selected_options = data.get('selected_options', [])
+    if not isinstance(selected_options, list):
+        selected_options = []
+    selected_options = [option for option in selected_options if option in allowed_options]
+    # 已有字幕的歌曲強制清除「想加入歌詞」，避免舊版 client 寫回錯誤狀態。
+    if _song_has_subtitle(song_filename):
+        selected_options = [option for option in selected_options if option != '想加入歌詞']
+
+    allowed_keys = {'原 Key'}
+    key_value = str(data.get('key_value', '原 Key')).strip()
+    if key_value not in allowed_keys:
+        try:
+            key_number = max(-12, min(12, int(key_value)))
+            key_value = '原 Key' if key_number == 0 else f'{key_number:+d}'
+        except (TypeError, ValueError):
+            key_value = '原 Key'
+    if key_value not in allowed_keys and not re.fullmatch(r'[+-]\d+', key_value):
+        key_value = '原 Key'
+
+    custom_text = str(data.get('custom_text', '')).strip()[:500]
+    note = {
+        'song_filename': song_filename,
+        'selected_options': selected_options,
+        'key_value': key_value,
+        'custom_text': custom_text,
+        'updated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+    }
+    # 備註以檔名為 key，獨立保存到 JSON，不改動既有歌曲資料結構。
+    song_notes[song_filename] = note
+    try:
+        _save_song_notes()
+    except OSError:
+        return
+    emit('song_note_updated', note, broadcast=True)
 
 @socketio.on('song_ended')
 def handle_song_ended():
@@ -1161,6 +1377,17 @@ def handle_control(action):
     else:
         # 其他指令 (例如 pause) 照常發送
         emit('command', action, broadcast=True)
+
+@socketio.on('danmaku_submit')
+def handle_danmaku_submit(data):
+    """Validate and broadcast one temporary danmaku message to all playback screens."""
+    if not isinstance(data, dict):
+        return
+    text = str(data.get('text', '')).strip()[:100]
+    if not text:
+        return
+    # 彈幕是即時氣氛訊息，不寫入歌曲或備註檔案。
+    emit('danmaku_show', {'text': text}, broadcast=True)
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
@@ -1593,6 +1820,17 @@ class ServerApp(tk.Tk):
             activebackground="#f4f4f9",
         ).pack(anchor="w", padx=20, pady=2)
 
+        self.engine_debug_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            self,
+            text="啟用音訊引擎除錯資訊",
+            variable=self.engine_debug_var,
+            command=self.toggle_engine_debug,
+            font=("Microsoft JhengHei", 10),
+            bg="#f4f4f9",
+            activebackground="#f4f4f9",
+        ).pack(anchor="w", padx=20, pady=2)
+
         # 增加一個實體的 GUI 日誌框，用來接聽攔截到的錯誤訊息
         self.log_txt = tk.Text(self, height=8, state="disabled", bg="#222", fg="#0f0", font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True, padx=20, pady=10)
@@ -1605,6 +1843,10 @@ class ServerApp(tk.Tk):
     def toggle_seek_correction(self):
         """Apply the server-side video progress correction setting."""
         handle_set_seek_correction({'enabled': bool(self.seek_correction_var.get())})
+
+    def toggle_engine_debug(self):
+        """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""
+        handle_set_engine_debug({'enabled': bool(self.engine_debug_var.get())})
 
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")

@@ -31,12 +31,15 @@
         #idle-screen { text-align: center; width: 100%; }
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
-        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
         #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
         #remote-qr-label { font-size: 12px; font-weight: bold; }
         #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 25; width: min(82%, 720px); padding: 14px 22px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(20px, 3vw, 36px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
         #song-announcement.visible { opacity: 1; }
+        #danmaku-overlay { position: absolute; inset: 0; z-index: 26; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
+        #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(18px, 3vw, 34px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
+        @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
         #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
         #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
@@ -54,6 +57,40 @@
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
         .btn { padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; transition: 0.2s;}
         .btn:active { transform: scale(0.95); }
+        .subtitle-size-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 12px;
+            color: #b8fff2;
+            font-size: 13px;
+            gap: 10px;
+        }
+        .subtitle-size-value {
+            min-width: 56px;
+            text-align: right;
+            color: #f9f9c5;
+            font-weight: 700;
+        }
+        .subtitle-size-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .subtitle-size-btn {
+            flex: 1;
+            margin: 0;
+            padding: 10px 12px;
+            background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%);
+            color: white;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            min-width: 52px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);
+        }
+        .subtitle-size-btn:hover:not(:disabled) { filter: brightness(1.08); }
+        .subtitle-size-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .play { background: #009688; }
         .pause { background: #2196F3; }
         .stop { background: #F44336; }
@@ -76,6 +113,25 @@
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
         .song-btn.added { background: #607d8b; cursor: wait; }
+        /* 待播歌曲備註面板，採用固定面板避免影響播放器版面。 */
+        #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 60; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+        #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
+        #song-note-panel label { display: block; margin: 10px 0; color: #ddd; }
+        #song-note-panel textarea { width: 100%; box-sizing: border-box; padding: 9px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        #song-note-panel textarea { min-height: 80px; resize: vertical; }
+        .note-key-controls { display: flex; gap: 8px; }
+        .note-key-controls .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
+        .note-indicator { color: #ffd54f; margin-left: 6px; }
+        .danmaku-button { background: #e91e63; }
+        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        #danmaku-panel h4 { margin: 0 0 12px; }
+        .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .danmaku-actions .btn { flex: 1; margin: 0; }
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -100,6 +156,7 @@
         <div id="key-status">KEY：原 KEY (0)</div>
         <div id="seek-status">播放位置偏移：0 秒</div>
         <div id="song-announcement"></div>
+        <div id="danmaku-overlay"></div>
         <div id="queue-add-announcement"></div>
         <div id="ktv-subtitle" aria-live="polite"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
@@ -122,12 +179,13 @@
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕字體大小</span><span id="subtitle-size-label">120%</span>
+            <div class="subtitle-size-row">
+                <span>字幕比例</span>
+                <span id="subtitle-size-label" class="subtitle-size-value">120%</span>
             </div>
-            <div style="display:flex; gap:6px; margin-top:5px;">
-                <button id="subtitle-size-decrease" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(-20)">-</button>
-                <button id="subtitle-size-increase" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(20)">+</button>
+            <div class="subtitle-size-controls">
+                <button id="subtitle-size-decrease" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(-10)">−</button>
+                <button id="subtitle-size-increase" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(10)">＋</button>
             </div>
         </div>
         
@@ -138,6 +196,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
         </div>
 
 <div class="control-group">
@@ -171,6 +230,39 @@
         <ul id="list"></ul>
     </div>
 
+    <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
+        <h4 id="danmaku-title">發送彈幕</h4>
+        <div class="danmaku-presets">
+            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+        </div>
+        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+        <div class="danmaku-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+        </div>
+    </div>
+
+    <div id="song-note-panel" role="dialog" aria-modal="true" aria-labelledby="song-note-title">
+        <h4 id="song-note-title">歌曲備註</h4>
+        <label id="note-lyrics-label"><input type="checkbox" id="note-lyrics"> 想加入歌詞</label>
+        <label>適合的 KEY</label>
+        <div class="note-key-controls">
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(-1)">−</button>
+            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原 KEY</button>
+            <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(1)">＋</button>
+        </div>
+        <label>自填文字
+            <textarea id="note-custom-text" maxlength="500" placeholder="例如：請幫我補歌詞"></textarea>
+        </label>
+        <div class="note-actions">
+            <button class="btn" style="background:#607D8B;" type="button" onclick="closeSongNote()">取消</button>
+            <button class="btn" style="background:#009688;" type="button" onclick="saveSongNote()">儲存</button>
+        </div>
+    </div>
+
     <script>
 const socket = io();
         
@@ -190,6 +282,7 @@ const socket = io();
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
+        const danmakuOverlay = document.getElementById('danmaku-overlay');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
@@ -250,13 +343,17 @@ const socket = io();
             }
         }
 
+        function stripFileExtension(filename) {
+            return String(filename || '').replace(/\.(mp4|mkv|avi|mov)$/i, '');
+        }
+
         /**
          * Shows the filename that was successfully added to the all-in-one queue.
          * @param {string} filename Newly queued song filename.
          */
         function showQueueAddAnnouncement(filename) {
             clearTimeout(queueAddAnnouncementTimer);
-            queueAddAnnouncement.textContent = `已加入待播：${filename.replace(/\.mp4$/i, '')}`;
+            queueAddAnnouncement.textContent = `已加入待播：${stripFileExtension(filename)}`;
             queueAddAnnouncement.classList.add('visible');
             queueAddAnnouncementTimer = setTimeout(() => queueAddAnnouncement.classList.remove('visible'), 5000);
         }
@@ -267,9 +364,39 @@ const socket = io();
          */
         function showSongAnnouncement(filename) {
             clearTimeout(announcementTimer);
-            songAnnouncement.textContent = filename.replace(/\.mp4$/i, '');
+            songAnnouncement.textContent = stripFileExtension(filename);
             songAnnouncement.classList.add('visible');
             announcementTimer = setTimeout(() => songAnnouncement.classList.remove('visible'), 10000);
+        }
+
+        function showDanmaku(text) {
+            const danmakuItem = document.createElement('span');
+            danmakuItem.className = 'danmaku-item';
+            danmakuItem.textContent = text;
+            danmakuItem.style.top = `${15 + Math.random() * 65}%`;
+            danmakuItem.style.setProperty('--danmaku-duration', `${10 + Math.random() * 4}s`);
+            danmakuItem.addEventListener('animationend', () => danmakuItem.remove(), { once: true });
+            danmakuOverlay.appendChild(danmakuItem);
+        }
+
+        function openDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'block';
+            document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function closeDanmakuPanel() {
+            document.getElementById('danmaku-panel').style.display = 'none';
+        }
+
+        // 預設或自訂彈幕都透過 server 廣播給播放端與其他遙控器。
+        function sendDanmaku(text) {
+            const message = String(text || '').trim();
+            if (!message) return;
+            socket.emit('danmaku_submit', { text: message });
+        }
+
+        function sendCustomDanmaku() {
+            sendDanmaku(document.getElementById('danmaku-custom-text').value);
         }
 
         /**
@@ -297,6 +424,29 @@ const socket = io();
 
         createRemoteQrCode();
         socket.on('qr_visibility', updateRemoteQrVisibility);
+        socket.on('engine_status_config', (data) => {
+            engineDebugEnabled = Boolean(data && data.debug);
+            renderEngineStatus();
+        });
+
+        let currentQueueHistory = [];
+        let songNotes = {};
+        let editingSongFilename = '';
+        let editingNoteKeyValue = 0;
+        let currentEngineSummary = '音訊引擎：尚未啟動';
+        let engineDebugEnabled = false;
+
+        function buildQueueHistoryText(playlist) {
+            const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
+            if (!queueEntries.length) return '播放清單：無';
+            const visibleEntries = queueEntries.slice(0, 3);
+            const suffix = queueEntries.length > 3 ? ' | ...' : '';
+            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+        }
+
+        function renderEngineStatus() {
+            engineStatus.innerText = engineDebugEnabled ? currentEngineSummary : buildQueueHistoryText(currentQueueHistory);
+        }
 
         /**
          * Shows the audio processor currently used by the all-in-one player.
@@ -307,7 +457,8 @@ const socket = io();
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
-            engineStatus.innerText = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
+            renderEngineStatus();
         }
 
         /**
@@ -317,9 +468,17 @@ const socket = io();
          */
         function setSubtitle(filename, visible) {
             currentFilename = filename;
-            subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            if (!filename || !visible) {
+                subtitleTrack.src = '';
+                subtitleTrack.track.mode = 'disabled';
+                ktvSubtitle.style.display = 'none';
+                ktvSubtitle.replaceChildren();
+                return;
+            }
+            const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            subtitleTrack.src = subtitlePath;
             subtitleTrack.track.mode = 'hidden';
-            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.style.display = 'flex';
             ktvSubtitle.replaceChildren();
         }
 
@@ -329,8 +488,9 @@ const socket = io();
          */
         function applySubtitleFontSize(fontSize) {
             const size = Number(fontSize);
-            if (![80, 100, 120].includes(size)) return;
-            ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+            if (!Number.isFinite(size)) return;
+            const clampedSize = Math.min(200, Math.max(80, size));
+            ktvSubtitle.style.setProperty('--subtitle-scale', String(clampedSize / 100));
         }
 
         /**
@@ -659,7 +819,8 @@ const socket = io();
             updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             idleScreen.style.display = 'none';
             video.style.display = 'block';
-            overlay.innerText = "播放中: " + data.title;
+            const songName = stripFileExtension(data.filename || data.title || '');
+            overlay.innerText = songName ? `播放中: ${songName}` : `播放中: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
             currentChannelLayout = data.audio_channel_layout || '';
@@ -707,6 +868,9 @@ const socket = io();
         });
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
+        socket.on('danmaku_show', (data) => {
+            if (data && data.text) showDanmaku(data.text);
+        });
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {
@@ -877,10 +1041,11 @@ const socket = io();
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            control.style.display = hasSong && hasSubtitle ? 'block' : 'none';
+            const shouldShow = hasSong && hasSubtitle;
+            control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible ? '字幕：顯示中' : '字幕：隱藏';
+            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
         }
 
         /**
@@ -889,7 +1054,8 @@ const socket = io();
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
-            currentSubtitleVisible = Boolean(data.visible);
+            const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
+            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             applySubtitleFontSize(currentSubtitleFontSize);
             renderSubtitleFontSizeControl();
@@ -900,7 +1066,9 @@ const socket = io();
          * Toggles subtitles for the song currently being played.
          */
         function toggleCurrentSubtitle() {
-            if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
+            if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
+                toggleSubtitle(currentPlayingFilename);
+            }
         }
 
         /**
@@ -909,6 +1077,7 @@ const socket = io();
          */
         function changeSubtitleFontSize(step) {
             const nextSize = Math.min(200, Math.max(80, currentSubtitleFontSize + step));
+            if (nextSize === currentSubtitleFontSize) return;
             currentSubtitleFontSize = nextSize;
             applySubtitleFontSize(nextSize);
             renderSubtitleFontSizeControl();
@@ -933,7 +1102,7 @@ const socket = io();
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible);
+                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
                 if (data.font_size !== undefined) {
                     currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                     applySubtitleFontSize(currentSubtitleFontSize);
@@ -951,9 +1120,11 @@ const socket = io();
 
         socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
 
-        socket.on('update_queue', (playlist) => {
-            if(playlist.length > 1) {
-                nextInfo.innerText = "下一首：" + playlist[1].replace('.mp4', '');
+        function renderQueue(playlist) {
+            currentQueueHistory = Array.isArray(playlist) ? playlist : [];
+            renderEngineStatus();
+            if(currentQueueHistory.length > 1) {
+                nextInfo.innerText = "下一首：" + currentQueueHistory[1].replace('.mp4', '');
                 nextInfo.style.display = 'block';
             } else {
                 nextInfo.style.display = 'none';
@@ -961,14 +1132,113 @@ const socket = io();
 
             const qList = document.getElementById('queue-list');
             qList.innerHTML = "";
-            if(playlist.length === 0) {
+            if(currentQueueHistory.length === 0) {
                 qList.innerHTML = "<li>(無)</li>";
             } else {
-                playlist.forEach((s, index) => {
+                currentQueueHistory.forEach((s, index) => {
                     const name = index === 0 ? `🎵 播放中：${s.replace('.mp4', '')}` : s.replace('.mp4', '');
-                    qList.innerHTML += `<li${index === 0 ? ' style="color:#4CAF50; font-weight:bold;"' : ''}><span>${name}</span>${index === 0 ? '' : `<button class="song-btn" onclick="removeQueuedSong(${index})">刪除</button>`}</li>`;
+                    const item = document.createElement('li');
+                    if (index === 0) item.style.cssText = 'color:#4CAF50; font-weight:bold;';
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = name;
+                    if (hasMeaningfulSongNote(songNotes[s])) {
+                        const noteIndicator = document.createElement('span');
+                        noteIndicator.className = 'note-indicator';
+                        noteIndicator.textContent = '📝';
+                        nameSpan.appendChild(noteIndicator);
+                    }
+                    item.appendChild(nameSpan);
+                    const noteButton = document.createElement('button');
+                    noteButton.className = 'song-btn';
+                    noteButton.textContent = '備註';
+                    noteButton.addEventListener('click', () => openSongNote(s));
+                    item.appendChild(noteButton);
+                    if (index !== 0) {
+                        const removeButton = document.createElement('button');
+                        removeButton.className = 'song-btn';
+                        removeButton.textContent = '刪除';
+                        removeButton.addEventListener('click', () => removeQueuedSong(index));
+                        item.appendChild(removeButton);
+                    }
+                    qList.appendChild(item);
                 });
             }
+        }
+
+        // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
+        function hasMeaningfulSongNote(note) {
+            return Boolean(note && (
+                (Array.isArray(note.selected_options) && note.selected_options.length > 0)
+                || (note.key_value && note.key_value !== '原 Key')
+                || String(note.custom_text || '').trim()
+            ));
+        }
+
+        socket.on('update_queue', renderQueue);
+
+        // 開啟指定待播歌曲的備註面板，既有備註會先填回表單。
+        function openSongNote(filename) {
+            editingSongFilename = filename;
+            const note = songNotes[filename] || {};
+            document.getElementById('song-note-title').textContent = `歌曲備註：${filename.replace('.mp4', '')}`;
+            const hasSubtitle = subtitleSongs.has(filename);
+            const lyricsOption = hasSubtitle ? '歌詞錯誤待修改' : '想加入歌詞';
+            document.getElementById('note-lyrics-label').lastChild.textContent = ` ${lyricsOption}`;
+            document.getElementById('note-lyrics').checked = (note.selected_options || []).some((option) => option === lyricsOption || (hasSubtitle && option === '想加入歌詞'));
+            editingNoteKeyValue = parseNoteKey(note.key_value);
+            renderNoteKeyValue();
+            document.getElementById('note-custom-text').value = note.custom_text || '';
+            document.getElementById('song-note-panel').style.display = 'block';
+        }
+
+        function parseNoteKey(value) {
+            const keyNumber = Number.parseInt(String(value || '0').replace('原 Key', '0'), 10);
+            return Number.isFinite(keyNumber) ? Math.max(-12, Math.min(12, keyNumber)) : 0;
+        }
+
+        function renderNoteKeyValue() {
+            const label = editingNoteKeyValue === 0 ? '原 KEY' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`;
+            document.getElementById('note-key-value').textContent = label;
+        }
+
+        // 透過左右按鈕快速調整半音，連續點擊即可設定 +2、-2 等數值。
+        function adjustNoteKey(step) {
+            editingNoteKeyValue = Math.max(-12, Math.min(12, editingNoteKeyValue + step));
+            renderNoteKeyValue();
+        }
+
+        function resetNoteKey() {
+            editingNoteKeyValue = 0;
+            renderNoteKeyValue();
+        }
+
+        function closeSongNote() {
+            document.getElementById('song-note-panel').style.display = 'none';
+            editingSongFilename = '';
+        }
+
+        // 將表單送到 server，由 server 驗證歌曲仍存在於待播清單。
+        function saveSongNote() {
+            if (!editingSongFilename) return;
+            const selectedOptions = [];
+            if (document.getElementById('note-lyrics').checked) selectedOptions.push(subtitleSongs.has(editingSongFilename) ? '歌詞錯誤待修改' : '想加入歌詞');
+            socket.emit('song_note_submit', {
+                song_filename: editingSongFilename,
+                selected_options: selectedOptions,
+                key_value: editingNoteKeyValue === 0 ? '原 Key' : `${editingNoteKeyValue > 0 ? '+' : ''}${editingNoteKeyValue}`,
+                custom_text: document.getElementById('note-custom-text').value,
+            });
+            closeSongNote();
+        }
+
+        socket.on('song_notes', (notes) => {
+            songNotes = notes && typeof notes === 'object' ? notes : {};
+            renderQueue(currentQueueHistory);
+        });
+        socket.on('song_note_updated', (note) => {
+            if (!note || !note.song_filename) return;
+            songNotes[note.song_filename] = note;
+            renderQueue(currentQueueHistory);
         });
 
         /**
@@ -1014,7 +1284,7 @@ const socket = io();
                     && (!selectedLanguage || metadata.language === selectedLanguage);
             }).forEach(s => {
                 const name = s.replace('.mp4', '');
-                const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'

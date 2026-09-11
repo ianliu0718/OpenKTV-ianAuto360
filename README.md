@@ -156,6 +156,22 @@ ianAutoKTV/
 └── ktv_songs/
 ```
 
+## 狀態列與除錯顯示
+
+播放頁面上的 `engine-status` 區塊預設為關閉，避免在正常播放時塞滿除錯資訊。當伺服器端 `engine_status_visible` 打開時，系統會顯示一行壓縮版播放歷史，例如：
+
+```text
+播放歷史：A 一路向北 | B 想和你看海 | C 你是我的唯一 | ...
+```
+
+若伺服器端另開啟 `engine_debug_enabled`，則會切換成完整音訊引擎診斷資訊，例如：
+
+```text
+音訊引擎：SoundTouch AudioWorklet｜曲目音量：-11.9 LUFS｜聲道模式：5.1｜WebAudio：6ch/explicit｜啟用：c0,c1
+```
+
+這兩個開關都由伺服器端控制，並透過 SocketIO 同步到所有播放端。正常使用時不建議開啟，僅在調校音訊/延遲/聲道時使用。
+
 ## 注意事項
 
 - yt-dlp 應使用專案內官方獨立執行檔，避免使用綁定錯誤 Python 路徑的 launcher。
