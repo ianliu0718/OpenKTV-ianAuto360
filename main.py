@@ -338,6 +338,11 @@ def get_song_list():
     songs = [f for f in os.listdir(SONGS_DIR) if f.lower().endswith('.mp4')]
     return json.dumps(songs) 
 
+@app.route('/api/song-notes')
+def get_song_notes():
+    """提供後台排序歌曲用的獨立備註資料，不修改歌曲本身結構。"""
+    return json.dumps(song_notes, ensure_ascii=False)
+
 @app.route('/api/subtitles')
 def get_subtitle_list():
     """Return MP4 filenames that have a matching WebVTT subtitle file."""

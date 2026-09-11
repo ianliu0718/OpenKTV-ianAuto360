@@ -196,7 +196,25 @@
         let selectedOnlineLyrics = null;
         let manualLyricSongs = [];
         let lyricsSongs = [];
+        let songNotes = {};
         let manualLyricSearchTimer = null;
+
+        /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
+        function prioritizeSongNotes(songs) {
+            const priorityOptions = new Set(['想加入歌詞', '歌詞錯誤待修改']);
+            return songs.slice().sort((firstSong, secondSong) => {
+                const firstPriority = songNotes[firstSong]?.selected_options?.some((option) => priorityOptions.has(option)) ? 0 : 1;
+                const secondPriority = songNotes[secondSong]?.selected_options?.some((option) => priorityOptions.has(option)) ? 0 : 1;
+                return firstPriority - secondPriority;
+            });
+        }
+
+        /** 讀取待播備註，供兩個歌詞管理下拉選單排序使用。 */
+        function loadSongNotes() {
+            return fetch('/api/song-notes').then((response) => response.json()).then((notes) => {
+                songNotes = notes && typeof notes === 'object' ? notes : {};
+            }).catch(() => { songNotes = {}; });
+        }
 
         /** Formats a video time for the manual lyric editor. @param {number} seconds @returns {string} */
         function formatManualLyricTime(seconds) {
@@ -220,7 +238,7 @@
         /** Loads the local songs used by the online lyrics downloader and keeps them searchable. */
         function loadLyricsSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
-                lyricsSongs = songs;
+                lyricsSongs = prioritizeSongNotes(songs);
                 renderLyricsSongOptions();
             });
         }
@@ -324,7 +342,7 @@
         /** Refreshes the manual lyric song selector from the server song list. */
         function loadManualLyricSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
-                manualLyricSongs = songs;
+                manualLyricSongs = prioritizeSongNotes(songs);
                 renderManualLyricSongOptions();
             });
         }
@@ -510,9 +528,11 @@
             }
         });
         manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
-        loadManualLyricSongs();
         loadLyricsProviders();
-        loadLyricsSongs();
+        loadSongNotes().then(() => {
+            loadManualLyricSongs();
+            loadLyricsSongs();
+        });
 
         socket.on('admin_log', (data) => {
             logArea.value += data.msg + "\n";
