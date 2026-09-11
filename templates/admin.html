@@ -38,11 +38,14 @@
         .lyric-line-insert button:hover { opacity: 1; background: #dbe4e8; }
         .lyric-shift-actions { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 8px; align-items: center; }
         .lyric-shift-actions input { margin: 0; text-align: center; }
-        #lyrics_search_results { display: grid; gap: 8px; margin: 10px 0; padding: 0; list-style: none; }
+        /* 搜尋結果集中在獨立滾動區，避免大量歌詞把整個後台頁面拉得過長。 */
+        #lyrics_search_results { display: grid; gap: 8px; max-height: 55vh; overflow-y: auto; margin: 10px 0; padding: 0 6px 0 0; list-style: none; overscroll-behavior: contain; }
         #lyrics_search_results li { display: grid; gap: 4px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
         #lyrics_search_results li.selected { border-color: #FF9800; background: #fff8e8; }
         .lyrics-result-meta { color: #607D8B; font-size: 13px; }
         .lyrics-result-preview { color: #555; font-size: 13px; white-space: pre-wrap; max-height: 60px; overflow: hidden; }
+        .plain-lyrics-copy { width: 100%; min-height: 160px; box-sizing: border-box; padding: 8px; border: 1px solid #ccd5d9; border-radius: 5px; background: #f8fafb; color: #333; font-family: sans-serif; resize: vertical; }
+        .copy-lyrics-button { margin: 0; background: #607D8B; }
         summary { cursor: pointer; padding: 4px 0; }
             .subtitle-converter { margin-bottom: 0; }
         
@@ -282,6 +285,22 @@
                 const preview = document.createElement('span');
                 preview.className = 'lyrics-result-preview';
                 preview.textContent = result.preview || '沒有歌詞預覽';
+                const plainLyrics = String(result.plainLyrics || '').trim();
+                let plainLyricsArea = null;
+                let copyLyricsButton = null;
+                if (!result.hasSyncedLyrics && plainLyrics) {
+                    // 沒有時間軸時顯示完整歌詞，方便複製到手動編輯器。
+                    plainLyricsArea = document.createElement('textarea');
+                    plainLyricsArea.className = 'plain-lyrics-copy';
+                    plainLyricsArea.readOnly = true;
+                    plainLyricsArea.value = plainLyrics;
+                    plainLyricsArea.setAttribute('aria-label', '完整純文字歌詞');
+                    copyLyricsButton = document.createElement('button');
+                    copyLyricsButton.className = 'btn-update copy-lyrics-button';
+                    copyLyricsButton.type = 'button';
+                    copyLyricsButton.textContent = '複製到手動編輯區';
+                    copyLyricsButton.onclick = () => copyPlainLyricsToEditor(plainLyrics);
+                }
                 const button = document.createElement('button');
                 button.className = 'btn-update';
                 button.textContent = result.hasSyncedLyrics ? '選擇此結果' : '沒有同步時間碼';
@@ -292,9 +311,22 @@
                     lyricsDownloadButton.disabled = false;
                     lyricsDownloadStatus.innerText = `已選擇：${result.trackName} - ${result.artistName}`;
                 };
-                item.append(title, meta, preview, button);
+                item.append(title, meta, preview);
+                if (plainLyricsArea) item.append(plainLyricsArea, copyLyricsButton);
+                item.append(button);
                 lyricsSearchResults.appendChild(item);
             });
+        }
+
+        /** 將無時間軸的完整歌詞帶入手動編輯區並保留空白行。 */
+        function copyPlainLyricsToEditor(plainLyrics) {
+            manualLyricSong.value = lyricsSong.value;
+            manualLyricText.value = plainLyrics;
+            const editorDetails = document.querySelector('.manual-lyric-editor');
+            editorDetails.open = true;
+            buildManualLyricLines();
+            manualLyricStatus.innerText = '已將純文字歌詞帶入手動編輯區，請逐行設定時間碼。';
+            editorDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         /** Searches the selected lyrics provider using filename-derived or custom keywords. */

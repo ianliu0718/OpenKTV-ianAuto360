@@ -50,7 +50,7 @@ import json
 import time
 import webbrowser
 import ipaddress
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta, timezone
@@ -204,6 +204,14 @@ LYRICS_PROVIDERS = {
     'lrclib': {
         'name': 'LRCLIB（同步歌詞）',
         'base_url': 'https://lrclib.net/api',
+    },
+    'netease': {
+        'name': 'NetEase Cloud Music（同步歌詞）',
+        'base_url': 'https://music.163.com',
+    },
+    'lyrics_ovh': {
+        'name': 'lyrics.ovh（精確純文字查詢）',
+        'base_url': 'https://api.lyrics.ovh',
     },
 }
 LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
@@ -435,6 +443,51 @@ def lyrics_provider_request(provider_id, path, query=None):
     except (URLError, TimeoutError, json.JSONDecodeError) as error:
         raise RuntimeError(f'無法連線歌詞伺服器：{error}') from error
 
+
+def netease_search_lyrics(query):
+    """搜尋 NetEase 歌曲並補上同步 LRC，轉成共用搜尋結果格式。"""
+    response = lyrics_provider_request('netease', '/api/search/get/web', {
+        's': query,
+        'type': 1,
+        'offset': 0,
+        'total': 'true',
+        'limit': 10,
+    })
+    songs = response.get('result', {}).get('songs', []) if isinstance(response, dict) else []
+    records = []
+    for song in songs[:10]:
+        song_id = song.get('id')
+        if not song_id:
+            continue
+        try:
+            lyric_response = lyrics_provider_request('netease', '/api/song/lyric', {
+                'id': song_id,
+                'lv': 1,
+                'kv': 1,
+                'tv': -1,
+            })
+        except RuntimeError:
+            # 單首歌詞查詢失敗時仍保留其他搜尋結果。
+            lyric_response = {}
+        synced_lyrics = lyric_response.get('lrc', {}).get('lyric', '') if isinstance(lyric_response, dict) else ''
+        artists = song.get('artists') or []
+        albums = song.get('album') or {}
+        records.append({
+            'id': song_id,
+            'trackName': song.get('name', ''),
+            'artistName': '、'.join(artist.get('name', '') for artist in artists),
+            'albumName': albums.get('name', ''),
+            'duration': (song.get('duration') or 0) / 1000,
+            'syncedLyrics': synced_lyrics,
+        })
+    return records
+
+
+def lyrics_ovh_get_lyrics(title, artist):
+    """取得 lyrics.ovh 純文字歌詞；此來源沒有時間碼。"""
+    path = f"/v1/{quote(artist or 'unknown', safe='')}/{quote(title, safe='')}"
+    return lyrics_provider_request('lyrics_ovh', path)
+
 @app.route('/api/lyrics/providers')
 def get_lyrics_providers():
     """Return the lyrics providers currently available to the admin UI."""
@@ -456,7 +509,25 @@ def search_lyrics():
         return json.dumps({'success': False, 'error': '找不到歌名，請自行輸入搜尋關鍵字'}), 400
     try:
         query = {'q': query_override} if query_override else {'track_name': title, 'artist_name': artist}
-        records = lyrics_provider_request(provider_id, '/search', query)
+        if provider_id == 'netease':
+            records = netease_search_lyrics(query_override or f'{title} {artist}'.strip())
+        elif provider_id == 'lyrics_ovh':
+            try:
+                plain_lyrics = lyrics_ovh_get_lyrics(query_override or title, artist)
+            except RuntimeError as error:
+                if 'HTTP 404' in str(error):
+                    return json.dumps({'success': False, 'error': 'lyrics.ovh 找不到這組歌手與歌名的精確歌詞，請改用 NetEase 或 LRCLIB 搜尋。'}, ensure_ascii=False), 404
+                raise
+            records = [{
+                'id': f'{artist}|{title}',
+                'trackName': title,
+                'artistName': artist,
+                'albumName': '',
+                'duration': None,
+                'plainLyrics': plain_lyrics.get('lyrics', '') if isinstance(plain_lyrics, dict) else '',
+            }]
+        else:
+            records = lyrics_provider_request(provider_id, '/search', query)
         results = []
         for record in records if isinstance(records, list) else []:
             results.append({
@@ -466,6 +537,7 @@ def search_lyrics():
                 'albumName': record.get('albumName', ''),
                 'duration': record.get('duration'),
                 'hasSyncedLyrics': bool((record.get('syncedLyrics') or '').strip()),
+                'plainLyrics': (record.get('plainLyrics') or '').strip(),
                 'preview': (record.get('syncedLyrics') or record.get('plainLyrics') or '').strip()[:240],
             })
         return json.dumps({
@@ -502,7 +574,17 @@ def download_lyrics():
     if os.path.exists(output_path) and not overwrite:
         return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
     try:
-        record = lyrics_provider_request(provider_id, f'/get/{record_id}')
+        if provider_id == 'netease':
+            record = lyrics_provider_request('netease', '/api/song/lyric', {'id': record_id, 'lv': 1, 'kv': 1, 'tv': -1})
+            record = {
+                'syncedLyrics': record.get('lrc', {}).get('lyric', '') if isinstance(record, dict) else '',
+                'trackName': '',
+                'artistName': '',
+            }
+        elif provider_id == 'lyrics_ovh':
+            return json.dumps({'success': False, 'error': 'lyrics.ovh 僅提供純文字歌詞，沒有同步時間碼，請使用 NetEase 或 LRCLIB'}), 400
+        else:
+            record = lyrics_provider_request(provider_id, f'/get/{record_id}')
         synced_lyrics = str(record.get('syncedLyrics') or '').strip()
         if not synced_lyrics:
             return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
