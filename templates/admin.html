@@ -21,9 +21,11 @@
         .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .lyric-time { font-family: monospace; color: #607D8B; }
         #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-        #manual_lyrics_list li { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+        #manual_lyrics_list li { display: grid; grid-template-columns: 155px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
         #manual_lyrics_list li.active { border-color: #FF9800; background: #fff8e8; }
-        .lyric-line-time { font-family: monospace; color: #607D8B; }
+        .lyric-line-time-controls { display: grid; grid-template-columns: 28px 90px 28px; gap: 3px; align-items: center; }
+        .lyric-line-time { width: 90px; box-sizing: border-box; padding: 4px; border: 1px solid #ccd5d9; border-radius: 4px; font-family: monospace; color: #607D8B; text-align: center; }
+        .lyric-line-time-button { width: 28px; margin: 0; padding: 4px 0; background: #607D8B; font-size: 14px; }
         .lyric-line-actions { display: flex; gap: 4px; }
         .lyric-line-actions button { width: auto; margin: 0; padding: 6px 8px; font-size: 12px; }
         .lyric-shift-actions { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 8px; align-items: center; }
@@ -427,10 +429,44 @@
 
         /** Renders lyric rows with their current timestamp state and controls. */
         function renderManualLyricLines() {
-            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time">${line.start === null ? '--:--.---' : formatManualLyricTime(line.start)}</span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -0.1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 0.1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>`).join('') : '<li>尚未建立歌詞行</li>';
             manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
                 input.addEventListener('input', () => { manualLyricLines[index].text = input.value; });
             });
+        }
+
+        /** 將時間輸入轉成秒數，支援 MM:SS.mmm 或直接輸入秒數。 */
+        function parseManualLyricTimestamp(value) {
+            const text = String(value || '').trim();
+            if (!text) return null;
+            const parts = text.split(':');
+            const seconds = parts.length === 2 ? Number(parts[0]) * 60 + Number(parts[1]) : Number(text);
+            return Number.isFinite(seconds) && seconds >= 0 ? seconds : NaN;
+        }
+
+        /** 更新單句時間並保留原本的字幕顯示長度。 */
+        function updateManualLyricTimestamp(index, value) {
+            const line = manualLyricLines[index];
+            if (!line) return;
+            const nextStart = parseManualLyricTimestamp(value);
+            if (nextStart === null) {
+                line.start = null;
+                line.end = null;
+            } else if (Number.isFinite(nextStart)) {
+                const duration = line.start !== null && line.end !== null && line.end > line.start ? line.end - line.start : null;
+                line.start = nextStart;
+                line.end = duration === null ? line.end : nextStart + duration;
+            } else {
+                manualLyricStatus.innerText = '時間格式錯誤，請輸入 MM:SS.mmm 或秒數。';
+            }
+            renderManualLyricLines();
+        }
+
+        /** 以 0.1 秒微調單句時間，負數提前、正數延後。 */
+        function adjustManualLyricTimestamp(index, offset) {
+            const line = manualLyricLines[index];
+            if (!line) return;
+            updateManualLyricTimestamp(index, line.start === null ? Math.max(0, manualLyricVideo.currentTime + offset) : line.start + offset);
         }
 
         /** Shifts every existing lyric cue earlier or later while preserving cue durations. */
