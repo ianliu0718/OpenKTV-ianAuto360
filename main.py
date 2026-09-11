@@ -304,8 +304,17 @@ def page_index(): return render_template('remote.html')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
+def _song_has_subtitle(filename):
+    """Returns True only when the current song actually has a matching VTT file."""
+    if not filename:
+        return False
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    return os.path.exists(subtitle_path)
+
+
 def _play_video_payload(filename):
-    """Build a playback event payload with server-confirmed audio metadata and persistent subtitle state."""
+    """Build a playback event payload with server-confirmed audio metadata and per-song subtitle state."""
+    visible = subtitle_visible and _song_has_subtitle(filename)
     return {
         'filename': filename,
         'title': filename,
@@ -313,7 +322,7 @@ def _play_video_payload(filename):
         'audio_channel_layout': get_audio_channel_layout(filename),
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
-        'visible': subtitle_visible,
+        'visible': visible,
         'font_size': subtitle_font_size,
     }
 
@@ -994,11 +1003,12 @@ def start_random_song():
     return True
 
 def broadcast_current_song():
-    """Broadcast the current song and its subtitle presentation state to all clients."""
+    """Broadcast the current song and its per-song subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
+    visible = subtitle_visible and _song_has_subtitle(filename)
     socketio.emit('current_song', {
         'filename': filename,
-        'visible': subtitle_visible,
+        'visible': visible,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
     })
@@ -1006,10 +1016,11 @@ def broadcast_current_song():
 @socketio.on('connect')
 def handle_connect():
     """Send the current queue to each newly connected client."""
+    current_filename = playlist_queue[0] if playlist_queue else ''
     emit('update_queue', playlist_queue)
     emit('current_song', {
-        'filename': playlist_queue[0] if playlist_queue else '',
-        'visible': subtitle_visible,
+        'filename': current_filename,
+        'visible': subtitle_visible and _song_has_subtitle(current_filename),
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
     })
@@ -1087,8 +1098,7 @@ def handle_toggle_subtitle(data):
     filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
     if not playlist_queue or filename != playlist_queue[0]:
         return
-    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
-    if not os.path.exists(subtitle_path):
+    if not _song_has_subtitle(filename):
         return
     subtitle_visible = not subtitle_visible
     emit('subtitle_state', {
@@ -1107,12 +1117,13 @@ def handle_set_subtitle_font_size(data):
     except (TypeError, ValueError):
         return
     subtitle_font_size = max(80, min(200, requested_size))
-    if subtitle_font_size % 20 != 0:
-        subtitle_font_size = round(subtitle_font_size / 20) * 20
+    subtitle_font_size = round(subtitle_font_size / 10) * 10
     subtitle_font_size = max(80, min(200, subtitle_font_size))
+    current_filename = playlist_queue[0] if playlist_queue else ''
+    visible = subtitle_visible and _song_has_subtitle(current_filename)
     emit('subtitle_state', {
-        'filename': playlist_queue[0] if playlist_queue else '',
-        'visible': subtitle_visible,
+        'filename': current_filename,
+        'visible': visible,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()

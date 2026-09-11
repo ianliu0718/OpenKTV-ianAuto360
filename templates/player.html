@@ -220,9 +220,17 @@
          */
         function setSubtitle(filename, visible) {
             currentFilename = filename;
-            subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            if (!filename || !visible) {
+                subtitleTrack.src = '';
+                subtitleTrack.track.mode = 'disabled';
+                ktvSubtitle.style.display = 'none';
+                ktvSubtitle.replaceChildren();
+                return;
+            }
+            const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            subtitleTrack.src = subtitlePath;
             subtitleTrack.track.mode = 'hidden';
-            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.style.display = 'flex';
             ktvSubtitle.replaceChildren();
         }
 

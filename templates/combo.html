@@ -54,6 +54,40 @@
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
         .btn { padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; transition: 0.2s;}
         .btn:active { transform: scale(0.95); }
+        .subtitle-size-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 12px;
+            color: #b8fff2;
+            font-size: 13px;
+            gap: 10px;
+        }
+        .subtitle-size-value {
+            min-width: 56px;
+            text-align: right;
+            color: #f9f9c5;
+            font-weight: 700;
+        }
+        .subtitle-size-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .subtitle-size-btn {
+            flex: 1;
+            margin: 0;
+            padding: 10px 12px;
+            background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%);
+            color: white;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            min-width: 52px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);
+        }
+        .subtitle-size-btn:hover:not(:disabled) { filter: brightness(1.08); }
+        .subtitle-size-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .play { background: #009688; }
         .pause { background: #2196F3; }
         .stop { background: #F44336; }
@@ -122,12 +156,13 @@
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕字體大小</span><span id="subtitle-size-label">120%</span>
+            <div class="subtitle-size-row">
+                <span>字幕比例</span>
+                <span id="subtitle-size-label" class="subtitle-size-value">120%</span>
             </div>
-            <div style="display:flex; gap:6px; margin-top:5px;">
-                <button id="subtitle-size-decrease" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(-20)">-</button>
-                <button id="subtitle-size-increase" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(20)">+</button>
+            <div class="subtitle-size-controls">
+                <button id="subtitle-size-decrease" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(-10)">−</button>
+                <button id="subtitle-size-increase" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(10)">＋</button>
             </div>
         </div>
         
@@ -317,9 +352,17 @@ const socket = io();
          */
         function setSubtitle(filename, visible) {
             currentFilename = filename;
-            subtitleTrack.src = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            if (!filename || !visible) {
+                subtitleTrack.src = '';
+                subtitleTrack.track.mode = 'disabled';
+                ktvSubtitle.style.display = 'none';
+                ktvSubtitle.replaceChildren();
+                return;
+            }
+            const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
+            subtitleTrack.src = subtitlePath;
             subtitleTrack.track.mode = 'hidden';
-            ktvSubtitle.style.display = visible ? 'flex' : 'none';
+            ktvSubtitle.style.display = 'flex';
             ktvSubtitle.replaceChildren();
         }
 
@@ -329,8 +372,9 @@ const socket = io();
          */
         function applySubtitleFontSize(fontSize) {
             const size = Number(fontSize);
-            if (![80, 100, 120].includes(size)) return;
-            ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+            if (!Number.isFinite(size)) return;
+            const clampedSize = Math.min(200, Math.max(80, size));
+            ktvSubtitle.style.setProperty('--subtitle-scale', String(clampedSize / 100));
         }
 
         /**
@@ -877,10 +921,11 @@ const socket = io();
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            control.style.display = hasSong && hasSubtitle ? 'block' : 'none';
+            const shouldShow = hasSong && hasSubtitle;
+            control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible ? '字幕：顯示中' : '字幕：隱藏';
+            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
         }
 
         /**
@@ -889,7 +934,8 @@ const socket = io();
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
-            currentSubtitleVisible = Boolean(data.visible);
+            const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
+            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             applySubtitleFontSize(currentSubtitleFontSize);
             renderSubtitleFontSizeControl();
@@ -900,7 +946,9 @@ const socket = io();
          * Toggles subtitles for the song currently being played.
          */
         function toggleCurrentSubtitle() {
-            if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
+            if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
+                toggleSubtitle(currentPlayingFilename);
+            }
         }
 
         /**
@@ -909,6 +957,7 @@ const socket = io();
          */
         function changeSubtitleFontSize(step) {
             const nextSize = Math.min(200, Math.max(80, currentSubtitleFontSize + step));
+            if (nextSize === currentSubtitleFontSize) return;
             currentSubtitleFontSize = nextSize;
             applySubtitleFontSize(nextSize);
             renderSubtitleFontSizeControl();
@@ -933,7 +982,7 @@ const socket = io();
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible);
+                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
                 if (data.font_size !== undefined) {
                     currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                     applySubtitleFontSize(currentSubtitleFontSize);
@@ -1014,7 +1063,7 @@ const socket = io();
                     && (!selectedLanguage || metadata.language === selectedLanguage);
             }).forEach(s => {
                 const name = s.replace('.mp4', '');
-                const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'

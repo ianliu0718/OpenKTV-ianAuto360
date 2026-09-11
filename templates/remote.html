@@ -73,12 +73,12 @@
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
             <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-            <div style="display:flex; justify-content:space-between; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕字體大小</span><span id="subtitle-size-label">大字（120%）</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; color:#b8fff2; font-size:13px;">
+                <span>字幕比例</span><span id="subtitle-size-label" style="min-width:56px; text-align:right; color:#f9f9c5; font-weight:700;">120%</span>
             </div>
-            <div style="display:flex; gap:6px; margin-top:5px;">
-                <button id="subtitle-size-decrease" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(-20)">-</button>
-                <button id="subtitle-size-increase" class="btn" style="margin:0; padding:8px; background:#536d7a;" onclick="changeSubtitleFontSize(20)">+</button>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+                <button id="subtitle-size-decrease" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(-10)">−</button>
+                <button id="subtitle-size-increase" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(10)">＋</button>
             </div>
         </div>
 
@@ -293,10 +293,11 @@
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            control.style.display = hasSong && hasSubtitle ? 'block' : 'none';
+            const shouldShow = hasSong && hasSubtitle;
+            control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible ? '字幕：顯示中' : '字幕：隱藏';
+            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
         }
 
         /**
@@ -305,7 +306,8 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
-            currentSubtitleVisible = Boolean(data.visible);
+            const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
+            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
@@ -316,7 +318,9 @@
          * Toggles subtitles for the song currently being played.
          */
         function toggleCurrentSubtitle() {
-            if (currentPlayingFilename) toggleSubtitle(currentPlayingFilename);
+            if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
+                toggleSubtitle(currentPlayingFilename);
+            }
         }
 
         /**
@@ -325,6 +329,7 @@
          */
         function changeSubtitleFontSize(step) {
             const nextSize = Math.min(200, Math.max(80, currentSubtitleFontSize + step));
+            if (nextSize === currentSubtitleFontSize) return;
             currentSubtitleFontSize = nextSize;
             renderSubtitleFontSizeControl();
             socket.emit('set_subtitle_font_size', { font_size: nextSize });
@@ -384,7 +389,7 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible);
+                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
                 currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                 renderSubtitleFontSizeControl();
                 renderCurrentSongControl();
@@ -426,7 +431,7 @@
                     && (!selectedSinger || metadata.singer === selectedSinger)
                     && (!selectedLanguage || metadata.language === selectedLanguage);
             }).forEach(s => {
-                const subtitleButton = subtitleSongs.has(s) ? `<button class="song-btn" onclick="toggleSubtitle('${s}')">字幕</button>` : '';
+                const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
