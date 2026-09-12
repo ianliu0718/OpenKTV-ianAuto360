@@ -1301,6 +1301,7 @@ subtitle_visible = False
 subtitle_font_size = 100
 qr_visible = True
 random_play_enabled = False
+random_play_explicitly_enabled = False
 playback_rate = 1.0
 current_track_mode = 'original'
 seek_offset = 0.0
@@ -1350,7 +1351,7 @@ def can_start_random_song():
 """
 def start_random_song():
     """Append and start one random song when the playback queue is empty."""
-    if not can_start_random_song():
+    if not random_play_explicitly_enabled or not can_start_random_song():
         return False
     songs = [filename for filename in os.listdir(SONGS_DIR) if filename.lower().endswith('.mp4')]
     if not songs:
@@ -1422,10 +1423,12 @@ def handle_qr_visibility(data):
 @socketio.on('set_random_play')
 def handle_random_play(data):
     """Update and broadcast whether idle playback should choose random songs."""
-    global random_play_enabled
+    global random_play_enabled, random_play_explicitly_enabled
     # 啟用/停用「無點歌時隨機播歌」不是使用者手動點歌行為，
     # 因此不能更新 last_user_action_time，否則空隊列時會被 1.5 秒冷卻鎖住。
     random_play_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    random_play_explicitly_enabled = random_play_enabled
+    print(f"隨機播放設定：{'開啟' if random_play_enabled else '關閉'}")
     emit('random_play', {'enabled': random_play_enabled}, broadcast=True)
     if random_play_enabled and not playlist_queue and can_start_random_song():
         start_random_song()
@@ -1572,7 +1575,11 @@ def handle_song_ended():
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
-            if random_play_enabled and can_start_random_song():
+            print(
+                f"歌曲播放結束：待播清單已空，隨機播放={'開啟' if random_play_enabled else '關閉'}，"
+                f'明確啟用旗標={random_play_explicitly_enabled}'
+            )
+            if random_play_explicitly_enabled and can_start_random_song():
                 if start_random_song():
                     return
             # 沒歌了，停止畫面並回到待機狀態
