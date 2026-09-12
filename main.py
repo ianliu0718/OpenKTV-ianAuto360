@@ -2034,14 +2034,14 @@ class ServerApp(tk.Tk):
 
         self.lbl_server_status = tk.Label(
             stat_frame,
-            text="區網連線狀態: 檢查中...",
+            text="區網連線狀態: 尚未檢查，請按下「允許區網連線」。",
             font=("Microsoft JhengHei", 11, "bold"),
             bg="#f4f4f9",
             justify="left",
             wraplength=400,
         )
         self.lbl_server_status.pack(anchor="w", pady=3)
-        tk.Button(
+        self.lan_access_button = tk.Button(
             stat_frame,
             text="允許區網連線",
             command=self.enable_lan_access,
@@ -2049,7 +2049,8 @@ class ServerApp(tk.Tk):
             bg="#1976D2",
             fg="white",
             activebackground="#1565C0",
-        ).pack(anchor="w", pady=4)
+        )
+        self.lan_access_button.pack(anchor="w", pady=4)
 
         self.seek_correction_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -2076,7 +2077,6 @@ class ServerApp(tk.Tk):
         # 增加一個實體的 GUI 日誌框，用來接聽攔截到的錯誤訊息
         self.log_txt = tk.Text(self, height=8, state="disabled", bg="#222", fg="#0f0", font=("Consolas", 9))
         self.log_txt.pack(fill="both", expand=True, padx=20, pady=10)
-        
         self.update_stats()
         
         # 啟動背景佇列監聽器
@@ -2093,6 +2093,8 @@ class ServerApp(tk.Tk):
     def enable_lan_access(self):
         """請求 UAC 提權建立 Windows 防火牆入站規則。"""
         _log_lan_access('使用者按下「允許區網連線」。')
+        self.lan_access_button.config(state="disabled", text="設定區網連線中...")
+        self.lbl_server_status.config(text="正在設定防火牆並檢查區網連線，請稍候。", fg="#1976D2")
         consent = messagebox.askyesno(
             '需要系統管理員權限',
             '允許區網連線需要修改 Windows 防火牆規則。\n\n'
@@ -2103,12 +2105,45 @@ class ServerApp(tk.Tk):
         if not consent:
             _log_lan_access('使用者取消權限確認，未執行防火牆設定。')
             self.lbl_server_status.config(text='已取消區網連線設定。', fg="#C62828")
+            self.lan_access_button.config(state="normal", text="允許區網連線")
             return
         _log_lan_access('使用者同意權限確認，準備呼叫 Windows 系統管理員程序。')
-        success, message = allow_lan_firewall_access()
-        _log_lan_access(f'區網連線設定完成：{"成功" if success else "失敗"}；{message}')
-        self.lbl_server_status.config(text=message, fg="#1976D2" if success else "#C62828")
-        self.after(500, self.update_stats)
+
+        def configure_lan_access():
+            success, message = allow_lan_firewall_access()
+            port_ready = _is_server_port_listening()
+            lan_port_ready = _is_lan_port_listening() if port_ready else False
+            firewall_ready = _has_firewall_rule() if lan_port_ready else False
+            self.after(0, lambda: self._finish_lan_access(
+                success and port_ready and lan_port_ready and firewall_ready,
+                message,
+                port_ready,
+                lan_port_ready,
+                firewall_ready,
+            ))
+
+        threading.Thread(target=configure_lan_access, daemon=True).start()
+
+    def _finish_lan_access(self, success, message, port_ready, lan_port_ready, firewall_ready):
+        """更新按鈕觸發的區網設定與驗證結果。"""
+        _log_lan_access(
+            f'區網連線設定完成：{"成功" if success else "失敗"}；'
+            f'port={port_ready}, LAN={lan_port_ready}, firewall={firewall_ready}；{message}'
+        )
+        if success:
+            status_text = f"✅ 區網連線已確認：{LOCAL_IP}:{PORT}"
+            status_color = "#2E7D32"
+        elif not port_ready:
+            status_text = "❌ 伺服器尚未在 5000 port 監聽。"
+            status_color = "#C62828"
+        elif not lan_port_ready:
+            status_text = f"❌ 無法透過區網介面連線：{LOCAL_IP}:{PORT}"
+            status_color = "#C62828"
+        else:
+            status_text = f"⚠️ 防火牆設定未確認：{message}"
+            status_color = "#C62828"
+        self.lbl_server_status.config(text=status_text, fg=status_color)
+        self.lan_access_button.config(state="normal", text="允許區網連線")
 
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")
@@ -2129,22 +2164,6 @@ class ServerApp(tk.Tk):
             self.lbl_size.config(text=f"💾 佔用空間: {size_mb:.2f} MB")
         except Exception as e:
             pass
-        port_ready = _is_server_port_listening()
-        lan_port_ready = _is_lan_port_listening() if port_ready else False
-        firewall_ready = _has_firewall_rule()
-        if not port_ready:
-            status_text = "❌ 伺服器未在 5000 port 監聽，手機無法連線。"
-            status_color = "#C62828"
-        elif not lan_port_ready:
-            status_text = f"❌ 本機服務未能透過區網介面連線：{LOCAL_IP}:{PORT}"
-            status_color = "#C62828"
-        elif not firewall_ready:
-            status_text = "⚠️ 服務可用，但尚未確認 Windows 防火牆允許區網連入。請按下「允許區網連線」。"
-            status_color = "#E65100"
-        else:
-            status_text = f"✅ 區網連線條件已確認：{LOCAL_IP}:{PORT}\n本機服務、LAN 介面與防火牆規則正常；若其他裝置仍無法連線，請檢查 Wi-Fi/AP 隔離。"
-            status_color = "#2E7D32"
-        self.lbl_server_status.config(text=status_text, fg=status_color)
         self.after(5000, self.update_stats)
 
     def check_log_queue(self):
