@@ -625,14 +625,6 @@
 
         socket.on('current_song', (data) => {
             applySubtitleFontSize(data.font_size);
-            // 新連線只會收到 current_song；若尚未收到 play_video，補載入目前正在播放的歌曲。
-            if (data.filename && !currentFilename && !video.currentSrc) {
-                handlePlayVideo({
-                    filename: data.filename,
-                    visible: data.visible,
-                    track_mode: currentMode,
-                });
-            }
         });
 
         socket.on('command', (cmd) => {

@@ -61,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.9.6"
+APP_VERSION = "v1.0.9.7"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -2160,19 +2160,72 @@ class ServerApp(tk.Tk):
             pass
         self.after(100, self.check_log_queue)
 
+
+class StartupWindow(tk.Tk):
+    """顯示伺服器與主畫面初始化期間的啟動畫面。"""
+    def __init__(self):
+        super().__init__()
+        self.title(f"ianAutoKTV {APP_VERSION}")
+        self.geometry("430x190")
+        self.resizable(False, False)
+        self.configure(bg="#f4f4f9")
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.update_idletasks()
+        left = (self.winfo_screenwidth() - self.winfo_width()) // 2
+        top = (self.winfo_screenheight() - self.winfo_height()) // 2
+        self.geometry(f"+{left}+{top}")
+
+        tk.Label(
+            self,
+            text="ianAutoKTV",
+            font=("Microsoft JhengHei", 22, "bold"),
+            fg="#1976D2",
+            bg="#f4f4f9",
+        ).pack(pady=(24, 8))
+        tk.Label(
+            self,
+            text="開啟 ianAutoKTV 中...",
+            font=("Microsoft JhengHei", 14, "bold"),
+            fg="#333333",
+            bg="#f4f4f9",
+        ).pack()
+        self.status_label = tk.Label(
+            self,
+            text="正在準備 Flask 伺服器，請耐心等待。",
+            font=("Microsoft JhengHei", 10),
+            fg="#666666",
+            bg="#f4f4f9",
+        )
+        self.status_label.pack(pady=(8, 20))
+
+    def set_status(self, text):
+        self.status_label.config(text=text)
+        self.update_idletasks()
+
 if __name__ == "__main__":
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
 
+    startup_window = StartupWindow()
+    startup_window.update()
+
     if get_ffmpeg_location() is None:
-        try:
-            messagebox.showerror("錯誤", "找不到 FFmpeg\n請將 ffmpeg 資料夾放在程式同一目錄")
-        except:
-            print("找不到 FFmpeg")
+        startup_window.set_status("找不到 FFmpeg，程式無法啟動。")
+        messagebox.showerror(
+            "啟動失敗",
+            "找不到 FFmpeg\n請將 ffmpeg 資料夾放在程式同一目錄",
+            parent=startup_window,
+        )
+        startup_window.destroy()
     else:
-        t = threading.Thread(target=run_server_thread)
-        t.daemon = True
-        t.start()
-        
-        app = ServerApp()
-        app.mainloop()
+        def launch_application():
+            startup_window.set_status("正在啟動 Flask 伺服器，請耐心等待。")
+            server_thread = threading.Thread(target=run_server_thread, daemon=True)
+            server_thread.start()
+            startup_window.update()
+            app = ServerApp()
+            startup_window.destroy()
+            app.mainloop()
+
+        startup_window.after(100, launch_application)
+        startup_window.mainloop()
