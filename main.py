@@ -61,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.9"
+APP_VERSION = "v1.0.9.6"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -240,10 +240,45 @@ LOCAL_IP = get_local_ip()
 PORT = 5000
 TLS_CERT_PATH = os.path.join(BASE_DIR, "ktv-local.crt")
 TLS_KEY_PATH = os.path.join(BASE_DIR, "ktv-local.key")
+SERVER_ERROR_LOG_PATH = os.path.join(BASE_DIR, "server-error.log")
+FIREWALL_RULE_NAME = "OpenKTV HTTPS 5000"
+PRIVATE_FIREWALL_RULE_NAME = "OpenKTV HTTPS 5000 Private"
+PROGRAM_FIREWALL_RULE_NAME = "OpenKTV Server Private Application"
+
+def _certificate_is_current():
+    """確認既有憑證仍有效、私鑰配對，且 SAN 包含目前 LAN IP。"""
+    if not (os.path.exists(TLS_CERT_PATH) and os.path.exists(TLS_KEY_PATH)):
+        return False
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        certificate = x509.load_pem_x509_certificate(open(TLS_CERT_PATH, 'rb').read())
+        private_key = serialization.load_pem_private_key(open(TLS_KEY_PATH, 'rb').read(), password=None)
+        now = datetime.now(timezone.utc)
+        not_before = getattr(certificate, 'not_valid_before_utc', certificate.not_valid_before)
+        not_after = getattr(certificate, 'not_valid_after_utc', certificate.not_valid_after)
+        if not_before.tzinfo is None:
+            not_before = not_before.replace(tzinfo=timezone.utc)
+        if not_after.tzinfo is None:
+            not_after = not_after.replace(tzinfo=timezone.utc)
+        if not (not_before <= now < not_after):
+            return False
+        certificate_key = certificate.public_key().public_numbers()
+        private_key_public = private_key.public_key().public_numbers()
+        if certificate_key != private_key_public:
+            return False
+        san = certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        return any(
+            isinstance(name, x509.IPAddress) and str(name.value) == LOCAL_IP
+            for name in san
+        )
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+
 
 def ensure_tls_certificate():
-    """Create a reusable self-signed certificate for localhost and the LAN IP."""
-    if os.path.exists(TLS_CERT_PATH) and os.path.exists(TLS_KEY_PATH):
+    """Create or refresh a self-signed certificate for localhost and the LAN IP."""
+    if _certificate_is_current():
         return TLS_CERT_PATH, TLS_KEY_PATH
 
     from cryptography import x509
@@ -272,20 +307,196 @@ def ensure_tls_certificate():
         .add_extension(x509.SubjectAlternativeName(san_names), critical=False)
         .sign(private_key, hashes.SHA256())
     )
-    with open(TLS_KEY_PATH, "wb") as key_file:
+    temporary_key_path = TLS_KEY_PATH + '.tmp'
+    temporary_cert_path = TLS_CERT_PATH + '.tmp'
+    with open(temporary_key_path, "wb") as key_file:
         key_file.write(private_key.private_bytes(
             serialization.Encoding.PEM,
             serialization.PrivateFormat.TraditionalOpenSSL,
             serialization.NoEncryption(),
         ))
-    with open(TLS_CERT_PATH, "wb") as cert_file:
+    with open(temporary_cert_path, "wb") as cert_file:
         cert_file.write(certificate.public_bytes(serialization.Encoding.PEM))
+    os.replace(temporary_key_path, TLS_KEY_PATH)
+    os.replace(temporary_cert_path, TLS_CERT_PATH)
     return TLS_CERT_PATH, TLS_KEY_PATH
 
 def broadcast_log(msg):
     # 用 print 就會自動被我們的 GUIWriter 抓走並顯示在介面上
     print(msg)
     socketio.emit('admin_log', {'msg': msg})
+
+
+def _is_server_port_listening():
+    """檢查本機 HTTPS 服務是否已在 5000 port 監聽。"""
+    try:
+        with socket.create_connection(('127.0.0.1', PORT), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _is_lan_port_listening():
+    """確認服務可透過目前 LAN IP 接受 TCP 連線。"""
+    try:
+        with socket.create_connection((LOCAL_IP, PORT), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _has_firewall_rule():
+    """檢查 Windows 規則是否真的啟用並允許入站 TCP 5000。"""
+    if os.name != 'nt':
+        return True
+    try:
+        netsh_result = subprocess.run(
+            ['netsh.exe', 'advfirewall', 'firewall', 'show', 'rule', f'name={PRIVATE_FIREWALL_RULE_NAME}'],
+            capture_output=True, text=True, encoding='mbcs', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=5,
+        )
+        if netsh_result.returncode == 0 and '5000' in netsh_result.stdout:
+            return True
+        powershell_check = (
+            "$matched = Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow "
+            "-ErrorAction SilentlyContinue | ForEach-Object { "
+            "$rule = $_; $port = $rule | Get-NetFirewallPortFilter; "
+            "if ($port.Protocol -eq 'TCP' -and $port.LocalPort -eq '5000' "
+            "-and $rule.Profile.ToString() -match 'Private|Any') { $rule } }; "
+            "if ($matched) { exit 0 } else { exit 1 }"
+        )
+        result = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', powershell_check],
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _firewall_rule_details():
+    """取得防火牆規則與 TCP 埠設定，供 GUI 診斷使用。"""
+    if os.name != 'nt':
+        return '非 Windows 作業系統'
+    try:
+        netsh_result = subprocess.run(
+            ['netsh.exe', 'advfirewall', 'firewall', 'show', 'rule', f'name={PRIVATE_FIREWALL_RULE_NAME}'],
+            capture_output=True, text=True, encoding='mbcs', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=15,
+        )
+        powershell_details = (
+            "$matches = Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow "
+            "-ErrorAction SilentlyContinue | ForEach-Object { "
+            "$rule = $_; $port = $rule | Get-NetFirewallPortFilter; "
+            "if ($port.Protocol -eq 'TCP' -and $port.LocalPort -eq '5000') { "
+            "[pscustomobject]@{Name=$rule.DisplayName;Profile=$rule.Profile;"
+            "Enabled=$rule.Enabled;Direction=$rule.Direction;Action=$rule.Action;"
+            "Protocol=$port.Protocol;LocalPort=$port.LocalPort} } }; "
+            "if ($matches) { $matches | ConvertTo-Json -Compress } else { 'RULE_NOT_FOUND' }"
+        )
+        result = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', powershell_details],
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=15,
+        )
+        output = result.stdout.strip() or result.stderr.strip() or '<無輸出>'
+        netsh_output = netsh_result.stdout.strip() or netsh_result.stderr.strip() or '<無輸出>'
+        return (
+            f'netsh 回傳碼={netsh_result.returncode}; '
+            f'netsh={netsh_output}; PowerShell回傳碼={result.returncode}; PowerShell={output}'
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f'查詢例外：{error}'
+
+
+def _log_lan_access(message):
+    print(f"[區網連線][{datetime.now().strftime('%H:%M:%S')}] {message}")
+
+
+def allow_lan_firewall_access():
+    """以系統管理員權限建立區網 HTTPS 入站規則。"""
+    if os.name != 'nt':
+        _log_lan_access('目前作業系統不是 Windows，無法建立 Windows 防火牆規則。')
+        return False, '此功能只支援 Windows。'
+    try:
+        _log_lan_access(f'開始設定入站 TCP {PORT}，規則名稱：{FIREWALL_RULE_NAME} / {PRIVATE_FIREWALL_RULE_NAME}')
+        _log_lan_access(f'目前服務網址：https://{LOCAL_IP}:{PORT}/remote')
+        import base64
+        firewall_log_path = os.path.join(BASE_DIR, 'firewall-rule-setup.log')
+        escaped_log_path = firewall_log_path.replace("'", "''")
+        program_path = os.path.abspath(sys.executable)
+        escaped_program_path = program_path.replace('"', '\\"')
+        _log_lan_access(f'應用程式規則目標：{program_path}')
+        firewall_script = (
+            f"$log = '{escaped_log_path}'; "
+            "'--- firewall setup ---' | Set-Content -Path $log -Encoding UTF8; "
+            f"& netsh.exe advfirewall firewall delete rule name=\"{FIREWALL_RULE_NAME}\" *> $log; "
+            "$deleteExitCode = $LASTEXITCODE; "
+            f"& netsh.exe advfirewall firewall delete rule name=\"{PRIVATE_FIREWALL_RULE_NAME}\" *> $log; "
+            "$deletePrivateExitCode = $LASTEXITCODE; "
+            f"& netsh.exe advfirewall firewall delete rule name=\"{PROGRAM_FIREWALL_RULE_NAME}\" *> $log; "
+            "$deleteProgramExitCode = $LASTEXITCODE; "
+            f"& netsh.exe advfirewall firewall add rule name=\"{FIREWALL_RULE_NAME}\" "
+            "dir=in action=allow protocol=TCP localport=5000 profile=any remoteip=any *> $log; "
+            "$addExitCode = $LASTEXITCODE; "
+            f"& netsh.exe advfirewall firewall add rule name=\"{PRIVATE_FIREWALL_RULE_NAME}\" "
+            "dir=in action=allow protocol=TCP localport=5000 profile=private remoteip=any *> $log; "
+            "$addPrivateExitCode = $LASTEXITCODE; "
+            f"& netsh.exe advfirewall firewall add rule name=\"{PROGRAM_FIREWALL_RULE_NAME}\" "
+            f"dir=in action=allow program=\"{escaped_program_path}\" protocol=TCP localport=5000 "
+            "profile=private remoteip=any enable=yes *> $log; "
+            "$addProgramExitCode = $LASTEXITCODE; "
+            "('netsh delete exit code: ' + $deleteExitCode) | Add-Content -Path $log -Encoding UTF8; "
+            "('netsh add exit code: ' + $addExitCode) | Add-Content -Path $log -Encoding UTF8; "
+            "('netsh private add exit code: ' + $addPrivateExitCode) | Add-Content -Path $log -Encoding UTF8; "
+            "('netsh program add exit code: ' + $addProgramExitCode) | Add-Content -Path $log -Encoding UTF8; "
+            'if ($addExitCode -ne 0 -or $addPrivateExitCode -ne 0 -or $addProgramExitCode -ne 0) { exit 1 }; exit 0'
+        )
+        encoded_script = base64.b64encode(firewall_script.encode('utf-16le')).decode('ascii')
+        elevated_command = (
+            "$process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru "
+            f"-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','{encoded_script}'); "
+            'exit $process.ExitCode'
+        )
+        result = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', elevated_command],
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=45,
+        )
+        _log_lan_access(f'UAC 提權程序結束，回傳碼：{result.returncode}')
+        if result.stdout.strip():
+            _log_lan_access(f'系統輸出：{result.stdout.strip()}')
+        if result.stderr.strip():
+            _log_lan_access(f'系統錯誤：{result.stderr.strip()}')
+        if result.returncode != 0:
+            _log_lan_access('防火牆指令未成功完成，可能是取消 UAC 或未使用系統管理員權限。')
+            return False, '防火牆規則建立失敗或未允許 UAC，請確認已按下「是」。'
+        _log_lan_access('開始重新查詢防火牆規則。')
+        firewall_ready = _has_firewall_rule()
+        _log_lan_access(f'防火牆規則驗證結果：{"成功" if firewall_ready else "失敗"}')
+        if firewall_ready:
+            _log_lan_access(f'已確認允許入站 TCP {PORT}。')
+            return True, '防火牆規則已建立並確認允許 TCP 5000。'
+        _log_lan_access(f'規則詳細資料：{_firewall_rule_details()}')
+        if os.path.exists(firewall_log_path):
+            with open(firewall_log_path, 'r', encoding='utf-8', errors='replace') as log_file:
+                setup_log = log_file.read().strip()
+            if setup_log:
+                _log_lan_access(f'netsh 設定記錄：{setup_log}')
+        _log_lan_access('找不到符合條件的啟用中 Inbound Allow TCP 5000 規則。')
+        return False, '系統管理員程序已結束，但尚未確認防火牆規則，請檢查 Windows 防火牆。'
+    except subprocess.TimeoutExpired:
+        _log_lan_access('等待 UAC 或防火牆設定逾時（45 秒）。')
+        return False, '等待 Windows 防火牆設定逾時，請確認 UAC 視窗仍未被取消。'
+    except OSError as error:
+        _log_lan_access(f'執行防火牆設定時發生 OSError：{error!r}')
+        return False, f'建立防火牆規則失敗：{error}'
 
 # ------------------------------------------
 # Flask 路由
@@ -1603,7 +1814,7 @@ def handle_update_ytdlp():
 
 def run_server_thread():
     try:
-        print("🚀 準備啟動 Flask 伺服器...")
+        print("準備啟動 Flask 伺服器...")
         
         # 【關鍵防護】強制關閉 Flask 雞婆的啟動橫幅 (Banner) 與日誌，從根本拔除報錯源頭
         import logging
@@ -1612,13 +1823,18 @@ def run_server_thread():
         logging.getLogger('werkzeug').setLevel(logging.ERROR)  # 只允許印出重大錯誤
         
         cert_path, key_path = ensure_tls_certificate()
-        print(f"🔒 HTTPS 服務已啟用：https://{LOCAL_IP}:{PORT}")
+        print(f"HTTPS server starting on https://{LOCAL_IP}:{PORT}")
         socketio.run(app, host='0.0.0.0', port=PORT, debug=False,
                  allow_unsafe_werkzeug=True, ssl_context=(cert_path, key_path))
     except Exception as e:
         import traceback
-        print(f"❌ 伺服器啟動失敗: {e}")
-        print(traceback.format_exc())
+        error_text = f"伺服器啟動失敗: {e}\n{traceback.format_exc()}"
+        try:
+            with open(SERVER_ERROR_LOG_PATH, 'a', encoding='utf-8') as error_file:
+                error_file.write(f"\n[{datetime.now().astimezone().isoformat(timespec='seconds')}]\n{error_text}")
+        except OSError:
+            pass
+        print(error_text)
 
 # ==========================================
 # 核心處理類別
@@ -1787,7 +2003,7 @@ class ServerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"ianAutoKTV {APP_VERSION}")
-        self.geometry("450x500") # 稍微拉高一點放日誌框
+        self.geometry("450x570") # 保留區網連線診斷與操作區
         self.configure(bg="#f4f4f9")
         
         tk.Label(self, text=f"🎤 KTV 系統運作中 {APP_VERSION}", font=("Microsoft JhengHei", 20, "bold"), fg="#4CAF50", bg="#f4f4f9").pack(pady=10)
@@ -1808,6 +2024,25 @@ class ServerApp(tk.Tk):
         
         self.lbl_size = tk.Label(stat_frame, text="佔用空間: 載入中...", font=("Microsoft JhengHei", 12, "bold"), bg="#f4f4f9")
         self.lbl_size.pack(anchor="w", pady=5)
+
+        self.lbl_server_status = tk.Label(
+            stat_frame,
+            text="區網連線狀態: 檢查中...",
+            font=("Microsoft JhengHei", 11, "bold"),
+            bg="#f4f4f9",
+            justify="left",
+            wraplength=400,
+        )
+        self.lbl_server_status.pack(anchor="w", pady=3)
+        tk.Button(
+            stat_frame,
+            text="允許區網連線",
+            command=self.enable_lan_access,
+            font=("Microsoft JhengHei", 10, "bold"),
+            bg="#1976D2",
+            fg="white",
+            activebackground="#1565C0",
+        ).pack(anchor="w", pady=4)
 
         self.seek_correction_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
@@ -1848,6 +2083,26 @@ class ServerApp(tk.Tk):
         """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""
         handle_set_engine_debug({'enabled': bool(self.engine_debug_var.get())})
 
+    def enable_lan_access(self):
+        """請求 UAC 提權建立 Windows 防火牆入站規則。"""
+        _log_lan_access('使用者按下「允許區網連線」。')
+        consent = messagebox.askyesno(
+            '需要系統管理員權限',
+            '允許區網連線需要修改 Windows 防火牆規則。\n\n'
+            '按下「是」後，Windows 會再顯示系統管理員權限確認視窗。\n'
+            '請在 Windows 視窗中按「是」，程式才能允許其他裝置連線。',
+            parent=self,
+        )
+        if not consent:
+            _log_lan_access('使用者取消權限確認，未執行防火牆設定。')
+            self.lbl_server_status.config(text='已取消區網連線設定。', fg="#C62828")
+            return
+        _log_lan_access('使用者同意權限確認，準備呼叫 Windows 系統管理員程序。')
+        success, message = allow_lan_firewall_access()
+        _log_lan_access(f'區網連線設定完成：{"成功" if success else "失敗"}；{message}')
+        self.lbl_server_status.config(text=message, fg="#1976D2" if success else "#C62828")
+        self.after(500, self.update_stats)
+
     def create_clickable_link(self, parent, text_prefix, url, color):
         frame = tk.Frame(parent, bg="white")
         frame.pack(pady=2, anchor="w", padx=10)
@@ -1867,6 +2122,22 @@ class ServerApp(tk.Tk):
             self.lbl_size.config(text=f"💾 佔用空間: {size_mb:.2f} MB")
         except Exception as e:
             pass
+        port_ready = _is_server_port_listening()
+        lan_port_ready = _is_lan_port_listening() if port_ready else False
+        firewall_ready = _has_firewall_rule()
+        if not port_ready:
+            status_text = "❌ 伺服器未在 5000 port 監聽，手機無法連線。"
+            status_color = "#C62828"
+        elif not lan_port_ready:
+            status_text = f"❌ 本機服務未能透過區網介面連線：{LOCAL_IP}:{PORT}"
+            status_color = "#C62828"
+        elif not firewall_ready:
+            status_text = "⚠️ 服務可用，但尚未確認 Windows 防火牆允許區網連入。請按下「允許區網連線」。"
+            status_color = "#E65100"
+        else:
+            status_text = f"✅ 區網連線條件已確認：{LOCAL_IP}:{PORT}\n本機服務、LAN 介面與防火牆規則正常；若其他裝置仍無法連線，請檢查 Wi-Fi/AP 隔離。"
+            status_color = "#2E7D32"
+        self.lbl_server_status.config(text=status_text, fg=status_color)
         self.after(5000, self.update_stats)
 
     def check_log_queue(self):
