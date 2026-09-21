@@ -162,10 +162,14 @@
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
         <h4 id="danmaku-title">發送彈幕</h4>
         <div class="danmaku-presets">
-            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+            <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+            <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
         </div>
         <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
         <div class="danmaku-actions">
@@ -339,6 +343,14 @@
 
         function sendCustomDanmaku() {
             sendDanmaku(document.getElementById('danmaku-custom-text').value);
+        }
+
+        function sendRandomCompliment() {
+            const openers = ['✨ 這歌聲', '🎤 這個高音', '💖 這個情感', '🔥 這個氣勢', '👏 這段表現', '🌙 這個聲線', '🎶 這個節奏', '💫 這個轉音', '🥹 這個投入感', '🎧 這個音色', '🌈 這個氛圍', '👑 這位歌手'];
+            const compliments = ['太有魅力了！', '完全唱進心裡！', '好聽到想重播！', '根本是今晚最佳演出！', '穩到像原唱！', '讓全場都安靜下來了！', '每一句都好有故事！', '感染力直接滿分！', '聽得人心都融化了！', '這表現真的太驚喜！', '把整首歌唱活了！', '情緒拿捏得剛剛好！', '一開口就知道不簡單！', '這就是舞台該有的樣子！', '大家都被你的歌聲圈粉了！'];
+            const endings = ['🌟', '🥰', '🎶', '🙌', '💯', '🫶', '✨', '👏', '🔥', '💖', '🎉', '👑'];
+            const pick = (items) => items[Math.floor(Math.random() * items.length)];
+            sendDanmaku(`${pick(openers)}${pick(compliments)} ${pick(endings)}`);
         }
 
         // 將目前面板內容送到 server，由 server 驗證歌曲仍在待播清單中。
