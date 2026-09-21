@@ -18,7 +18,9 @@
         .batch-input { height: 140px; margin-top: 10px; }
         .lyric-editor { display: grid; gap: 10px; margin-top: 10px; }
         /* 歌詞清單很長時固定影片在視窗上方，方便播放中持續對照影像。 */
-        .lyric-editor video { position: sticky; top: 10px; z-index: 5; width: 100%; max-height: 35vh; object-fit: contain; background: #000; border: 6px solid #fff; border-radius: 5px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+        .manual-video-preview { position: sticky; top: 10px; z-index: 5; width: 100%; max-height: 35vh; background: #000; border: 6px solid #fff; border-radius: 5px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+        .lyric-editor video { display: block; width: 100%; max-height: calc(35vh - 12px); object-fit: contain; background: #000; }
+        .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: min(46%, 300px); box-sizing: border-box; overflow: hidden; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: clamp(10px, 2.1vw, 22px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre-line; }
         .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .lyric-time { font-family: monospace; color: #607D8B; }
         #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -102,9 +104,9 @@
             <input type="file" id="converter_song" accept=".mp4,video/mp4">
             <label for="converter_file">選擇字幕檔（可選，自動判斷 SRT/LRC/VTT）:</label>
             <input type="file" id="converter_file" accept=".srt,.lrc,.vtt,text/vtt,application/x-subrip">
-            <textarea id="converter_text" class="subtitle-input" placeholder="或直接貼上 SRT、LRC、VTT 格式文字"></textarea>
+            <textarea id="converter_text" class="subtitle-input" placeholder="或直接貼上 SRT、LRC、VTT，或一般歌詞（每行一句）"></textarea>
             <button id="btn_convert" class="btn-update" onclick="convertExistingSubtitle()">轉換並儲存字幕</button>
-            <p id="converter_status"></p>
+            <p id="converter_status">一般歌詞會顯示 12 行，並依歌曲時間軸逐行向上移動，播放時可看著前後歌詞跟唱。</p>
         </details>
         <details class="lyrics-downloader">
             <summary>進階：下載線上同步歌詞</summary>
@@ -124,7 +126,12 @@
                 <label for="manual_lyric_song">選擇歌曲：</label>
                 <input type="search" id="manual_lyric_song_search" placeholder="搜尋歌名、歌手、歌曲代號..." autocomplete="off">
                 <select id="manual_lyric_song"><option value="">載入歌曲中...</option></select>
-                <video id="manual_lyric_video" controls preload="metadata"></video>
+                <div class="manual-video-preview">
+                    <video id="manual_lyric_video" controls preload="metadata">
+                        <track id="manual_lyric_track" kind="subtitles" srclang="zh" label="歌詞" default>
+                    </video>
+                    <div id="manual_lyric_overlay" class="manual-lyric-overlay" aria-live="polite"></div>
+                </div>
                 <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
                 <textarea id="manual_lyric_text" class="subtitle-input" placeholder="沒有既有歌詞時，請在這裡貼上完整歌詞，每行一句"></textarea>
                 <div class="lyric-actions">
@@ -192,6 +199,8 @@
         const manualLyricSong = document.getElementById('manual_lyric_song');
         const manualLyricSongSearch = document.getElementById('manual_lyric_song_search');
         const manualLyricVideo = document.getElementById('manual_lyric_video');
+        const manualLyricTrack = document.getElementById('manual_lyric_track');
+        const manualLyricOverlay = document.getElementById('manual_lyric_overlay');
         const manualLyricText = document.getElementById('manual_lyric_text');
         const manualLyricTime = document.getElementById('manual_lyric_time');
         const manualLyricsList = document.getElementById('manual_lyrics_list');
@@ -211,6 +220,49 @@
         let lyricsSongs = [];
         let songNotes = {};
         let manualLyricSearchTimer = null;
+        let manualLyricPreviewUrl = '';
+
+        /** Formats seconds as a WebVTT timestamp for the manual editor preview. */
+        function formatManualVttTime(seconds) {
+            const milliseconds = Math.max(0, Math.round(Number(seconds) * 1000));
+            const totalSeconds = Math.floor(milliseconds / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const remainingSeconds = totalSeconds % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}.${String(milliseconds % 1000).padStart(3, '0')}`;
+        }
+
+        /** Shows the current manual lyric rows as subtitles over the preview video. */
+        function refreshManualLyricPreview() {
+            if (manualLyricPreviewUrl) URL.revokeObjectURL(manualLyricPreviewUrl);
+            const cues = manualLyricLines.filter((line) => line.text && line.start !== null)
+                .sort((first, second) => first.start - second.start)
+                .map((line, index, timedLines) => {
+                    const nextStart = timedLines[index + 1]?.start;
+                    const end = line.end !== null && line.end > line.start ? line.end : (nextStart || line.start + 4);
+                    return `${index + 1}\n${formatManualVttTime(line.start)} --> ${formatManualVttTime(end)}\n${line.text}`;
+                });
+            if (!cues.length) {
+                manualLyricTrack.removeAttribute('src');
+                manualLyricTrack.track.mode = 'disabled';
+                manualLyricOverlay.textContent = '';
+                return;
+            }
+            const blob = new Blob([`WEBVTT\n\n${cues.join('\n\n')}\n`], { type: 'text/vtt' });
+            manualLyricPreviewUrl = URL.createObjectURL(blob);
+            manualLyricTrack.src = manualLyricPreviewUrl;
+            manualLyricTrack.track.mode = 'showing';
+            renderManualLyricOverlay();
+        }
+
+        /** Displays the lyric line matching the current preview playback time. */
+        function renderManualLyricOverlay() {
+            const currentTime = manualLyricVideo.currentTime;
+            const activeLine = manualLyricLines
+                .filter((line) => line.text && line.start !== null && currentTime >= line.start && (line.end === null || currentTime < line.end))
+                .sort((first, second) => second.start - first.start)[0];
+            manualLyricOverlay.textContent = activeLine ? activeLine.text : '';
+        }
 
         /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
         function prioritizeSongNotes(songs) {
@@ -303,8 +355,9 @@
                 }
                 const button = document.createElement('button');
                 button.className = 'btn-update';
-                button.textContent = result.hasSyncedLyrics ? '選擇此結果' : '沒有同步時間碼';
-                button.disabled = !result.hasSyncedLyrics;
+                const hasLyrics = result.hasSyncedLyrics || Boolean(result.plainLyrics);
+                button.textContent = result.hasSyncedLyrics ? '選擇此結果' : (hasLyrics ? '選擇純文字歌詞' : '沒有可用歌詞');
+                button.disabled = !hasLyrics;
                 button.onclick = () => {
                     selectedOnlineLyrics = onlineLyricsResults[index];
                     renderOnlineLyricsResults();
@@ -416,6 +469,7 @@
             manualLyricText.value = '';
             manualLyricStatus.innerText = '';
             manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
+            refreshManualLyricPreview();
         }
 
         /** Loads an existing VTT into the manual lyric editor, or leaves a blank editor. */
@@ -452,6 +506,7 @@
                 });
                 manualLyricText.value = manualLyricLines.map((line) => line.text).join('\n');
                 renderManualLyricLines();
+                refreshManualLyricPreview();
                 const blankSegmentCount = manualLyricLines.filter((line) => !line.text && line.start !== null).length;
                 manualLyricStatus.innerText = `已載入既有歌詞 ${data.cues.length} 行${blankSegmentCount ? `，偵測到 ${blankSegmentCount} 段空白時間` : ''}，可直接編輯時間碼或文字。`;
             } catch (error) {
@@ -477,6 +532,7 @@
             // 保留空白行作為「無字幕時間點」，儲存時會用它切出前後字幕的空白區段。
             manualLyricLines = text.split(/\r?\n/).map((line) => ({ text: line.trim(), start: null, end: null }));
             renderManualLyricLines();
+            refreshManualLyricPreview();
             manualLyricStatus.innerText = `已建立 ${manualLyricLines.length} 行（含空白時間標記），播放時可逐行加入時間碼。`;
         }
 
@@ -484,7 +540,7 @@
         function renderManualLyricLines() {
             manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><button type="button" class="lyric-line-remove" title="移除這行歌詞" aria-label="移除第 ${index + 1} 行歌詞" onclick="removeManualLyricLine(${index})">×</button><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -0.1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 0.1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>${index < manualLyricLines.length - 1 ? `<li class="lyric-line-insert"><button type="button" title="在兩行之間插入歌詞" aria-label="在第 ${index + 1} 行與第 ${index + 2} 行之間插入歌詞" onclick="insertManualLyricLine(${index})">＋</button></li>` : ''}`).join('') : '<li>尚未建立歌詞行</li>';
             manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
-                input.addEventListener('input', () => { manualLyricLines[index].text = input.value; });
+                input.addEventListener('input', () => { manualLyricLines[index].text = input.value; refreshManualLyricPreview(); });
             });
         }
 
@@ -492,6 +548,7 @@
         function insertManualLyricLine(index) {
             manualLyricLines.splice(index + 1, 0, { text: '', start: null, end: null });
             renderManualLyricLines();
+            refreshManualLyricPreview();
             const insertedInput = manualLyricsList.querySelector(`[data-lyric-index="${index + 1}"] .lyric-line-text`);
             if (insertedInput) insertedInput.focus();
         }
@@ -501,6 +558,7 @@
             if (!manualLyricLines[index]) return;
             manualLyricLines.splice(index, 1);
             renderManualLyricLines();
+            refreshManualLyricPreview();
         }
 
         /** 將時間輸入轉成秒數，支援 MM:SS.mmm 或直接輸入秒數。 */
@@ -528,6 +586,7 @@
                 manualLyricStatus.innerText = '時間格式錯誤，請輸入 MM:SS.mmm 或秒數。';
             }
             renderManualLyricLines();
+            refreshManualLyricPreview();
         }
 
         /** 以 0.1 秒微調單句時間，負數提前、正數延後。 */
@@ -613,6 +672,8 @@
         manualLyricSong.addEventListener('change', () => {
             resetManualLyricEditor();
             manualLyricVideo.src = manualLyricSong.value ? `/songs/${encodeURIComponent(manualLyricSong.value)}` : '';
+            manualLyricTrack.removeAttribute('src');
+            manualLyricTrack.track.mode = 'disabled';
             loadExistingManualLyrics();
         });
         manualLyricSongSearch.addEventListener('input', () => {
@@ -640,7 +701,11 @@
                 }
             }
         });
-        manualLyricVideo.addEventListener('timeupdate', () => { manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime); highlightManualLyricLine(); });
+        manualLyricVideo.addEventListener('timeupdate', () => {
+            manualLyricTime.innerText = formatManualLyricTime(manualLyricVideo.currentTime);
+            highlightManualLyricLine();
+            renderManualLyricOverlay();
+        });
         loadLyricsProviders();
         loadSongNotes().then(() => {
             loadManualLyricSongs();
@@ -680,7 +745,8 @@
             if (/^WEBVTT(?:\s|$)/i.test(normalized)) return 'vtt';
             if (/^\s*\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/m.test(normalized)) return 'lrc';
             if (/\d{2}:\d{2}:\d{2}[,.]\d{3}\s+-->/.test(normalized)) return 'srt';
-            throw new Error('無法判斷字幕格式，請確認內容是 SRT、LRC 或 VTT。');
+            if (normalized) return 'plain';
+            throw new Error('歌詞內容不可為空白。');
         }
 
         /**

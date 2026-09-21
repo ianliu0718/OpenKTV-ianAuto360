@@ -32,6 +32,8 @@
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -71,12 +73,12 @@
         const seekStatus = document.getElementById('seek-status');
         const waiting = document.getElementById('waiting');
             /** Clears subtitles and notifies the server when the song reaches its natural end. */
-            video.onended = function() { clearCurrentSubtitle(); socket.emit('song_ended'); };
+            video.onended = function() { const endedFilename = currentFilename; clearCurrentSubtitle(); socket.emit('song_ended', { filename: endedFilename }); };
         const engineStatus = document.getElementById('engine-status');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const danmakuOverlay = document.getElementById('danmaku-overlay');
-        const subtitleTrack = document.getElementById('subtitle-track');
+        let subtitleTrack = document.getElementById('subtitle-track');
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
@@ -258,18 +260,24 @@
          * @param {boolean} visible Whether subtitles should be visible.
          */
         function setSubtitle(filename, visible) {
+            const nextTrack = subtitleTrack.cloneNode(false);
+            subtitleTrack.replaceWith(nextTrack);
+            subtitleTrack = nextTrack;
+            subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
             currentFilename = filename;
             if (!filename || !visible) {
                 subtitleTrack.src = '';
                 subtitleTrack.track.mode = 'disabled';
                 ktvSubtitle.style.display = 'none';
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
                 ktvSubtitle.replaceChildren();
                 return;
             }
             const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.src = subtitlePath;
+            subtitleTrack.src = `${subtitlePath}?t=${Date.now()}`;
             subtitleTrack.track.mode = 'hidden';
             ktvSubtitle.style.display = 'flex';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
             ktvSubtitle.replaceChildren();
         }
 
@@ -281,6 +289,7 @@
             const size = Number(fontSize);
             if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
         }
 
         /**
@@ -302,19 +311,43 @@
         }
 
         /**
-         * Renders the active VTT cue as up to two KTV-style subtitle lines.
+         * Renders the active VTT cue as either a sliding plain-lyrics window or two KTV lines.
          */
         function renderKtvSubtitle() {
             const activeCues = subtitleTrack.track.activeCues;
-            ktvSubtitle.replaceChildren();
-            if (!activeCues || !activeCues.length) return;
-            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean).slice(0, 2);
-            lines.forEach(line => {
+            if (!activeCues || !activeCues.length) {
+                ktvSubtitle.replaceChildren();
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            const plainLyrics = activeCues[0].id.startsWith('PLAIN_LYRICS_');
+            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
+            if (!plainLyrics) lines.splice(2);
+            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
+            if (!plainLyrics) {
+                ktvSubtitle.replaceChildren(...lines.map(line => {
+                    const lineElement = document.createElement('span');
+                    lineElement.className = 'subtitle-line';
+                    lineElement.appendChild(createSubtitleTextLayer(line));
+                    return lineElement;
+                }));
+                ktvSubtitle._plainLyricsState = null;
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            ktvSubtitle.replaceChildren(...lines.map(line => {
                 const lineElement = document.createElement('span');
                 lineElement.className = 'subtitle-line';
                 lineElement.appendChild(createSubtitleTextLayer(line));
-                ktvSubtitle.appendChild(lineElement);
-            });
+                return lineElement;
+            }));
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(ktvSubtitle).font;
+            const longestLine = Math.max(...lines.map(line => context.measureText(line).width), 0);
+            const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
+            ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
         }
 
         /**
@@ -325,8 +358,13 @@
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
             subtitleTrack.track.mode = 'disabled';
+            subtitleTrack.removeAttribute('src');
             ktvSubtitle.style.display = 'none';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle._plainLyricsState = null;
+            ktvSubtitle.style.removeProperty('--plain-lyrics-width');
             ktvSubtitle.replaceChildren();
+            currentFilename = '';
         }
 
         function isDualMediaSeekCorrectionActive() {

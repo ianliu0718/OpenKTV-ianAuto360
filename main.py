@@ -61,7 +61,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.9.8"
+APP_VERSION = "v1.1.0.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -96,6 +96,24 @@ def get_ffprobe_path(ffmpeg_path):
     """Return the FFprobe executable beside FFmpeg or from PATH."""
     sibling_path = os.path.join(os.path.dirname(ffmpeg_path), 'ffprobe.exe')
     return sibling_path if os.path.exists(sibling_path) else shutil.which('ffprobe')
+
+def get_media_duration(song_path):
+    """Return a media file's duration in seconds for plain lyric timing."""
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffprobe_path or not os.path.exists(song_path):
+        return None
+    result = subprocess.run(
+        [ffprobe_path, '-v', 'error', '-show_entries', 'format=duration',
+         '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    try:
+        duration = float(result.stdout.strip())
+    except (TypeError, ValueError):
+        return None
+    return duration if duration > 0 else None
 
 def get_audio_channel_count(filename):
     """Return the first audio stream channel count for a song, or zero when unavailable."""
@@ -776,10 +794,11 @@ def download_lyrics():
         return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
     if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
         return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
-    try:
-        record_id = int(record_id)
-    except (TypeError, ValueError):
-        return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
+    if provider_id != 'lyrics_ovh':
+        try:
+            record_id = int(record_id)
+        except (TypeError, ValueError):
+            return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
     output_name = os.path.splitext(song_filename)[0] + '.vtt'
     output_path = os.path.join(SONGS_DIR, output_name)
     if os.path.exists(output_path) and not overwrite:
@@ -793,13 +812,20 @@ def download_lyrics():
                 'artistName': '',
             }
         elif provider_id == 'lyrics_ovh':
-            return json.dumps({'success': False, 'error': 'lyrics.ovh 僅提供純文字歌詞，沒有同步時間碼，請使用 NetEase 或 LRCLIB'}), 400
+            artist, title = str(record_id).split('|', 1) if '|' in str(record_id) else ('', str(record_id))
+            record = lyrics_ovh_get_lyrics(title, artist)
+            record = {
+                'plainLyrics': record.get('lyrics', '') if isinstance(record, dict) else '',
+                'trackName': title,
+                'artistName': artist,
+            }
         else:
             record = lyrics_provider_request(provider_id, f'/get/{record_id}')
         synced_lyrics = str(record.get('syncedLyrics') or '').strip()
-        if not synced_lyrics:
-            return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
-        output_name = save_subtitle(song_filename, synced_lyrics, 'lrc')
+        plain_lyrics = str(record.get('plainLyrics') or '').strip()
+        if not synced_lyrics and not plain_lyrics:
+            return json.dumps({'success': False, 'error': '此搜尋結果沒有可用歌詞'}), 400
+        output_name = save_subtitle(song_filename, synced_lyrics or plain_lyrics, 'lrc' if synced_lyrics else 'plain')
         socketio.emit('refresh_list')
         return json.dumps({'success': True, 'filename': output_name, 'trackName': record.get('trackName', ''), 'artistName': record.get('artistName', '')}, ensure_ascii=False)
     except (RuntimeError, ValueError, OSError) as error:
@@ -1183,18 +1209,21 @@ def normalize_video_audio():
 
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
-    converted_content = convert_to_webvtt(content, subtitle_extension)
+    song_path = os.path.join(SONGS_DIR, os.path.basename(song_filename))
+    converted_content = convert_to_webvtt(content, subtitle_extension, get_media_duration(song_path))
     output_name = os.path.splitext(song_filename)[0] + '.vtt'
     with open(os.path.join(SONGS_DIR, output_name), 'w', encoding='utf-8', newline='\n') as output_file:
         output_file.write(converted_content)
     return output_name
 
-def convert_to_webvtt(content, subtitle_extension):
-    """Convert SRT, LRC, or VTT text into browser-compatible WebVTT text."""
+def convert_to_webvtt(content, subtitle_extension, duration=None):
+    """Convert timed or plain lyrics into browser-compatible WebVTT text."""
     if subtitle_extension == 'srt':
         return srt_to_webvtt(content)
     if subtitle_extension == 'lrc':
         return lrc_to_webvtt(content)
+    if subtitle_extension == 'plain':
+        return plain_lyrics_to_webvtt(content, duration)
     if not content.lstrip().startswith('WEBVTT'):
         return 'WEBVTT\n\n' + content
     return content
@@ -1210,7 +1239,9 @@ def detect_subtitle_format(content, extension=''):
         return 'srt'
     if extension in SUBTITLE_EXTENSIONS:
         return extension
-    raise ValueError('無法判斷字幕格式，請確認內容是 SRT、LRC 或 VTT。')
+    if normalized:
+        return 'plain'
+    raise ValueError('歌詞內容不可為空白。')
 
 def srt_to_webvtt(content):
     """Convert SRT timestamp separators to the WebVTT format."""
@@ -1248,6 +1279,38 @@ def lrc_to_webvtt(content):
         ])
     if not cues:
         raise ValueError('找不到有效的 LRC 時間標記')
+    return '\n'.join(converted)
+
+def plain_lyrics_to_webvtt(content, duration):
+    """Create a twelve-line lyric window that advances one line at a time."""
+    if not duration or duration <= 0:
+        raise ValueError('無法取得歌曲長度，無法自動安排普通歌詞時間')
+    lines = [line.strip() for line in content.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip()]
+    if not lines:
+        raise ValueError('歌詞內容不可為空白')
+    lyric_duration = max(0.1, duration - 30)
+    converted = ['WEBVTT', '']
+    line_duration = round(lyric_duration / len(lines), 3)
+    last_window_start = max(0, len(lines) - 12)
+    lead_in = min(15, duration)
+    first_window_duration = lead_in + line_duration * 6
+    for index, window_start in enumerate(range(last_window_start + 1)):
+        window = lines[window_start:window_start + 12]
+        if index == 0:
+            start_ms = 0
+            end_ms = round(first_window_duration * 1000)
+        else:
+            start_ms = round((first_window_duration + (index - 1) * line_duration) * 1000)
+            end_ms = round((first_window_duration + index * line_duration) * 1000)
+        if window_start == last_window_start:
+            end_ms = round(duration * 1000)
+        end_ms = min(end_ms, round(duration * 1000))
+        converted.extend([
+            f'PLAIN_LYRICS_{index}_{window_start}',
+            f'{format_vtt_time(start_ms)} --> {format_vtt_time(end_ms)}',
+            '\n'.join(window),
+            '',
+        ])
     return '\n'.join(converted)
 
 def format_vtt_time(milliseconds):
@@ -1560,9 +1623,12 @@ def handle_song_note_submit(data):
     emit('song_note_updated', note, broadcast=True)
 
 @socketio.on('song_ended')
-def handle_song_ended():
+def handle_song_ended(data=None):
     """Advance the queue while preventing random idle fill from racing user-selected songs."""
     global subtitle_visible, seek_offset, last_user_action_time
+    ended_filename = os.path.basename(str(data.get('filename', '')).strip()) if isinstance(data, dict) else ''
+    if ended_filename and (not playlist_queue or ended_filename != playlist_queue[0]):
+        return
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0)
