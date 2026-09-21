@@ -1366,6 +1366,7 @@ qr_visible = True
 random_play_enabled = False
 random_play_explicitly_enabled = False
 playback_rate = 1.0
+current_pitch = 0
 current_track_mode = 'original'
 seek_offset = 0.0
 seek_correction_enabled = False
@@ -1455,7 +1456,7 @@ def handle_connect():
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('engine_status_config', {'debug': engine_debug_enabled})
-    emit('apply_effect', {'playback_rate': playback_rate})
+    emit('apply_effect', {'playback_rate': playback_rate, 'pitch': current_pitch})
     emit('set_audio', {'mode': current_track_mode})
 
 @socketio.on('set_engine_debug')
@@ -1695,7 +1696,7 @@ def handle_seek_video(data):
 @socketio.on('control_effect')
 def handle_effect(data):
     """Normalize and broadcast audio control updates for volume, pitch, and playback rate."""
-    global playback_rate
+    global playback_rate, current_pitch
     if not isinstance(data, dict):
         return
 
@@ -1709,8 +1710,19 @@ def handle_effect(data):
             return
         playback_rate = requested_rate
 
+    normalized_data = dict(data)
+    if 'pitch' in data:
+        try:
+            requested_pitch = int(data['pitch'])
+        except (TypeError, ValueError):
+            return
+        if requested_pitch < -12 or requested_pitch > 12:
+            return
+        current_pitch = requested_pitch
+        normalized_data['pitch'] = current_pitch
+
     # 升降 KEY / 音量 / 速度都以同一個事件廣播，讓遙控器與播放器同步。
-    emit('apply_effect', data, broadcast=True)
+    emit('apply_effect', normalized_data, broadcast=True)
 
 @socketio.on('change_track')
 def handle_track(mode):

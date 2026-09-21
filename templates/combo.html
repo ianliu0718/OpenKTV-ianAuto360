@@ -873,10 +873,8 @@ const socket = io();
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
-            currentKey = 0;
             updateKeyStatus(currentKey);
             setSubtitle(data.filename, Boolean(data.visible));
-            setAudioKey(0);
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             if (isDualMediaSeekCorrectionActive()) {
                 syncMediaMuteState();
@@ -891,7 +889,6 @@ const socket = io();
                     }).then(() => {
                         if (generation === playbackGeneration) pendingPlaybackData = null;
                         updateEffect();
-                        socket.emit('control_effect', { pitch: 0 });
                     }).catch(() => {
                         pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
@@ -911,7 +908,6 @@ const socket = io();
                     }).then(() => {
                         if (generation === playbackGeneration) pendingPlaybackData = null;
                         updateEffect();
-                        socket.emit('control_effect', { pitch: 0 });
                     }).catch(() => {
                         pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
