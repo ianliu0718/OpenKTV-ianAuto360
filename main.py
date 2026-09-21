@@ -1626,7 +1626,7 @@ def handle_song_note_submit(data):
 @socketio.on('song_ended')
 def handle_song_ended(data=None):
     """Advance the queue while preventing random idle fill from racing user-selected songs."""
-    global subtitle_visible, seek_offset, last_user_action_time
+    global subtitle_visible, seek_offset, last_user_action_time, current_pitch
     ended_filename = os.path.basename(str(data.get('filename', '')).strip()) if isinstance(data, dict) else ''
     if ended_filename and (not playlist_queue or ended_filename != playlist_queue[0]):
         return
@@ -1634,6 +1634,9 @@ def handle_song_ended(data=None):
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0)
         seek_offset = 0.0
+        # 每首歌結束後只重設升降 KEY，其他播放設定維持原狀。
+        current_pitch = 0
+        socketio.emit('apply_effect', {'pitch': current_pitch}, broadcast=True)
         emit('update_queue', playlist_queue, broadcast=True)
 
         # 檢查是否還有下一首
