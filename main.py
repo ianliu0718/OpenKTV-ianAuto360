@@ -1000,7 +1000,7 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     audio_filter = (
         f'[0:a]pan=stereo|c0=FL|c1=FR,{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
-        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
+        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
         f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
