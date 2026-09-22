@@ -20,12 +20,13 @@
         /* 歌詞清單很長時固定影片在視窗上方，方便播放中持續對照影像。 */
         .manual-video-preview { position: sticky; top: 10px; z-index: 5; width: 100%; max-height: 35vh; background: #000; border: 6px solid #fff; border-radius: 5px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
         .lyric-editor video { display: block; width: 100%; max-height: calc(35vh - 12px); object-fit: contain; background: #000; }
-        .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: min(46%, 300px); box-sizing: border-box; overflow: hidden; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: var(--manual-lyric-font-size, 12px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre-line; }
+        .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: max-content; max-width: none; box-sizing: border-box; overflow: visible; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: var(--manual-lyric-font-size, 12px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre; }
         .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .lyric-time { font-family: monospace; color: #607D8B; }
         #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
         #manual_lyrics_list li { display: grid; grid-template-columns: 155px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
         #manual_lyrics_list li[data-lyric-index] { position: relative; }
+        #manual_lyrics_list li[data-lyric-index].invalid { border-color: #c62828; background: #ffebee; box-shadow: 0 0 0 1px rgba(198,40,40,.2); }
         .lyric-line-remove { position: absolute; top: 0; right: 0; z-index: 3; width: 18px; height: 18px; margin: 0; padding: 0; border: 1px solid #cfd8dc; border-radius: 50%; background: #fff; color: #90a4ae; font-size: 15px; line-height: 15px; font-weight: normal; transform: translate(50%, -50%); }
         .lyric-line-remove:hover { background: #ffebee; color: #c62828; }
         #manual_lyrics_list li.active { border-color: #FF9800; background: #fff8e8; }
@@ -235,13 +236,18 @@
         /** Shows the current manual lyric rows as subtitles over the preview video. */
         function refreshManualLyricPreview() {
             if (manualLyricPreviewUrl) URL.revokeObjectURL(manualLyricPreviewUrl);
+            const videoDuration = Number(manualLyricVideo.duration);
             const cues = manualLyricLines.filter((line) => line.text && line.start !== null)
                 .sort((first, second) => first.start - second.start)
                 .map((line, index, timedLines) => {
                     const nextStart = timedLines[index + 1]?.start;
-                    const end = line.end !== null && line.end > line.start ? line.end : (nextStart || line.start + 4);
+                    const end = line.end !== null && line.end > line.start
+                        ? line.end
+                        : (nextStart ?? (Number.isFinite(videoDuration) && videoDuration > line.start ? videoDuration : null));
+                    if (end === null) return null;
                     return `${index + 1}\n${formatManualVttTime(line.start)} --> ${formatManualVttTime(end)}\n${line.text}`;
-                });
+                })
+                .filter(Boolean);
             if (!cues.length) {
                 manualLyricTrack.removeAttribute('src');
                 manualLyricTrack.track.mode = 'disabled';
@@ -251,6 +257,8 @@
             const blob = new Blob([`WEBVTT\n\n${cues.join('\n\n')}\n`], { type: 'text/vtt' });
             manualLyricPreviewUrl = URL.createObjectURL(blob);
             manualLyricTrack.src = manualLyricPreviewUrl;
+            // 預覽只使用自製 overlay，避免瀏覽器原生字幕與其重複顯示。
+            //manualLyricTrack.track.mode = 'hidden';
             manualLyricTrack.track.mode = 'showing';
             renderManualLyricOverlay();
         }
@@ -258,9 +266,16 @@
         /** Displays the lyric line matching the current preview playback time. */
         function renderManualLyricOverlay() {
             const currentTime = manualLyricVideo.currentTime;
-            const activeLine = manualLyricLines
-                .filter((line) => line.text && line.start !== null && currentTime >= line.start && (line.end === null || currentTime < line.end))
-                .sort((first, second) => second.start - first.start)[0];
+            const timedLines = manualLyricLines
+                .filter((line) => line.start !== null && Number.isFinite(line.start))
+                .sort((first, second) => first.start - second.start);
+            const activeLine = timedLines
+                .map((line, index) => {
+                    const nextTimestamp = timedLines[index + 1]?.start;
+                    const end = nextTimestamp ?? (Number.isFinite(line.end) ? line.end : Number(manualLyricVideo.duration));
+                    return { line, end };
+                })
+                .find(({ line, end }) => line.text && currentTime >= line.start && Number.isFinite(end) && currentTime < end)?.line;
             manualLyricOverlay.textContent = activeLine ? activeLine.text : '';
         }
 
@@ -561,7 +576,7 @@
 
         /** Renders lyric rows with their current timestamp state and controls. */
         function renderManualLyricLines() {
-            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><button type="button" class="lyric-line-remove" title="移除這行歌詞" aria-label="移除第 ${index + 1} 行歌詞" onclick="removeManualLyricLine(${index})">×</button><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -0.1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 0.1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>${index < manualLyricLines.length - 1 ? `<li class="lyric-line-insert"><button type="button" title="在兩行之間插入歌詞" aria-label="在第 ${index + 1} 行與第 ${index + 2} 行之間插入歌詞" onclick="insertManualLyricLine(${index})">＋</button></li>` : ''}`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><button type="button" class="lyric-line-remove" title="移除這行歌詞" aria-label="移除第 ${index + 1} 行歌詞" onclick="removeManualLyricLine(${index})">×</button><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>${index < manualLyricLines.length - 1 ? `<li class="lyric-line-insert"><button type="button" title="在兩行之間插入歌詞" aria-label="在第 ${index + 1} 行與第 ${index + 2} 行之間插入歌詞" onclick="insertManualLyricLine(${index})">＋</button></li>` : ''}`).join('') : '<li>尚未建立歌詞行</li>';
             manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
                 input.addEventListener('input', () => { manualLyricLines[index].text = input.value; refreshManualLyricPreview(); });
             });
@@ -612,11 +627,19 @@
             refreshManualLyricPreview();
         }
 
-        /** 以 0.1 秒微調單句時間，負數提前、正數延後。 */
-        function adjustManualLyricTimestamp(index, offset) {
+        /** Uses the shared shift amount to move one lyric line earlier or later. */
+        function adjustManualLyricTimestamp(index, direction) {
             const line = manualLyricLines[index];
             if (!line) return;
-            updateManualLyricTimestamp(index, line.start === null ? Math.max(0, manualLyricVideo.currentTime + offset) : line.start + offset);
+            const shiftSeconds = Number(manualLyricShiftSeconds.value);
+            if (!Number.isFinite(shiftSeconds) || shiftSeconds <= 0 || shiftSeconds > 60) {
+                manualLyricStatus.innerText = '請輸入 0.01 到 60 秒之間的有效平移秒數。';
+                manualLyricShiftSeconds.focus();
+                return;
+            }
+            const offset = direction * shiftSeconds;
+            const currentStart = line.start === null ? manualLyricVideo.currentTime : line.start;
+            updateManualLyricTimestamp(index, Math.max(0, currentStart + offset));
         }
 
         /** Shifts every existing lyric cue earlier or later while preserving cue durations. */
@@ -641,6 +664,7 @@
                 line.end = duration === null ? line.end : line.start + duration;
             });
             renderManualLyricLines();
+            refreshManualLyricPreview();
             manualLyricStatus.innerText = `已將有時間碼的歌詞整體${direction < 0 ? '提前' : '延後'} ${shiftSeconds.toFixed(2)} 秒。`;
         }
 
@@ -649,6 +673,7 @@
             if (!manualLyricLines[index]) return;
             manualLyricLines[index].start = manualLyricLines[index].start === null ? manualLyricVideo.currentTime : null;
             renderManualLyricLines();
+            refreshManualLyricPreview();
         }
 
         /** Highlights the lyric row whose timestamp currently contains the playback time. */
@@ -662,28 +687,65 @@
             });
         }
 
+        /** Shows a save validation error and points the editor to the affected row. */
+        function showManualLyricValidationError(index, message) {
+            const row = manualLyricsList.querySelector(`[data-lyric-index="${index}"]`);
+            if (row) {
+                row.classList.add('invalid');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                const input = row.querySelector('.lyric-line-time, .lyric-line-text');
+                if (input) input.focus();
+            }
+            manualLyricStatus.innerText = `第 ${index + 1} 行：${message}`;
+        }
+
         /** Saves timestamped lyric rows as the selected song's VTT file. */
         async function saveManualLyrics() {
-            const timestampedLines = manualLyricLines.filter((line) => line.start !== null).sort((first, second) => first.start - second.start);
+            manualLyricsList.querySelectorAll('.invalid').forEach((row) => row.classList.remove('invalid'));
+            const timestampedLines = manualLyricLines
+                .map((line, index) => ({ line, index }))
+                .filter(({ line }) => line.start !== null)
+                .sort((first, second) => first.line.start - second.line.start);
             if (!timestampedLines.length) {
                 manualLyricStatus.innerText = '請至少加入一句歌詞的時間碼。';
                 return;
             }
-            const lyricLines = timestampedLines.filter((line) => line.text);
+            for (const { line, index } of timestampedLines) {
+                if (!Number.isFinite(line.start) || line.start < 0) {
+                    showManualLyricValidationError(index, '時間碼無效，請重新輸入。');
+                    return;
+                }
+            }
+            for (let index = 1; index < timestampedLines.length; index += 1) {
+                if (timestampedLines[index].line.start === timestampedLines[index - 1].line.start) {
+                    showManualLyricValidationError(timestampedLines[index].index, '時間碼不可與其他歌詞相同。');
+                    return;
+                }
+            }
+            const lyricLines = timestampedLines.filter(({ line }) => line.text && line.text.trim());
             if (!lyricLines.length) {
                 manualLyricStatus.innerText = '請至少輸入一句有文字的歌詞。';
                 return;
             }
-            const finalEnd = manualLyricVideo.duration || (timestampedLines[timestampedLines.length - 1].start + 4);
+            const videoDuration = Number(manualLyricVideo.duration);
+            const finalEnd = Number.isFinite(videoDuration) && videoDuration > 0 ? videoDuration : null;
             // 空白列只作為時間切點，不輸出成空白 VTT cue，避免產生無效字幕。
-            const cues = lyricLines.map((line) => {
-                const nextTimestamp = timestampedLines.find((candidate) => candidate.start > line.start);
+            const cues = lyricLines.map(({ line, index }) => {
+                const nextTimestamp = timestampedLines.find((candidate) => candidate.line.start > line.start);
+                const end = nextTimestamp
+                    ? nextTimestamp.line.start
+                    : (Number.isFinite(line.end) && line.end > line.start ? line.end : finalEnd);
+                if (!Number.isFinite(end) || end <= line.start) {
+                    showManualLyricValidationError(index, '找不到有效的結束時間，請確認下一句時間碼或影片長度。');
+                    return null;
+                }
                 return {
-                    text: line.text,
+                    text: line.text.trim(),
                     start: line.start,
-                    end: nextTimestamp ? nextTimestamp.start : (line.end || finalEnd),
+                    end,
                 };
             });
+            if (cues.some((cue) => cue === null)) return;
             const response = await fetch('/api/subtitles/manual', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ song: manualLyricSong.value, cues }),

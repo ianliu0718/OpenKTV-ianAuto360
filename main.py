@@ -4,6 +4,7 @@ import glob
 import queue
 import random
 import re
+import math
 
 # ==========================================
 # 【終極修復】修正 Bad file descriptor 崩潰問題
@@ -870,17 +871,19 @@ def save_manual_subtitle():
     if not isinstance(cues, list) or not cues:
         return json.dumps({'success': False, 'error': '請至少建立一句歌詞'}), 400
     normalized_cues = []
-    for cue in cues:
+    for cue_index, cue in enumerate(cues, start=1):
         if not isinstance(cue, dict):
-            return json.dumps({'success': False, 'error': '歌詞資料格式錯誤'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞資料格式錯誤'}, ensure_ascii=False), 400
         text = str(cue.get('text', '')).strip()
         try:
             start = float(cue.get('start'))
             end = float(cue.get('end'))
         except (TypeError, ValueError):
-            return json.dumps({'success': False, 'error': '歌詞時間格式錯誤'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞時間格式錯誤'}, ensure_ascii=False), 400
+        if not math.isfinite(start) or not math.isfinite(end):
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞時間必須是有限數值'}, ensure_ascii=False), 400
         if not text or start < 0 or end <= start:
-            return json.dumps({'success': False, 'error': '歌詞內容或時間範圍無效'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞內容或時間範圍無效'}, ensure_ascii=False), 400
         normalized_cues.append((start, end, text))
     normalized_cues.sort(key=lambda cue: cue[0])
     for index in range(1, len(normalized_cues)):
