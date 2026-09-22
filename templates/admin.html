@@ -20,7 +20,7 @@
         /* 歌詞清單很長時固定影片在視窗上方，方便播放中持續對照影像。 */
         .manual-video-preview { position: sticky; top: 10px; z-index: 5; width: 100%; max-height: 35vh; background: #000; border: 6px solid #fff; border-radius: 5px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
         .lyric-editor video { display: block; width: 100%; max-height: calc(35vh - 12px); object-fit: contain; background: #000; }
-        .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: min(46%, 300px); box-sizing: border-box; overflow: hidden; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: clamp(10px, 2.1vw, 22px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre-line; }
+        .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: min(46%, 300px); box-sizing: border-box; overflow: hidden; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: var(--manual-lyric-font-size, 12px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre-line; }
         .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .lyric-time { font-family: monospace; color: #607D8B; }
         #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -263,6 +263,29 @@
                 .sort((first, second) => second.start - first.start)[0];
             manualLyricOverlay.textContent = activeLine ? activeLine.text : '';
         }
+
+        /** Keeps the plain lyric preview small enough to display a twelve-line window. */
+        function updateManualLyricOverlayFontSize() {
+            const styles = getComputedStyle(manualLyricOverlay);
+            const currentFontSize = parseFloat(styles.fontSize);
+            const lineHeight = parseFloat(styles.lineHeight);
+            const lineHeightRatio = Number.isFinite(currentFontSize) && currentFontSize > 0 && Number.isFinite(lineHeight)
+                ? lineHeight / currentFontSize
+                : 1.12;
+            const availableHeight = manualLyricOverlay.clientHeight
+                - parseFloat(styles.paddingTop)
+                - parseFloat(styles.paddingBottom);
+            if (!Number.isFinite(availableHeight) || availableHeight <= 0) return;
+            const fontSize = Math.max(8, Math.min(22, availableHeight / (12 * lineHeightRatio)));
+            manualLyricOverlay.style.setProperty('--manual-lyric-font-size', `${fontSize.toFixed(2)}px`);
+        }
+
+        if (typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(updateManualLyricOverlayFontSize).observe(manualLyricOverlay);
+        } else {
+            window.addEventListener('resize', updateManualLyricOverlayFontSize);
+        }
+        updateManualLyricOverlayFontSize();
 
         /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
         function prioritizeSongNotes(songs) {

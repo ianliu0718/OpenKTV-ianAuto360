@@ -313,6 +313,7 @@ const socket = io();
         let seekStatusTimer;
         let lastDualSyncTime = 0;
         let playbackGeneration = 0;
+        let endedPlaybackGeneration = -1;
         let pendingPlaybackData = null;
 
         /**
@@ -943,8 +944,16 @@ const socket = io();
             }
         });
 
-        // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
-        video.onended = function() { const endedFilename = currentFilename; clearCurrentSubtitle(); socket.emit('song_ended', { filename: endedFilename }); };
+        // 當影片播完時只發送一次 song_ended，讓後端決定下一首歌。
+        function handleVideoEnded() {
+            const endedFilename = currentFilename;
+            const endedGeneration = playbackGeneration;
+            if (!endedFilename || endedPlaybackGeneration === endedGeneration) return;
+            endedPlaybackGeneration = endedGeneration;
+            clearCurrentSubtitle();
+            socket.emit('song_ended', { filename: endedFilename });
+        }
+        video.onended = handleVideoEnded;
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線"; });
 

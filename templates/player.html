@@ -72,8 +72,16 @@
         const keyStatus = document.getElementById('key-status');
         const seekStatus = document.getElementById('seek-status');
         const waiting = document.getElementById('waiting');
-            /** Clears subtitles and notifies the server when the song reaches its natural end. */
-            video.onended = function() { const endedFilename = currentFilename; clearCurrentSubtitle(); socket.emit('song_ended', { filename: endedFilename }); };
+            /** Clears subtitles and notifies the server once when the current song reaches its natural end. */
+            function handleVideoEnded() {
+                const endedFilename = currentFilename;
+                const endedGeneration = playbackGeneration;
+                if (!endedFilename || endedPlaybackGeneration === endedGeneration) return;
+                endedPlaybackGeneration = endedGeneration;
+                clearCurrentSubtitle();
+                socket.emit('song_ended', { filename: endedFilename });
+            }
+            video.onended = handleVideoEnded;
         const engineStatus = document.getElementById('engine-status');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
@@ -105,6 +113,7 @@
         // 播放端若因瀏覽器 autoplay 限制暫時無法播放，保留最後一筆播放資料供使用者點擊後重試。
         let pendingPlaybackData = null;
         let playbackGeneration = 0;
+        let endedPlaybackGeneration = -1;
 
         /** Toggles fullscreen for the playback page. */
         function toggleFullScreen() {
