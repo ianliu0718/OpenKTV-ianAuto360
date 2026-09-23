@@ -31,7 +31,8 @@
         #idle-screen { text-align: center; width: 100%; }
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
-        #engine-status { position: absolute; right: 90px; bottom: 10px; left: 15px; z-index: 10; overflow: hidden; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
+        #engine-status { position: absolute; right: 90px; bottom: 10px; left: 15px; z-index: 40; overflow: hidden; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
+        #engine-status.debug-visible { right: 15px; padding: 6px 10px; box-sizing: border-box; background: rgba(0, 0, 0, .72); color: #f9f9c5; border: 1px solid rgba(102, 217, 197, .75); border-radius: 4px; }
         #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
         #remote-qr-label { font-size: 12px; font-weight: bold; }
@@ -337,7 +338,7 @@ const socket = io();
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift;
+        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -349,6 +350,8 @@ const socket = io();
         let currentFilename = '';
         let currentSubtitleFontSize = 120;
         let currentLoudness = null;
+        let liveLoudness = null;
+        let liveLoudnessTimer = null;
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
@@ -572,8 +575,16 @@ const socket = io();
 
         createRemoteQrCode();
         socket.on('qr_visibility', updateRemoteQrVisibility);
+        socket.on('connect', () => {
+            socket.emit('request_engine_status_config');
+            if (!window.engineStatusSyncTimer) {
+                window.engineStatusSyncTimer = window.setInterval(() => socket.emit('request_engine_status_config'), 1000);
+            }
+        });
+
         socket.on('engine_status_config', (data) => {
             engineDebugEnabled = Boolean(data && data.debug);
+            engineStatus.classList.toggle('debug-visible', engineDebugEnabled);
             renderEngineStatus();
         });
 
@@ -617,12 +628,23 @@ const socket = io();
          * @param {string} message Engine name and optional diagnostic detail.
          */
         function setEngineStatus(message) {
-            const volumeText = currentLoudness === null ? '' : `｜曲目音量：${currentLoudness.toFixed(1)} LUFS`;
+            const loudness = liveLoudness ?? currentLoudness;
+            const volumeText = loudness === null ? '' : `｜即時 LUFS：${loudness.toFixed(1)}`;
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
             currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
             renderEngineStatus();
+        }
+
+        /** Estimates the current output loudness from the Web Audio signal. */
+        function updateLiveLoudness() {
+            if (!liveLoudnessAnalyser) return;
+            const samples = new Float32Array(liveLoudnessAnalyser.fftSize);
+            liveLoudnessAnalyser.getFloatTimeDomainData(samples);
+            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+            liveLoudness = rms > 0.00001 ? Math.max(-60, 20 * Math.log10(rms)) : -60;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
         }
 
         /**
@@ -797,6 +819,15 @@ const socket = io();
         }
 
         function resetAudioGraph() {
+            if (liveLoudnessTimer) {
+                window.clearInterval(liveLoudnessTimer);
+                liveLoudnessTimer = null;
+            }
+            if (liveLoudnessAnalyser) {
+                try { liveLoudnessAnalyser.disconnect(); } catch (error) {}
+                liveLoudnessAnalyser = null;
+            }
+            liveLoudness = null;
             if (source) {
                 try { source.disconnect(); } catch (error) {}
                 source = null;
@@ -822,6 +853,28 @@ const socket = io();
             }
             isAudioSetup = false;
             audioSetupPromise = null;
+        }
+
+        /** Smoothly stops media before clearing its source to prevent speaker clicks. */
+        function stopMediaWithFade(stopGeneration) {
+            const fadeDuration = 0.03;
+            if (masterGain && audioCtx) {
+                const now = audioCtx.currentTime;
+                masterGain.gain.cancelScheduledValues(now);
+                masterGain.gain.setValueAtTime(masterGain.gain.value, now);
+                masterGain.gain.linearRampToValueAtTime(0, now + fadeDuration);
+            }
+            window.setTimeout(() => {
+                if (stopGeneration !== playbackGeneration) return;
+                video.pause();
+                if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
+                video.src = '';
+                if (isDualMediaSeekCorrectionActive()) audioTrack.src = '';
+                if (masterGain && audioCtx) {
+                    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+                    masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime);
+                }
+            }, fadeDuration * 1000);
         }
 
         function reloadCurrentSongForDualMedia() {
@@ -912,11 +965,15 @@ const socket = io();
                     }
                 });
                 merger.connect(masterGain);
+                liveLoudnessAnalyser = audioCtx.createAnalyser();
+                liveLoudnessAnalyser.fftSize = 2048;
+                masterGain.connect(liveLoudnessAnalyser);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
                 else Tone.connect(masterGain, pitchShift);
                 masterGain.gain.value = currentVolume;
                 isAudioSetup = true;
                 setAudioMode(currentMode);
+                liveLoudnessTimer = window.setInterval(updateLiveLoudness, 250);
             })();
             return audioSetupPromise;
         }
@@ -985,6 +1042,7 @@ const socket = io();
                 if (masterGain) {
                     masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
                 }
+                setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
                 document.getElementById('vol').value = currentVolume;
                 document.getElementById('vol-val').innerText = Math.round(currentVolume * 100) + "%";
             }
@@ -1108,11 +1166,9 @@ const socket = io();
 
         socket.on('stop_video', (data) => {
             if (data && data.filename && data.filename !== currentFilename) return;
+            playbackGeneration += 1;
             clearCurrentSubtitle();
-            video.pause();
-            if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
-            video.src = "";
-            if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
+            stopMediaWithFade(playbackGeneration);
             video.style.display = 'none';
             currentFilename = '';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
@@ -1167,14 +1223,15 @@ const socket = io();
         function setAudioMode(mode) {
             if(!isAudioSetup || !audioGains) return;
             const now = audioCtx.currentTime;
-            audioGains.forEach((gain) => {
-                gain.gain.cancelScheduledValues(now);
-                gain.gain.setValueAtTime(0, now);
-            });
+            const transitionEnd = now + 0.02;
             const channels = isSixChannelAudio
                 ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4, 5] : [0, 1])
                 : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
-            channels.forEach((channel) => audioGains[channel].gain.setValueAtTime(1, now));
+            audioGains.forEach((gain) => {
+                gain.gain.cancelScheduledValues(now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(channels.includes(audioGains.indexOf(gain)) ? 1 : 0, transitionEnd);
+            });
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = mode === 'guide' ? "🎵 模式：導唱" : mode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";

@@ -178,8 +178,8 @@ def _mode_pan_filter(mode, channels):
         return 'pan=stereo|c0=c0|c1=c1'
     return 'pan=stereo|c0=c0|c1=c0'
 
-def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
-    """Measure one audio file's selected mode without changing the file."""
+def _measure_audio_metrics(ffmpeg_path, song_path, mode, channels=6):
+    """Measure integrated loudness and true peak for one selected playback mode."""
     null_device = 'NUL' if os.name == 'nt' else '/dev/null'
     try:
         result = subprocess.run(
@@ -189,9 +189,17 @@ def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
-    return float(match.group(1)) if match else None
+        return None, None
+    loudness_match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
+    peak_matches = re.findall(r'^\s*Peak:\s*(-?\d+(?:\.\d+)?)\s+dBFS', result.stderr, re.MULTILINE)
+    loudness = float(loudness_match.group(1)) if loudness_match else None
+    peak = float(peak_matches[-1]) if peak_matches else None
+    return loudness, peak
+
+def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
+    """Measure one audio file's selected mode without changing the file."""
+    loudness, _ = _measure_audio_metrics(ffmpeg_path, song_path, mode, channels)
+    return loudness
 
 def get_audio_loudness(filename, mode='original'):
     """Return the selected mode's integrated loudness in LUFS, cached until the song changes."""
@@ -979,21 +987,46 @@ def optimize_video():
 def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     """Correct each final stereo pair to the shared -14 LUFS target."""
     mode_levels = {
-        mode: _measure_audio_loudness(ffmpeg_path, source_path, mode)
+        mode: _measure_audio_metrics(ffmpeg_path, source_path, mode)
         for mode in ('original', 'guide', 'instrumental')
     }
-    if any(level is None for level in mode_levels.values()):
-        raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量')
-    corrections = {mode: -14 - level for mode, level in mode_levels.items()}
+    if any(level[0] is None or level[1] is None for level in mode_levels.values()):
+        raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
+    # 舊版流程可能已污染 c5；若 c5 的動態範圍遠高於乾淨的 c4，使用 c4 重建左右伴奏，
+    # 優先確保伴奏不含人聲，再由後續流程統一做響度處理。
+    instrumental_filter = 'pan=stereo|c0=c4|c1=c5'
+    def channel_lra(channel):
+        probe_log = subprocess.run(
+            [ffmpeg_path, '-v', 'info', '-i', source_path, '-vn',
+             '-af', f'pan=mono|c0={channel},ebur128=peak=true', '-f', 'null',
+             'NUL' if os.name == 'nt' else '/dev/null'],
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        lra_match = re.search(r'^\s*LRA:\s*(-?\d+(?:\.\d+)?)\s+LU', probe_log.stderr, re.MULTILINE)
+        return float(lra_match.group(1)) if lra_match else None
+
+    c4_lra = channel_lra('c4')
+    c5_lra = channel_lra('c5')
+    if c4_lra is not None and c5_lra is not None:
+        if c5_lra - c4_lra >= 4:
+            instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
+    mode_processor = (
+        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
+        'loudnorm=I=-14:TP=-1:LRA=7,'
+        'alimiter=limit=0.501187:attack=5:release=50:level=disabled'
+    )
     audio_filter = (
-        f'[0:a]{_mode_pan_filter("original", 6)},volume={corrections["original"]:.3f}dB[original];'
-        f'[0:a]{_mode_pan_filter("guide", 6)},volume={corrections["guide"]:.3f}dB[guide];'
-        f'[0:a]{_mode_pan_filter("instrumental", 6)},volume={corrections["instrumental"]:.3f}dB[instrumental];'
+        f'[0:a]pan=stereo|c0=c0|c1=c1,{mode_processor}[original];'
+        f'[0:a]pan=stereo|c0=c2|c1=c2,{mode_processor}[guide];'
+        f'[0:a]{instrumental_filter},{mode_processor}[instrumental];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
+        '[guide_r]volume=0[guide_unused];'
         '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
-        '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
+        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+        'alimiter=limit=0.501187:attack=5:release=50:level=disabled,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     subprocess.run(
@@ -1007,28 +1040,36 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
+    dynamic_normalizer = (
+        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
+        if normalize_volume else ''
+    )
+    peak_limiter = 'alimiter=limit=0.501187:attack=5:release=50:level=disabled,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=stereo|c0=FL|c1=FR,{loudnorm}aresample=async=1,'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
         '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
         '[accompaniment_mono]asplit=4[guide_acc_l_raw][guide_acc_r_raw][accompaniment_l_raw][accompaniment_r_raw];'
         '[guide_acc_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_l];'
         '[guide_acc_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_r];'
         '[accompaniment_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
         '[accompaniment_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
-        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
+        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,'
+        f'{dynamic_normalizer}{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
         '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        f'{dynamic_normalizer}{loudnorm}aresample=async=1,{peak_limiter}aformat=sample_fmts=fltp:sample_rates=44100[guide];'
         '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
+        '[guide_r]volume=0[guide_unused];'
         '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
         '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
-        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
+        '[original_l][original_r][guide_l][guide_unused][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+        + peak_limiter
+        + 'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
         ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
@@ -1059,6 +1100,22 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     )
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
+
+def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
+    """Reject final files whose three playback modes are not safely balanced."""
+    channel_count = get_audio_channel_count_from_path(song_path, ffprobe_path)
+    if channel_count != 6:
+        raise RuntimeError(f'最終音訊驗證失敗：聲道數為 {channel_count or "未知"}，預期 6')
+    failures = []
+    for mode in ('original', 'guide', 'instrumental'):
+        loudness, peak = _measure_audio_metrics(ffmpeg_path, song_path, mode)
+        if loudness is None or peak is None:
+            failures.append(f'{mode}=無法量測')
+            continue
+        if abs(loudness + 14) > 1.0 or peak > -1.0:
+            failures.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBFS')
+    if failures:
+        raise RuntimeError('最終音訊驗證失敗：' + '；'.join(failures))
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
@@ -1143,6 +1200,7 @@ def ai_vocal_remove_video():
             ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path,
             output_path, normalize_volume=True,
         )
+        _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ AI 去人聲完成：{filename}（六聲道：原聲 / 導唱 / 伴奏）')
         socketio.emit('refresh_list')
@@ -1185,10 +1243,11 @@ def normalize_video_audio():
         ffprobe_path = get_ffprobe_path(ffmpeg_path)
         if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
             balanced_source = source_path
-            for pass_index in range(2):
-                balanced_path = os.path.join(job_dir, f'balanced_{pass_index}.mp4')
-                _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
-                balanced_source = balanced_path
+            balanced_path = os.path.join(job_dir, 'balanced.mp4')
+            # 平衡流程已包含動態處理與峰值保護；只允許一次 AAC 輸出，避免重編碼再次推高峰值。
+            _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
+            balanced_source = balanced_path
+            _validate_six_channel_audio(ffmpeg_path, ffprobe_path, balanced_source)
             shutil.move(balanced_source, final_path)
             broadcast_log(f'✅ 六聲道音量平衡完成：{filename}')
             socketio.emit('refresh_list')
@@ -1474,7 +1533,13 @@ def handle_set_engine_debug(data):
     """Toggle verbose engine diagnostics for the status strip; when off, show compact playback history."""
     global engine_debug_enabled
     engine_debug_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    print(f'音訊引擎除錯資訊：{"開啟" if engine_debug_enabled else "關閉"}')
     broadcast_engine_status_state()
+
+@socketio.on('request_engine_status_config')
+def handle_request_engine_status_config():
+    """Return the current engine-debug setting to a client after connection or reload."""
+    emit('engine_status_config', {'debug': engine_debug_enabled})
 
 @socketio.on('set_seek_correction')
 def handle_set_seek_correction(data):
@@ -2118,6 +2183,7 @@ class KTVProcessor:
                 ffmpeg_path, ffprobe_path, temp_input, voc_path, acc_path,
                 temp_output, normalize_volume,
             )
+            _validate_six_channel_audio(ffmpeg_path, ffprobe_path, temp_output)
 
             current_step = '步驟 5/5 儲存檔案'
             self.log(f"步驟 5/5: 儲存為 {safe_title}.mp4")
@@ -2228,7 +2294,11 @@ class ServerApp(tk.Tk):
 
     def toggle_engine_debug(self):
         """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""
-        handle_set_engine_debug({'enabled': bool(self.engine_debug_var.get())})
+        global engine_debug_enabled
+        # 以伺服器目前狀態反轉，避免 Tk Checkbutton 回呼讀到尚未更新的舊值。
+        enabled = not engine_debug_enabled
+        self.engine_debug_var.set(enabled)
+        handle_set_engine_debug({'enabled': enabled})
 
     def enable_lan_access(self):
         """請求 UAC 提權建立 Windows 防火牆入站規則。"""
