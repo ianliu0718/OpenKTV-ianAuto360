@@ -127,13 +127,25 @@
         .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
         .note-indicator { color: #ffd54f; margin-left: 6px; }
         .danmaku-button { background: #e91e63; }
-        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        .sound-effect-button { background: #00897b; }
+        #danmaku-panel { display: none; position: fixed; inset: 5% 5% auto; z-index: 70; height: 90vh; max-height: 90vh; box-sizing: border-box; overflow: hidden; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); flex-direction: column; }
         #danmaku-panel h4 { margin: 0 0 12px; }
+        .emotion-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
+        .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
+        .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
+        .emotion-tab-panel[hidden] { display: none; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
+        .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
+        .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
         #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
         .danmaku-actions .btn { flex: 1; margin: 0; }
+        .emotion-footer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; }
+        .emotion-footer .btn { flex: 1; margin: 0; min-height: 46px; }
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -198,7 +210,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
 <div class="control-group">
@@ -233,19 +245,34 @@
     </div>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
-        <h4 id="danmaku-title">發送彈幕</h4>
-        <div class="danmaku-presets">
-            <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
-            <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+        <h4 id="danmaku-title">情緒價值</h4>
+        <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
+            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
+            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
         </div>
-        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
-        <div class="danmaku-actions">
+        <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
+            <div class="effect-section">
+            <div class="danmaku-presets">
+                <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+                <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+            </div>
+            <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+            </div>
+        </div>
+        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
+            <div class="effect-section">
+            <div class="sound-effect-list">
+                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 拍手音效</button>
+            </div>
+            </div>
+        </div>
+        <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
             <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
         </div>
@@ -307,6 +334,7 @@ const socket = io();
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
@@ -388,9 +416,49 @@ const socket = io();
             danmakuOverlay.appendChild(danmakuItem);
         }
 
+        async function playSoundEffect(effect) {
+            if (effect !== 'clap' || !audioCtx) return;
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            if (!clapBufferPromise) {
+                clapBufferPromise = fetch('/effects/clap.wav')
+                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('拍手音效載入失敗')))
+                    .then(bufferData => audioCtx.decodeAudioData(bufferData));
+            }
+            try {
+                const buffer = await clapBufferPromise;
+                const sourceNode = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                const duration = Math.min(buffer.duration, 4);
+                const fadeInDuration = Math.min(0.08, duration / 3);
+                const fadeOutDuration = Math.min(0.35, duration / 3);
+                const now = audioCtx.currentTime;
+                sourceNode.buffer = buffer;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.linearRampToValueAtTime(0.75, now + fadeInDuration);
+                gainNode.gain.setValueAtTime(0.75, now + duration - fadeOutDuration);
+                gainNode.gain.linearRampToValueAtTime(0.0001, now + duration);
+                sourceNode.connect(gainNode).connect(audioCtx.destination);
+                sourceNode.start(now, 0, duration);
+            } catch (error) {
+                clapBufferPromise = null;
+                console.warn('拍手音效無法播放', error);
+            }
+        }
+
         function openDanmakuPanel() {
-            document.getElementById('danmaku-panel').style.display = 'block';
+            switchEmotionTab('danmaku');
+            document.getElementById('danmaku-panel').style.display = 'flex';
             document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function switchEmotionTab(tabName) {
+            const isDanmaku = tabName === 'danmaku';
+            document.getElementById('emotion-panel-danmaku').hidden = !isDanmaku;
+            document.getElementById('emotion-panel-sound').hidden = isDanmaku;
+            document.getElementById('emotion-tab-danmaku').classList.toggle('active', isDanmaku);
+            document.getElementById('emotion-tab-sound').classList.toggle('active', !isDanmaku);
+            document.getElementById('emotion-tab-danmaku').setAttribute('aria-selected', String(isDanmaku));
+            document.getElementById('emotion-tab-sound').setAttribute('aria-selected', String(!isDanmaku));
         }
 
         function closeDanmakuPanel() {
@@ -402,6 +470,10 @@ const socket = io();
             const message = String(text || '').trim();
             if (!message) return;
             socket.emit('danmaku_submit', { text: message });
+        }
+
+        function sendSoundEffect(effect) {
+            socket.emit('sound_effect', { effect });
         }
 
         function sendCustomDanmaku() {
@@ -936,6 +1008,7 @@ const socket = io();
         socket.on('danmaku_show', (data) => {
             if (data && data.text) showDanmaku(data.text);
         });
+        socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {

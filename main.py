@@ -215,6 +215,7 @@ if ffmpeg_location:
 os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
+EFFECTS_DIR = os.path.join(BASE_DIR, "static", "sounds")
 TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing") 
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
 audio_loudness_cache = {}
@@ -236,6 +237,7 @@ LYRICS_PROVIDERS = {
 LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
 
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
+if not os.path.exists(EFFECTS_DIR): os.makedirs(EFFECTS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 
 # ==========================================
@@ -543,6 +545,10 @@ def page_index(): return render_template('remote.html')
 @app.route('/songs/<path:filename>')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
+
+@app.route('/effects/<path:filename>')
+def serve_effect(filename):
+    return send_from_directory(EFFECTS_DIR, filename)
 
 def _song_has_subtitle(filename):
     """Returns True only when the current song actually has a matching VTT file."""
@@ -1701,6 +1707,16 @@ def handle_danmaku_submit(data):
         return
     # 彈幕是即時氣氛訊息，不寫入歌曲或備註檔案。
     emit('danmaku_show', {'text': text}, broadcast=True)
+
+@socketio.on('sound_effect')
+def handle_sound_effect(data):
+    """Broadcast a supported short audience-reaction sound effect."""
+    if not isinstance(data, dict):
+        return
+    effect = str(data.get('effect', '')).strip().lower()
+    if effect not in {'clap'}:
+        return
+    emit('sound_effect', {'effect': effect}, broadcast=True)
 
 @socketio.on('seek_video')
 def handle_seek_video(data):

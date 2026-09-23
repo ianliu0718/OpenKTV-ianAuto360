@@ -105,6 +105,7 @@
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
@@ -206,6 +207,35 @@
             danmakuItem.style.setProperty('--danmaku-duration', `${10 + Math.random() * 4}s`);
             danmakuItem.addEventListener('animationend', () => danmakuItem.remove(), { once: true });
             danmakuOverlay.appendChild(danmakuItem);
+        }
+
+        async function playSoundEffect(effect) {
+            if (effect !== 'clap' || !audioCtx) return;
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            if (!clapBufferPromise) {
+                clapBufferPromise = fetch('/effects/clap.wav')
+                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('拍手音效載入失敗')))
+                    .then(bufferData => audioCtx.decodeAudioData(bufferData));
+            }
+            try {
+                const buffer = await clapBufferPromise;
+                const sourceNode = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                const duration = Math.min(buffer.duration, 4);
+                const fadeInDuration = Math.min(0.08, duration / 3);
+                const fadeOutDuration = Math.min(0.35, duration / 3);
+                const now = audioCtx.currentTime;
+                sourceNode.buffer = buffer;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.linearRampToValueAtTime(0.75, now + fadeInDuration);
+                gainNode.gain.setValueAtTime(0.75, now + duration - fadeOutDuration);
+                gainNode.gain.linearRampToValueAtTime(0.0001, now + duration);
+                sourceNode.connect(gainNode).connect(audioCtx.destination);
+                sourceNode.start(now, 0, duration);
+            } catch (error) {
+                clapBufferPromise = null;
+                console.warn('拍手音效無法播放', error);
+            }
         }
 
         /**
@@ -655,6 +685,7 @@
         socket.on('danmaku_show', (data) => {
             if (data && data.text) showDanmaku(data.text);
         });
+        socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
 
         socket.on('update_queue', (playlist) => {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
