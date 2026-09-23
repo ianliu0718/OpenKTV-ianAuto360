@@ -22,6 +22,8 @@
         #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
         .song-btn.added { background: #607d8b; cursor: wait; }
+        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        li.song-playing { background: #174d48; border: 1px solid #26a69a; }
         li.song-row { cursor: pointer; }
         li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -311,6 +313,7 @@
                 }
                 queueList.appendChild(item);
             });
+            filter();
         }
 
         // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
@@ -693,12 +696,16 @@
             }).forEach(s => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
+                const queueIndex = currentPlaylist.indexOf(s);
+                const isQueued = queueIndex !== -1;
+                const isPlaying = queueIndex === 0;
+                const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
-                    <li class="song-row ${isPending ? 'song-added' : ''}" onclick="playSongFromRow(this, '${s}', event)">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${s}</span>
+                    <li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)">
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${statusLabel}${s}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });

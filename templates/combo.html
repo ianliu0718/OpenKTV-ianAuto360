@@ -118,6 +118,8 @@
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
         .song-btn.added { background: #607d8b; cursor: wait; }
+        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        ul#list li.song-playing { background: #174d48; border-color: #26a69a; }
         /* 待播歌曲備註面板，採用固定面板避免影響播放器版面。 */
         #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 60; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
         #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
@@ -1383,6 +1385,7 @@ const socket = io();
                     qList.appendChild(item);
                 });
             }
+            filter();
         }
 
         // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
@@ -1506,10 +1509,14 @@ const socket = io();
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
+                const queueIndex = currentQueueHistory.indexOf(s);
+                const isQueued = queueIndex !== -1;
+                const isPlaying = queueIndex === 0;
+                const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
-                list.innerHTML += `<li class="song-row ${isPending ? 'song-added' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}${playButton}</span></li>`;
+                list.innerHTML += `<li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${statusLabel}${name}</span><span>${subtitleButton}${playButton}</span></li>`;
             });
         }
 
