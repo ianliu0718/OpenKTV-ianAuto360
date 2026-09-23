@@ -170,7 +170,7 @@ def _mode_pan_filter(mode, channels):
     if mode not in {'original', 'guide', 'instrumental'}:
         mode = 'original'
     if channels >= 6:
-        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c2'), 'instrumental': ('c4', 'c5')}[mode]
+        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c2'), 'instrumental': ('c4', 'c4')}[mode]
         return f'pan=stereo|c0={mode_channels[0]}|c1={mode_channels[1]}'
     elif mode == 'instrumental':
         return 'pan=stereo|c0=c1|c1=c1'
@@ -947,29 +947,9 @@ def optimize_video():
         if not ffmpeg_path:
             broadcast_log('❌ 影片最佳化失敗：找不到 FFmpeg。')
             return json.dumps({'error': '找不到 FFmpeg'}), 500
-        broadcast_log(f'🔧 使用 FFmpeg：{ffmpeg_path}')
+        broadcast_log(f"🔧 使用 FFmpeg：{ffmpeg_path}")
         broadcast_log('⏳ 正在重新編碼為 H.264 / 最高 720p / 30fps，請稍候...')
-        command = [
-            ffmpeg_path, '-y', '-i', source_path,
-            '-map', '0:v:0', '-map', '0:a?',
-            '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
-            '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
-            '-c:a', 'aac', '-movflags', '+faststart',
-            output_path,
-        ]
-        result = subprocess.run(
-            command, capture_output=True, text=True, encoding='utf-8', errors='replace',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            detail = result.stderr.strip()[-500:] if result.stderr else 'FFmpeg 未產生輸出檔案'
-            broadcast_log(f'❌ FFmpeg 轉檔失敗（return code {result.returncode}）：{detail}')
-            return json.dumps({'success': False, 'error': f'影片轉檔失敗：{detail}'}, ensure_ascii=False), 400
-        if os.path.getsize(output_path) == 0:
-            broadcast_log('❌ FFmpeg 轉檔失敗：輸出檔案為空。')
-            return json.dumps({'success': False, 'error': '影片轉檔失敗：輸出檔案為空'}), 400
+        _optimize_downloaded_video(ffmpeg_path, source_path, output_path)
         broadcast_log(f'✅ FFmpeg 轉檔完成：輸出 {os.path.getsize(output_path):,} bytes。')
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ 已取代原始影片：{filename}')
@@ -992,28 +972,11 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     }
     if any(level[0] is None or level[1] is None for level in mode_levels.values()):
         raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
-    # 舊版流程可能已污染 c5；若 c5 的動態範圍遠高於乾淨的 c4，使用 c4 重建左右伴奏，
-    # 優先確保伴奏不含人聲，再由後續流程統一做響度處理。
-    instrumental_filter = 'pan=stereo|c0=c4|c1=c5'
-    def channel_lra(channel):
-        probe_log = subprocess.run(
-            [ffmpeg_path, '-v', 'info', '-i', source_path, '-vn',
-             '-af', f'pan=mono|c0={channel},ebur128=peak=true', '-f', 'null',
-             'NUL' if os.name == 'nt' else '/dev/null'],
-            capture_output=True, text=True, encoding='utf-8', errors='replace',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        lra_match = re.search(r'^\s*LRA:\s*(-?\d+(?:\.\d+)?)\s+LU', probe_log.stderr, re.MULTILINE)
-        return float(lra_match.group(1)) if lra_match else None
-
-    c4_lra = channel_lra('c4')
-    c5_lra = channel_lra('c5')
-    if c4_lra is not None and c5_lra is not None:
-        if c5_lra - c4_lra >= 4:
-            instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
+    # c4 是唯一可用的伴奏來源；c5 不參與伴奏處理，避免把人聲帶回輸出。
+    instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
     mode_processor = (
         'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
-        'loudnorm=I=-14:TP=-1:LRA=7,'
+            'loudnorm=I=-14:TP=-1:LRA=11,'
         'alimiter=limit=0.501187:attack=5:release=50:level=disabled'
     )
     audio_filter = (
