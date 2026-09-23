@@ -1398,7 +1398,7 @@ def broadcast_engine_status_state():
     """Sync the single engine-debug toggle to all clients."""
     socketio.emit('engine_status_config', {
         'debug': engine_debug_enabled,
-    }, broadcast=True)
+    })
 
 
 """
@@ -1476,9 +1476,9 @@ def handle_set_seek_correction(data):
     seek_correction_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
     if not seek_correction_enabled:
         seek_offset = 0.0
-    socketio.emit('seek_correction', {'enabled': seek_correction_enabled}, broadcast=True)
+    socketio.emit('seek_correction', {'enabled': seek_correction_enabled})
     if not seek_correction_enabled:
-        socketio.emit('seek_video', {'seconds': 0, 'offset': 0}, broadcast=True)
+        socketio.emit('seek_video', {'seconds': 0, 'offset': 0})
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -1524,13 +1524,13 @@ def handle_add_queue(data):
 
 @socketio.on('replay_current_song')
 def handle_replay_current_song():
-    """Insert the current song after itself, then cut to replay it immediately."""
+    """Insert the current song after itself, then cut to replay it immediately while preserving the active key."""
     if not playlist_queue:
         return
     filename = playlist_queue[0]
     playlist_queue.insert(1, filename)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
-    handle_song_ended()
+    handle_song_ended(reset_pitch=False)
 
 @socketio.on('toggle_subtitle')
 def handle_toggle_subtitle(data):
@@ -1627,8 +1627,10 @@ def handle_song_note_submit(data):
     emit('song_note_updated', note, broadcast=True)
 
 @socketio.on('song_ended')
-def handle_song_ended(data=None):
-    """Advance the queue while preventing random idle fill from racing user-selected songs."""
+def handle_song_ended(data=None, reset_pitch=True):
+    """Advance the queue while preventing random idle fill from racing user-selected songs.
+    Replay intentionally preserves the active pitch so the user keeps the same KEY when restarting the same song.
+    """
     global subtitle_visible, seek_offset, last_user_action_time, current_pitch
     ended_filename = os.path.basename(str(data.get('filename', '')).strip()) if isinstance(data, dict) else ''
     if ended_filename and (not playlist_queue or ended_filename != playlist_queue[0]):
@@ -1637,9 +1639,10 @@ def handle_song_ended(data=None):
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0)
         seek_offset = 0.0
-        # 每首歌結束後只重設升降 KEY，其他播放設定維持原狀。
-        current_pitch = 0
-        socketio.emit('apply_effect', {'pitch': current_pitch}, broadcast=True)
+        if reset_pitch:
+            # 每首歌結束後只重設升降 KEY，其他播放設定維持原狀。
+            current_pitch = 0
+            socketio.emit('apply_effect', {'pitch': current_pitch})
         emit('update_queue', playlist_queue, broadcast=True)
 
         # 檢查是否還有下一首
@@ -1661,10 +1664,29 @@ def handle_song_ended(data=None):
 
 @socketio.on('control')
 def handle_control(action):
+    global current_pitch
     if action == 'cut':
-        if playlist_queue:
-            emit('stop_video', {'filename': playlist_queue[0]}, broadcast=True)
-        handle_song_ended()
+        if not playlist_queue:
+            return
+        current_filename = playlist_queue[0]
+        emit('stop_video', {'filename': current_filename}, broadcast=True)
+
+        if len(playlist_queue) > 1:
+            playlist_queue.pop(0)
+            current_pitch = 0
+            socketio.emit('apply_effect', {'pitch': current_pitch})
+            emit('update_queue', playlist_queue, broadcast=True)
+            next_song = playlist_queue[0]
+            emit('play_video', _play_video_payload(next_song), broadcast=True)
+            broadcast_current_song()
+            return
+
+        playlist_queue.pop(0)
+        current_pitch = 0
+        socketio.emit('apply_effect', {'pitch': current_pitch})
+        emit('update_queue', playlist_queue, broadcast=True)
+        broadcast_current_song()
+        return
     else:
         # 其他指令 (例如 pause) 照常發送
         emit('command', action, broadcast=True)
