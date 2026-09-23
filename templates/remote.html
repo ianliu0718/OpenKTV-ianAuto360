@@ -36,7 +36,7 @@
         .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
         .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
         .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
-        .setting-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .setting-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
         .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
         .setting-button input { width: auto; flex: 0 0 auto; }
         .tab-panel[hidden] { display: none; }
@@ -126,6 +126,10 @@
             <label class="setting-button">
                 <input type="checkbox" id="random-play" style="width:auto;">
                 無點歌時隨機播歌
+            </label>
+            <label class="setting-button">
+                <input type="checkbox" id="screen-wake-lock" checked style="width:auto;">
+                螢幕保持常亮
             </label>
         </div>
 
@@ -254,6 +258,61 @@
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
+        const screenWakeLock = document.getElementById('screen-wake-lock');
+        let screenWakeLockSentinel = null;
+        let screenWakeLockEnabled = localStorage.getItem('ktv-screen-wake-lock') !== 'false';
+
+        /** Requests the browser to keep this phone or tablet screen awake. */
+        async function requestScreenWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                screenWakeLock.disabled = true;
+                screenWakeLock.checked = false;
+                screenWakeLockEnabled = false;
+                return false;
+            }
+            try {
+                screenWakeLockSentinel = await navigator.wakeLock.request('screen');
+                screenWakeLockSentinel.addEventListener('release', () => {
+                    screenWakeLockSentinel = null;
+                    if (screenWakeLockEnabled && document.visibilityState === 'visible') {
+                        requestScreenWakeLock();
+                    }
+                }, { once: true });
+                return true;
+            } catch (error) {
+                screenWakeLockSentinel = null;
+                return false;
+            }
+        }
+
+        function releaseScreenWakeLock() {
+            if (screenWakeLockSentinel) {
+                screenWakeLockSentinel.release();
+                screenWakeLockSentinel = null;
+            }
+        }
+
+        async function setScreenWakeLock(enabled) {
+            screenWakeLockEnabled = Boolean(enabled);
+            localStorage.setItem('ktv-screen-wake-lock', String(screenWakeLockEnabled));
+            if (screenWakeLockEnabled) {
+                const acquired = await requestScreenWakeLock();
+                screenWakeLock.checked = acquired;
+                if (!acquired) screenWakeLockEnabled = false;
+            } else {
+                releaseScreenWakeLock();
+                screenWakeLock.checked = false;
+            }
+        }
+
+        screenWakeLock.checked = screenWakeLockEnabled;
+        screenWakeLock.addEventListener('change', () => setScreenWakeLock(screenWakeLock.checked));
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && screenWakeLockEnabled && !screenWakeLockSentinel) {
+                requestScreenWakeLock().then((acquired) => { screenWakeLock.checked = acquired; });
+            }
+        });
+        if (screenWakeLockEnabled) setScreenWakeLock(true);
 
         /**
          * Switches between song selection and playback control panels.
