@@ -1,5 +1,6 @@
 import sys
 import os
+import base64
 import glob
 import queue
 import random
@@ -1717,6 +1718,23 @@ def handle_sound_effect(data):
     if effect not in {'clap'}:
         return
     emit('sound_effect', {'effect': effect}, broadcast=True)
+
+@socketio.on('photo_submit')
+def handle_photo_submit(data):
+    """Validate and broadcast one temporary camera photo to playback screens."""
+    if not isinstance(data, dict):
+        return
+    image_data = str(data.get('data', '')).strip()
+    match = re.fullmatch(r'data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)', image_data)
+    if not match:
+        return
+    try:
+        decoded = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error):
+        return
+    if not decoded or len(decoded) > 5 * 1024 * 1024:
+        return
+    emit('photo_show', {'data': image_data}, broadcast=True)
 
 @socketio.on('seek_video')
 def handle_seek_video(data):

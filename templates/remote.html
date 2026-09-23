@@ -51,13 +51,16 @@
         .note-indicator { color: #ffd54f; margin-left: 6px; }
         .danmaku-button { background: #e91e63; }
         .sound-effect-button { background: #00897b; }
-        #danmaku-panel { display: none; position: fixed; inset: 5% 5% auto; z-index: 30; height: 90vh; max-height: 90vh; box-sizing: border-box; overflow: hidden; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
         #danmaku-panel h4 { margin: 0 0 12px; }
-        .emotion-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
         .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
         .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
         .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
         .emotion-tab-panel[hidden] { display: none; }
+        .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
+        .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
+        .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
         .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -176,6 +179,7 @@
         <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
             <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
             <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
+            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
         </div>
         <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
             <div class="effect-section">
@@ -195,13 +199,20 @@
         <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
             <div class="effect-section">
             <div class="sound-effect-list">
-                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 拍手音效</button>
+                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 歡呼拍手</button>
             </div>
+            </div>
+        </div>
+        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
+            <div class="photo-picker">
+                <label for="emotion-photo-input">拍照或選擇手機照片</label>
+                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
         </div>
         <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
-            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendEmotionAction()">送出</button>
         </div>
     </div>
 
@@ -359,13 +370,44 @@
         }
 
         function switchEmotionTab(tabName) {
-            const isDanmaku = tabName === 'danmaku';
-            document.getElementById('emotion-panel-danmaku').hidden = !isDanmaku;
-            document.getElementById('emotion-panel-sound').hidden = isDanmaku;
-            document.getElementById('emotion-tab-danmaku').classList.toggle('active', isDanmaku);
-            document.getElementById('emotion-tab-sound').classList.toggle('active', !isDanmaku);
-            document.getElementById('emotion-tab-danmaku').setAttribute('aria-selected', String(isDanmaku));
-            document.getElementById('emotion-tab-sound').setAttribute('aria-selected', String(!isDanmaku));
+            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo'].forEach((name) => {
+                const active = activeEmotionTab === name;
+                document.getElementById(`emotion-panel-${name}`).hidden = !active;
+                document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
+                document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
+            });
+        }
+
+        let activeEmotionTab = 'danmaku';
+        let pendingEmotionPhoto = '';
+
+        function sendEmotionAction() {
+            if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function prepareEmotionPhoto(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const image = new Image();
+            image.onload = () => {
+                const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.width * scale));
+                canvas.height = Math.max(1, Math.round(image.height * scale));
+                canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                pendingEmotionPhoto = canvas.toDataURL('image/jpeg', 0.82);
+                const preview = document.getElementById('emotion-photo-preview');
+                preview.src = pendingEmotionPhoto;
+                preview.style.display = 'block';
+            };
+            image.src = URL.createObjectURL(file);
+        }
+
+        function sendEmotionPhoto() {
+            if (!pendingEmotionPhoto) return;
+            socket.emit('photo_submit', { data: pendingEmotionPhoto });
         }
 
         function closeDanmakuPanel() {

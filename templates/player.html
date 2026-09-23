@@ -14,7 +14,7 @@
         #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 70px); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #seek-status.visible { opacity: 1; visibility: visible; }
         #waiting { font-size: 50px; color: #555; cursor: pointer; }
-        #engine-status { position: absolute; bottom: 15px; left: 20px; z-index: 10; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
+        #engine-status { position: absolute; right: 180px; bottom: 15px; left: 20px; z-index: 10; overflow: hidden; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
         #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
         #remote-qr-label { font-size: 14px; font-weight: bold; }
@@ -25,6 +25,9 @@
         #danmaku-overlay { position: absolute; inset: 0; z-index: 16; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
         #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(20px, 3vw, 36px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
         @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
+        #photo-overlay { position: absolute; inset: 0; z-index: 17; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
+        #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
+        @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
         #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
@@ -54,6 +57,7 @@
     <div id="queue-add-announcement"></div>
     <div id="song-announcement"></div>
     <div id="danmaku-overlay"></div>
+    <div id="photo-overlay"></div>
     <div id="ktv-subtitle" aria-live="polite"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
@@ -86,6 +90,7 @@
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const danmakuOverlay = document.getElementById('danmaku-overlay');
+        const photoOverlay = document.getElementById('photo-overlay');
         let subtitleTrack = document.getElementById('subtitle-track');
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const remoteQr = document.getElementById('remote-qr');
@@ -209,12 +214,22 @@
             danmakuOverlay.appendChild(danmakuItem);
         }
 
+        function showPhoto(data) {
+            if (!data || !data.data) return;
+            const photo = document.createElement('img');
+            photo.className = 'photo-item';
+            photo.src = data.data;
+            photo.alt = '現場照片';
+            photo.addEventListener('animationend', () => photo.remove(), { once: true });
+            photoOverlay.appendChild(photo);
+        }
+
         async function playSoundEffect(effect) {
             if (effect !== 'clap' || !audioCtx) return;
             if (audioCtx.state === 'suspended') await audioCtx.resume();
             if (!clapBufferPromise) {
                 clapBufferPromise = fetch('/effects/clap.wav')
-                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('拍手音效載入失敗')))
+                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('音效載入失敗')))
                     .then(bufferData => audioCtx.decodeAudioData(bufferData));
             }
             try {
@@ -234,7 +249,7 @@
                 sourceNode.start(now, 0, duration);
             } catch (error) {
                 clapBufferPromise = null;
-                console.warn('拍手音效無法播放', error);
+                console.warn('音效無法播放', error);
             }
         }
 
@@ -271,9 +286,25 @@
         function buildQueueHistoryText(playlist) {
             const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
             if (!queueEntries.length) return '播放清單：無';
-            const visibleEntries = queueEntries.slice(0, 3);
-            const suffix = queueEntries.length > 3 ? ' | ...' : '';
-            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+            const availableWidth = Math.max(120, engineStatus.getBoundingClientRect().width);
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(engineStatus).font;
+            const prefix = '播放清單：';
+            const separator = ' | ';
+            let visibleEntries = [];
+            for (const entry of queueEntries) {
+                const candidate = `${prefix}${[...visibleEntries, entry].join(separator)}`;
+                const remaining = visibleEntries.length + 1 < queueEntries.length;
+                const withSuffix = remaining ? `${candidate}${separator}...` : candidate;
+                if (context.measureText(withSuffix).width > availableWidth) break;
+                visibleEntries.push(entry);
+            }
+            if (!visibleEntries.length) {
+                visibleEntries = [queueEntries[0]];
+            }
+            const hasHiddenEntries = visibleEntries.length < queueEntries.length;
+            return `${prefix}${visibleEntries.join(separator)}${hasHiddenEntries ? `${separator}...` : ''}`;
         }
 
         function renderEngineStatus() {
@@ -686,6 +717,7 @@
             if (data && data.text) showDanmaku(data.text);
         });
         socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
+        socket.on('photo_show', showPhoto);
 
         socket.on('update_queue', (playlist) => {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
