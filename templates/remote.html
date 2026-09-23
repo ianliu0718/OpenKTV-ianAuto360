@@ -155,7 +155,7 @@
             </div>
         </div>
 
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+        <div id="seek-correction-control" style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
             </div>
@@ -801,6 +801,8 @@
          */
         function updateSeekCorrectionState(enabled) {
             seekCorrectionEnabled = Boolean(enabled);
+            // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
+            document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
