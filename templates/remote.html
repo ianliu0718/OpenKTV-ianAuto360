@@ -342,36 +342,36 @@
             queueList.innerHTML = '';
             if (!currentPlaylist.length) {
                 queueList.innerHTML = '<li>(無)</li>';
-                return;
+            } else {
+                currentPlaylist.forEach((filename, index) => {
+                    const item = document.createElement('li');
+                    const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = name;
+                    item.appendChild(nameSpan);
+                    if (hasMeaningfulSongNote(songNotes[filename])) {
+                        const noteIndicator = document.createElement('span');
+                        noteIndicator.className = 'note-indicator';
+                        noteIndicator.textContent = '📝';
+                        nameSpan.appendChild(noteIndicator);
+                    }
+                    const noteButton = document.createElement('button');
+                    noteButton.className = 'song-btn';
+                    noteButton.textContent = '備註';
+                    noteButton.addEventListener('click', () => openSongNote(filename));
+                    item.appendChild(noteButton);
+                    if (index === 0) {
+                        item.style.color = '#4CAF50';
+                    } else {
+                        const removeButton = document.createElement('button');
+                        removeButton.className = 'song-btn';
+                        removeButton.textContent = '刪除';
+                        removeButton.addEventListener('click', () => removeQueuedSong(index));
+                        item.appendChild(removeButton);
+                    }
+                    queueList.appendChild(item);
+                });
             }
-            currentPlaylist.forEach((filename, index) => {
-                const item = document.createElement('li');
-                const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = name;
-                item.appendChild(nameSpan);
-                if (hasMeaningfulSongNote(songNotes[filename])) {
-                    const noteIndicator = document.createElement('span');
-                    noteIndicator.className = 'note-indicator';
-                    noteIndicator.textContent = '📝';
-                    nameSpan.appendChild(noteIndicator);
-                }
-                const noteButton = document.createElement('button');
-                noteButton.className = 'song-btn';
-                noteButton.textContent = '備註';
-                noteButton.addEventListener('click', () => openSongNote(filename));
-                item.appendChild(noteButton);
-                if (index === 0) {
-                    item.style.color = '#4CAF50';
-                } else {
-                    const removeButton = document.createElement('button');
-                    removeButton.className = 'song-btn';
-                    removeButton.textContent = '刪除';
-                    removeButton.addEventListener('click', () => removeQueuedSong(index));
-                    item.appendChild(removeButton);
-                }
-                queueList.appendChild(item);
-            });
             filter();
         }
 
@@ -628,6 +628,10 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            if (!currentPlayingFilename) {
+                currentPlaylist = [];
+                renderQueue([]);
+            }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
@@ -672,6 +676,13 @@
         }
 
         socket.on('current_song', updateCurrentSong);
+
+        socket.on('stop_video', () => {
+            currentPlayingFilename = '';
+            currentPlaylist = [];
+            renderQueue([]);
+            renderCurrentSongControl();
+        });
 
         /**
          * Updates the remote control's QR Code switch from the server state.

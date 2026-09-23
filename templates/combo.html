@@ -1332,6 +1332,10 @@ const socket = io();
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            if (!currentPlayingFilename) {
+                currentQueueHistory = [];
+                renderQueue([]);
+            }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;

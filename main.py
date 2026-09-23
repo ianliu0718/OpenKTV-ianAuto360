@@ -1695,6 +1695,8 @@ def handle_song_ended(data=None, reset_pitch=True):
                     return
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
+            # 再同步一次最終空佇列，避免控制頁面保留上一首的「播放中」標籤。
+            emit('update_queue', playlist_queue, broadcast=True)
             broadcast_current_song()
 
 @socketio.on('control')
