@@ -63,7 +63,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.1.0.1"
+APP_VERSION = "v1.1.0.2"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -1003,6 +1003,8 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
+    # c4 is played as c4/c4; leave headroom for the mono-to-stereo duplication.
+    accompaniment_loudnorm = 'loudnorm=I=-16:TP=-1:LRA=11,' if normalize_volume else ''
     dynamic_normalizer = (
         'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
         if normalize_volume else ''
@@ -1011,22 +1013,21 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     audio_filter = (
         f'[0:a]pan=stereo|c0=FL|c1=FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
-        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
+        '[1:a]pan=mono|c0=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
-        '[accompaniment_mono]asplit=4[guide_acc_l_raw][guide_acc_r_raw][accompaniment_l_raw][accompaniment_r_raw];'
-        '[guide_acc_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_l];'
-        '[guide_acc_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_r];'
-        '[accompaniment_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
-        '[accompaniment_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
-        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,'
-        f'{dynamic_normalizer}{loudnorm}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
-        '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{dynamic_normalizer}{loudnorm}aresample=async=1,{peak_limiter}aformat=sample_fmts=fltp:sample_rates=44100[guide];'
-        '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
-        '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{dynamic_normalizer}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_mono];'
+        '[accompaniment_mono]asplit=2[accompaniment_l_raw][accompaniment_r_raw];'
+        '[accompaniment_l_raw][accompaniment_r_raw]amerge=inputs=2,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,'
+        f'{accompaniment_loudnorm}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
+        '[accompaniment]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc];'
+        '[vocals][guide_acc]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+        f'{dynamic_normalizer}{loudnorm}aresample=async=1,{peak_limiter}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide];'
+        '[guide]asplit=2[guide_l][guide_r];'
         '[guide_r]volume=0[guide_unused];'
+        '[accompaniment]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
+        '[accompaniment]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
         '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
         '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
         '[original_l][original_r][guide_l][guide_unused][accompaniment_l][accompaniment_r]'
@@ -1063,6 +1064,55 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     )
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
+    if normalize_volume:
+        _rebalance_encoded_six_channel_audio(ffmpeg_path, output_path)
+
+def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
+    """Correct encoded playback modes once, using the measured final LUFS values."""
+    measured = {
+        mode: _measure_audio_metrics(ffmpeg_path, song_path, mode)
+        for mode in ('original', 'guide', 'instrumental')
+    }
+    if any(level[0] is None for level in measured.values()):
+        raise RuntimeError('FFmpeg 無法量測編碼後的三種播放模式')
+    corrections = {
+        mode: -14.0 - level[0]
+        for mode, level in measured.items()
+        if abs(level[0] + 14.0) > 0.2
+    }
+    if not corrections:
+        return
+    temporary_path = song_path + '.rebalance.mp4'
+    original_gain = corrections.get('original', 0.0)
+    guide_gain = corrections.get('guide', 0.0)
+    instrumental_gain = corrections.get('instrumental', 0.0)
+    audio_filter = (
+        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB[original];'
+        f'[0:a]pan=mono|c0=c2,volume={guide_gain:.3f}dB[guide];'
+        f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB[instrumental];'
+        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+        '[guide]asplit=2[guide_l][guide_r];[guide_r]volume=0[guide_unused];'
+        '[instrumental]asplit=2[instrumental_l][instrumental_r];'
+        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR'
+        '[audio]'
+    )
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-y', '-i', song_path, '-filter_complex', audio_filter,
+             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+             '-movflags', '+faststart', temporary_path],
+            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(temporary_path):
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'編碼後響度修正失敗：{detail}')
+        os.replace(temporary_path, song_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
     """Reject final files whose three playback modes are not safely balanced."""
