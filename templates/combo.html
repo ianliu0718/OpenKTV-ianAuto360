@@ -520,7 +520,23 @@ const socket = io();
 
         function sendEmotionPhoto() {
             if (!pendingEmotionPhoto) return;
-            socket.emit('photo_submit', { data: pendingEmotionPhoto });
+            socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
+                if (!result || !result.success) {
+                    alert(result && result.error ? result.error : '照片發送失敗');
+                    return;
+                }
+                clearEmotionPhoto();
+                alert('照片發送成功');
+            });
+        }
+
+        function clearEmotionPhoto() {
+            pendingEmotionPhoto = '';
+            const input = document.getElementById('emotion-photo-input');
+            const preview = document.getElementById('emotion-photo-preview');
+            input.value = '';
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
         }
 
         function closeDanmakuPanel() {

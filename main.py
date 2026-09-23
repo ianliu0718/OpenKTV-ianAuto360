@@ -1753,18 +1753,19 @@ def handle_sound_effect(data):
 def handle_photo_submit(data):
     """Validate and broadcast one temporary camera photo to playback screens."""
     if not isinstance(data, dict):
-        return
+        return {'success': False, 'error': '照片資料格式錯誤'}
     image_data = str(data.get('data', '')).strip()
     match = re.fullmatch(r'data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)', image_data)
     if not match:
-        return
+        return {'success': False, 'error': '照片格式不支援'}
     try:
         decoded = base64.b64decode(match.group(2), validate=True)
     except (ValueError, base64.binascii.Error):
-        return
+        return {'success': False, 'error': '照片資料無效'}
     if not decoded or len(decoded) > 5 * 1024 * 1024:
-        return
+        return {'success': False, 'error': '照片大小不可超過 5 MB'}
     emit('photo_show', {'data': image_data}, broadcast=True)
+    return {'success': True}
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
