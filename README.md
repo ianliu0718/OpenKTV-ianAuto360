@@ -8,7 +8,8 @@ ianAutoKTV 是以 Python、Flask、SocketIO、FFmpeg 與 Spleeter 建立的區�
 YouTube URL
   -> yt-dlp 下載
   -> FFmpeg 轉為 H.264 / 720p / 30fps
-  -> Spleeter 產生 vocals.wav 與 accompaniment.wav
+  -> Spleeter 4-stems 產生 vocals.wav、drums.wav、bass.wav、other.wav
+  -> FFmpeg 將 drums/bass/other 合成唯一 accompaniment.wav
   -> FFmpeg 建立六聲道 5.1 MP4
   -> FFprobe 與完整解碼驗證
   -> 原子搬入 ktv_songs
@@ -21,27 +22,43 @@ YouTube URL
 
 | 模式 | 內容 | 聲道 |
 |---|---|---|
-| 原聲 | 原始檔案的音軌 | c0/c1 |
+| 原聲 | 原始檔案的音軌；只校準平均響度，不要求 -1 dBTP | c0/c1 |
 | 導唱 | 約 50% 音量的人聲加正常音量伴奏 | c2；播放時複製至左右輸出 |
 | 伴奏 | 只有正常音量的伴奏 | c4；播放時複製至左右輸出 |
 | 不使用 | 重低音伴奏，不使用 | c3 |
 | 不使用 | 含有人聲，不使用 | c5 |
 
-三種模式的最終目標均為 `-14 LUFS`、`-1 dBTP`。歌曲入庫前會分別處理與量測原聲、導唱與伴奏；每個模式使用中度 `acompressor` 降低段落動態，再以 `loudnorm` 正規化，並在 AAC 輸出前以約 `-6 dBFS` 的峰值限制預留編碼裕度。若最終輸出任一模式超出響度容許範圍或 True Peak 高於 `-1 dBFS`，檔案不得入庫。既有歌曲平衡先輸出一次 AAC；只有在編碼後量測不合格時，才允許一次有上限的校正重編碼，校正後必須再次完整驗證，禁止無限制重複重編碼。
+原聲 c0/c1 的目標為約 `-14 LUFS`，不要求 `-1 dBTP`；導唱 c2 與伴奏 c4 的目標仍為 `-14 LUFS`、`-1 dBTP`。歌曲入庫前會分別處理與量測三種模式。原聲 c0/c1 只允許在初始 AAC 輸出前使用固定音量增益校準平均音量，不使用 `acompressor`、`loudnorm` 或 limiter，也不在 AAC 後再次拆聲道重編碼，避免改變原始歌曲的動態與背景聲。導唱 c2 使用中度壓縮（FFmpeg `makeup=1` unity gain）與 `loudnorm`；伴奏 c4 直接沿用原始 `accompaniment.wav` 訊號，不使用壓縮或 `loudnorm` 放大殘留人聲，再由既有固定增益校正處理整體音量。
 
 ### 伴奏製作規則
 
-1. Spleeter 第一次產生的 `accompaniment.wav` 是唯一伴奏來源。
+1. Spleeter 先產生 `vocals.wav`、`drums.wav`、`bass.wav`、`other.wav`；FFmpeg 只將後三者合成唯一 `accompaniment.wav`。
 2. 伴奏檔必須先通過 FFmpeg 完整解碼驗證。
 3. 將伴奏左右聲道平均成單一正常音量伴奏訊號。
-4. 同一個伴奏訊號供導唱混音與 c4 使用；播放伴奏時將 c4 複製至左右輸出，c5 不使用。
+4. 同一個非人聲伴奏訊號供導唱混音與 c4 使用；c4 直接取 `drums/bass/other` 合成的 `accompaniment.wav`，不經壓縮或 `loudnorm` 放大人聲；播放伴奏時將 c4 複製至左右輸出，c5 不使用。
 5. 不得對伴奏執行第二次 Spleeter、左右相減、Mid/Side 濾波或其他未驗證加工。
 6. 不得反覆 AAC 重編碼；完成六聲道後只執行必要的最終響度處理。
+
+### c2 / c4 殘留人聲的根因與防錯規則
+
+這次問題的根因不是 Spleeter 無法分離，而是最後的六聲道組裝與驗證階段沒有完全遵守成功版規則，導致導唱與伴奏在最終輸出中仍保留原始人聲，讓 c2 看起來像原聲，c4 看起來像有殘留人聲的伴奏。真正造成問題的模式有三類：
+
+1. 最後 `join` 之前沒有明確保留 `c2 = vocal + accompaniment`，而是把原始音軌或錯誤的 `vocal`/`accompaniment` 重新混回 c2 / c4。
+2. c4 被當成「原始伴奏」直接輸出，但沒有先確認它真的是 `drums + bass + other` 合成後的真正 non-vocal signal；其結果仍含人聲殘留。
+3. 以為「檔案已經產出」就算成功，卻沒有檢查最後的 LUFS / True Peak，讓錯誤輸出跳過驗證，並且 UI 仍讀取舊檔，讓使用者感覺「完全沒有改變」。
+
+因此，後續修正與防止重複發生的永久規則如下：
+
+1. c2 必須明確由 `vocals.wav + accompaniment.wav` 混成；不得回用原始來源，亦不得把 c0/c1 當成 c2。
+2. c4 必須明確取 `accompaniment.wav`，且只能取伴奏；不得再次混入 `vocals.wav`、`original` 或其他殘留人聲聲軌。
+3. 所有最終輸出在搬入 `ktv_songs` 之前，必須先做 FFmpeg 量測：`guide` / `instrumental` 各自檢查 `-14 LUFS` 與 `-1 dBTP`；c0/c1 只允許保留原始動態，不用追求 c2/c4 那麼嚴格。
+4. 若最後量測顯示 `guide` 或 `instrumental` 仍帶人聲、或 True Peak 高於規範，必須直接回退到已驗證成功的舊版邏輯，而不是繼續修改新的試探性流程。
+5. 重新批量新增相同歌名時，必須先刪除舊檔並覆蓋同名輸出，避免前端仍然播放舊的、未修正的 MP4。
+6. 在同一個批次或單首新增中，所有工作都必須沿用相同的 `Spleeter` 路徑、相同的 `accompaniment` 來源、相同的聲道映射與相同的驗證規則，不能混用不同版本的製作邏輯。
 
 進階既有歌曲音訊平衡不得改變聲道分類：重組時 c0/c1 必須來自原聲、c2 必須來自導唱、c3 不使用、c4 必須來自伴奏、c5 不使用；播放伴奏時只取 c4 並複製至左右輸出。重組後仍須驗證六聲道 `5.1` 配置。
 
 這套規則可避免左右聲道殘留人聲不一致，也避免伴奏被額外濾波造成音質劣化。
-
 ## 專案架構流程規劃
 
 本專案採用「單一來源、共享流程、嚴格驗證」的工程設計，確保新增曲目、批量製作與既有歌曲修正都遵循同一套音訊與播放規則。核心流程如下：
@@ -64,10 +81,10 @@ YouTube URL
 1. 驗證 YouTube URL 與歌曲名稱。
 2. 使用 yt-dlp 下載最高 720p 的可用影音來源；失敗時清理半成品並嘗試下一個格式。
 3. 使用 FFmpeg 轉換為 H.264、YUV420P、最高 1280x720、30fps，保留雙聲道音訊。
-4. 使用 `spleeter:2stems` 產生人聲與伴奏。
+4. 使用 `spleeter:4stems` 先分離人聲、鼓、Bass 與其他音樂元素，再將非人聲三 stem 合成伴奏。
 5. 依音訊規則建立 c0/c1、c2、c3、c4；c5 不使用。
 6. 以 `join/5.1` 封裝成單一 MP4。
-7. 量測並處理三種模式的最終響度。
+7. 原聲只做固定增益校準；導唱與伴奏才進行動態與響度處理，然後分別量測三種模式的最終響度與峰值規則。
 8. 使用 FFprobe 確認第一條音訊流為 6 channels、配置為 `5.1`，並使用 FFmpeg 完整解碼。
 9. 所有驗證成功後才搬入 `ktv_songs`；失敗時不得留下可播放半成品。
 
@@ -201,6 +218,7 @@ TypeError: emit() got an unexpected keyword argument 'broadcast'
 - **新增 KTV 歌曲**：依上述完整製作流程建立單曲。
 - **批量新增 KTV 歌曲**：每行格式為 `YouTube 網址 | 歌名`，逐首套用單曲流程；失敗項目會記錄在批量錯誤檔案。
 - **既有歌曲音訊平衡**：重新量測 c0/c1、c2、c4，輸出統一為 `5.1`；c5 不使用。
+- **六聲道逐聲道播放檢查**：管理端可選擇歌曲並單獨播放 c0～c5；每次只輸出選定聲道到左右喇叭，不修改歌曲檔案，供確認 c2 導唱、c4 伴奏及 c3/c5 不使用規則。
 - **既有歌曲音訊平衡（批次）**：管理端可選擇整個資料夾，先記錄全部 MP4，再逐首上傳與處理；每首成功驗證後才取代原檔，單首失敗不會中斷後續歌曲，避免一次上傳整個資料夾造成瀏覽器或伺服器無回應。
 - **既有影片 AI 去人聲**：使用與新增歌曲相同的 Spleeter、伴奏來源、聲道與驗證規則。
 - **既有影片效能最佳化**：轉為 H.264、最高 720p、30fps。
@@ -224,6 +242,8 @@ cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
 .\.venv\Scripts\Activate.ps1
 python main.py
 ```
+
+啟動批量製作前必須確認只存在一個 `main.py` 伺服器程序，且 `5000` 連接埠由專案 `.venv\Scripts\python.exe` 監聽；不可同時從系統 Python、舊版 EXE 或其他終端重複啟動，否則瀏覽器可能連到未更新的音訊處理流程。Spleeter 的 Windows worker 只執行分離工作，不得啟動 Flask 伺服器或佔用 `5000`。
 
 啟動後使用 HTTPS 區域網路網址：
 
