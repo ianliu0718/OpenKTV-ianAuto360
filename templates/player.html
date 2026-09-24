@@ -14,7 +14,8 @@
         #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 70px); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #seek-status.visible { opacity: 1; visibility: visible; }
         #waiting { font-size: 50px; color: #555; cursor: pointer; }
-        #engine-status { position: absolute; bottom: 15px; left: 20px; z-index: 10; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
+        #engine-status { position: absolute; right: 180px; bottom: 15px; left: 20px; z-index: 40; overflow: hidden; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
+        #engine-status.debug-visible { right: 20px; padding: 8px 12px; box-sizing: border-box; background: rgba(0, 0, 0, .72); color: #f9f9c5; border: 1px solid rgba(102, 217, 197, .75); border-radius: 4px; }
         #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
         #remote-qr-label { font-size: 14px; font-weight: bold; }
@@ -25,13 +26,18 @@
         #danmaku-overlay { position: absolute; inset: 0; z-index: 16; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
         #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(20px, 3vw, 36px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
         @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
+        #photo-overlay { position: absolute; inset: 0; z-index: 17; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
+        #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
+        @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -52,6 +58,7 @@
     <div id="queue-add-announcement"></div>
     <div id="song-announcement"></div>
     <div id="danmaku-overlay"></div>
+    <div id="photo-overlay"></div>
     <div id="ktv-subtitle" aria-live="polite"></div>
     <div id="engine-status">音訊引擎：尚未啟動</div>
     <div id="remote-qr"><div id="remote-qr-code"></div><div id="remote-qr-label">掃描加入遙控器</div></div>
@@ -70,18 +77,27 @@
         const keyStatus = document.getElementById('key-status');
         const seekStatus = document.getElementById('seek-status');
         const waiting = document.getElementById('waiting');
-            /** Clears subtitles and notifies the server when the song reaches its natural end. */
-            video.onended = function() { clearCurrentSubtitle(); socket.emit('song_ended'); };
+            /** Clears subtitles and notifies the server once when the current song reaches its natural end. */
+            function handleVideoEnded() {
+                const endedFilename = currentFilename;
+                const endedGeneration = playbackGeneration;
+                if (!endedFilename || endedPlaybackGeneration === endedGeneration) return;
+                endedPlaybackGeneration = endedGeneration;
+                clearCurrentSubtitle();
+                socket.emit('song_ended', { filename: endedFilename });
+            }
+            video.onended = handleVideoEnded;
         const engineStatus = document.getElementById('engine-status');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const danmakuOverlay = document.getElementById('danmaku-overlay');
-        const subtitleTrack = document.getElementById('subtitle-track');
+        const photoOverlay = document.getElementById('photo-overlay');
+        let subtitleTrack = document.getElementById('subtitle-track');
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift;
+        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -92,9 +108,12 @@
         let currentKey = 0;
         let currentFilename = '';
         let currentLoudness = null;
+        let liveLoudness = null;
+        let liveLoudnessTimer = null;
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
@@ -103,6 +122,7 @@
         // 播放端若因瀏覽器 autoplay 限制暫時無法播放，保留最後一筆播放資料供使用者點擊後重試。
         let pendingPlaybackData = null;
         let playbackGeneration = 0;
+        let endedPlaybackGeneration = -1;
 
         /** Toggles fullscreen for the playback page. */
         function toggleFullScreen() {
@@ -197,6 +217,45 @@
             danmakuOverlay.appendChild(danmakuItem);
         }
 
+        function showPhoto(data) {
+            if (!data || !data.data) return;
+            const photo = document.createElement('img');
+            photo.className = 'photo-item';
+            photo.src = data.data;
+            photo.alt = '現場照片';
+            photo.addEventListener('animationend', () => photo.remove(), { once: true });
+            photoOverlay.appendChild(photo);
+        }
+
+        async function playSoundEffect(effect) {
+            if (effect !== 'clap' || !audioCtx) return;
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            if (!clapBufferPromise) {
+                clapBufferPromise = fetch('/effects/clap.wav')
+                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('音效載入失敗')))
+                    .then(bufferData => audioCtx.decodeAudioData(bufferData));
+            }
+            try {
+                const buffer = await clapBufferPromise;
+                const sourceNode = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                const duration = Math.min(buffer.duration, 4);
+                const fadeInDuration = Math.min(0.08, duration / 3);
+                const fadeOutDuration = Math.min(0.35, duration / 3);
+                const now = audioCtx.currentTime;
+                sourceNode.buffer = buffer;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.linearRampToValueAtTime(0.75, now + fadeInDuration);
+                gainNode.gain.setValueAtTime(0.75, now + duration - fadeOutDuration);
+                gainNode.gain.linearRampToValueAtTime(0.0001, now + duration);
+                sourceNode.connect(gainNode).connect(audioCtx.destination);
+                sourceNode.start(now, 0, duration);
+            } catch (error) {
+                clapBufferPromise = null;
+                console.warn('音效無法播放', error);
+            }
+        }
+
         /**
          * Creates the QR Code that opens the current server's remote control page.
          */
@@ -230,9 +289,25 @@
         function buildQueueHistoryText(playlist) {
             const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
             if (!queueEntries.length) return '播放清單：無';
-            const visibleEntries = queueEntries.slice(0, 3);
-            const suffix = queueEntries.length > 3 ? ' | ...' : '';
-            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+            const availableWidth = Math.max(120, engineStatus.getBoundingClientRect().width);
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(engineStatus).font;
+            const prefix = '播放清單：';
+            const separator = ' | ';
+            let visibleEntries = [];
+            for (const entry of queueEntries) {
+                const candidate = `${prefix}${[...visibleEntries, entry].join(separator)}`;
+                const remaining = visibleEntries.length + 1 < queueEntries.length;
+                const withSuffix = remaining ? `${candidate}${separator}...` : candidate;
+                if (context.measureText(withSuffix).width > availableWidth) break;
+                visibleEntries.push(entry);
+            }
+            if (!visibleEntries.length) {
+                visibleEntries = [queueEntries[0]];
+            }
+            const hasHiddenEntries = visibleEntries.length < queueEntries.length;
+            return `${prefix}${visibleEntries.join(separator)}${hasHiddenEntries ? `${separator}...` : ''}`;
         }
 
         function renderEngineStatus() {
@@ -244,12 +319,23 @@
          * @param {string} message Engine name and optional diagnostic detail.
          */
         function setEngineStatus(message) {
-            const volumeText = currentLoudness === null ? '' : `｜曲目音量：${currentLoudness.toFixed(1)} LUFS`;
+            const loudness = liveLoudness ?? currentLoudness;
+            const volumeText = loudness === null ? '' : `｜即時 LUFS：${loudness.toFixed(1)}`;
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
             currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
             renderEngineStatus();
+        }
+
+        /** Estimates the current output loudness from the Web Audio signal. */
+        function updateLiveLoudness() {
+            if (!liveLoudnessAnalyser) return;
+            const samples = new Float32Array(liveLoudnessAnalyser.fftSize);
+            liveLoudnessAnalyser.getFloatTimeDomainData(samples);
+            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+            liveLoudness = rms > 0.00001 ? Math.max(-60, 20 * Math.log10(rms)) : -60;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
         }
 
         /**
@@ -258,18 +344,24 @@
          * @param {boolean} visible Whether subtitles should be visible.
          */
         function setSubtitle(filename, visible) {
+            const nextTrack = subtitleTrack.cloneNode(false);
+            subtitleTrack.replaceWith(nextTrack);
+            subtitleTrack = nextTrack;
+            subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
             currentFilename = filename;
             if (!filename || !visible) {
                 subtitleTrack.src = '';
                 subtitleTrack.track.mode = 'disabled';
                 ktvSubtitle.style.display = 'none';
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
                 ktvSubtitle.replaceChildren();
                 return;
             }
             const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.src = subtitlePath;
+            subtitleTrack.src = `${subtitlePath}?t=${Date.now()}`;
             subtitleTrack.track.mode = 'hidden';
             ktvSubtitle.style.display = 'flex';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
             ktvSubtitle.replaceChildren();
         }
 
@@ -281,6 +373,7 @@
             const size = Number(fontSize);
             if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
         }
 
         /**
@@ -302,19 +395,43 @@
         }
 
         /**
-         * Renders the active VTT cue as up to two KTV-style subtitle lines.
+         * Renders the active VTT cue as either a sliding plain-lyrics window or two KTV lines.
          */
         function renderKtvSubtitle() {
             const activeCues = subtitleTrack.track.activeCues;
-            ktvSubtitle.replaceChildren();
-            if (!activeCues || !activeCues.length) return;
-            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean).slice(0, 2);
-            lines.forEach(line => {
+            if (!activeCues || !activeCues.length) {
+                ktvSubtitle.replaceChildren();
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            const plainLyrics = activeCues[0].id.startsWith('PLAIN_LYRICS_');
+            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
+            if (!plainLyrics) lines.splice(2);
+            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
+            if (!plainLyrics) {
+                ktvSubtitle.replaceChildren(...lines.map(line => {
+                    const lineElement = document.createElement('span');
+                    lineElement.className = 'subtitle-line';
+                    lineElement.appendChild(createSubtitleTextLayer(line));
+                    return lineElement;
+                }));
+                ktvSubtitle._plainLyricsState = null;
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            ktvSubtitle.replaceChildren(...lines.map(line => {
                 const lineElement = document.createElement('span');
                 lineElement.className = 'subtitle-line';
                 lineElement.appendChild(createSubtitleTextLayer(line));
-                ktvSubtitle.appendChild(lineElement);
-            });
+                return lineElement;
+            }));
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(ktvSubtitle).font;
+            const longestLine = Math.max(...lines.map(line => context.measureText(line).width), 0);
+            const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
+            ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
         }
 
         /**
@@ -325,8 +442,13 @@
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
             subtitleTrack.track.mode = 'disabled';
+            subtitleTrack.removeAttribute('src');
             ktvSubtitle.style.display = 'none';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle._plainLyricsState = null;
+            ktvSubtitle.style.removeProperty('--plain-lyrics-width');
             ktvSubtitle.replaceChildren();
+            currentFilename = '';
         }
 
         function isDualMediaSeekCorrectionActive() {
@@ -368,6 +490,15 @@
         }
 
         function resetAudioGraph() {
+            if (liveLoudnessTimer) {
+                window.clearInterval(liveLoudnessTimer);
+                liveLoudnessTimer = null;
+            }
+            if (liveLoudnessAnalyser) {
+                try { liveLoudnessAnalyser.disconnect(); } catch (error) {}
+                liveLoudnessAnalyser = null;
+            }
+            liveLoudness = null;
             if (source) {
                 try { source.disconnect(); } catch (error) {}
                 source = null;
@@ -393,6 +524,29 @@
             }
             isAudioSetup = false;
             audioSetupPromise = null;
+        }
+
+        /** Smoothly stops media before clearing its source to prevent speaker clicks. */
+        function stopMediaWithFade(stopGeneration) {
+            const fadeDuration = 0.03;
+            if (masterGain && audioCtx) {
+                const now = audioCtx.currentTime;
+                masterGain.gain.cancelScheduledValues(now);
+                masterGain.gain.setValueAtTime(masterGain.gain.value, now);
+                masterGain.gain.linearRampToValueAtTime(0, now + fadeDuration);
+            }
+            window.setTimeout(() => {
+                if (stopGeneration !== playbackGeneration) return;
+                video.pause();
+                if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
+                video.src = '';
+                video.load();
+                if (isDualMediaSeekCorrectionActive()) audioTrack.src = '';
+                if (masterGain && audioCtx) {
+                    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+                    masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime);
+                }
+            }, fadeDuration * 1000);
         }
 
         function reloadCurrentSongForDualMedia() {
@@ -474,8 +628,8 @@
                     splitter.connect(gain, channel);
                     if (isSixChannelAudio) {
                         gain.connect(merger, 0, channel % 2);
-                        /** Duplicates guide c2 to both speakers while ignoring unreliable c3. */
-                        if (channel === 2) gain.connect(merger, 0, 1);
+                        /** Duplicates the mono guide and instrumental channels to both speakers. */
+                        if (channel === 2 || channel === 4) gain.connect(merger, 0, 1);
                     }
                     else {
                         gain.connect(merger, 0, 0);
@@ -483,11 +637,15 @@
                     }
                 });
                 merger.connect(masterGain);
+                liveLoudnessAnalyser = audioCtx.createAnalyser();
+                liveLoudnessAnalyser.fftSize = 2048;
+                masterGain.connect(liveLoudnessAnalyser);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
                 else Tone.connect(masterGain, pitchShift);
                 masterGain.gain.value = currentVolume;
                 isAudioSetup = true;
                 setAudioMode(currentMode);
+                liveLoudnessTimer = window.setInterval(updateLiveLoudness, 250);
             })();
             return audioSetupPromise;
         }
@@ -527,8 +685,16 @@
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線主機"; });
 
+        socket.on('connect', () => {
+            socket.emit('request_engine_status_config');
+            if (!window.engineStatusSyncTimer) {
+                window.engineStatusSyncTimer = window.setInterval(() => socket.emit('request_engine_status_config'), 1000);
+            }
+        });
+
         socket.on('engine_status_config', (data) => {
             engineDebugEnabled = Boolean(data && data.debug);
+            engineStatus.classList.toggle('debug-visible', engineDebugEnabled);
             renderEngineStatus();
         });
 
@@ -562,10 +728,8 @@
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
-            currentKey = 0;
             updateKeyStatus(currentKey);
             setSubtitle(data.filename, Boolean(data.visible));
-            setAudioKey(0);
             video.pause();
             audioTrack.pause();
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
@@ -610,6 +774,8 @@
         socket.on('danmaku_show', (data) => {
             if (data && data.text) showDanmaku(data.text);
         });
+        socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
+        socket.on('photo_show', showPhoto);
 
         socket.on('update_queue', (playlist) => {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
@@ -638,10 +804,8 @@
                 }
             }
             if (cmd === 'stop') {
-                video.pause();
-                if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
-                video.src = "";
-                if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
+                playbackGeneration += 1;
+                stopMediaWithFade(playbackGeneration);
                 waiting.style.display = 'block';
                 overlay.innerText = "⏹ 已停止";
                 songAnnouncement.classList.remove('visible');
@@ -654,11 +818,7 @@
             playbackGeneration += 1;
             pendingPlaybackData = null;
             clearCurrentSubtitle();
-            video.pause();
-            if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
-            video.src = "";
-            video.load();
-            if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
+            stopMediaWithFade(playbackGeneration);
             currentFilename = '';
             waiting.style.display = 'block';
             overlay.innerText = "⏹ 已停止";
@@ -699,6 +859,7 @@
                 if (masterGain) {
                     masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
                 }
+                setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             }
             if (data.pitch !== undefined) {
                 const pitch = Number(data.pitch);
@@ -720,14 +881,15 @@
         function setAudioMode(mode) {
             if(!isAudioSetup || !audioGains) return;
             const now = audioCtx.currentTime;
+            const transitionEnd = now + 0.02;
+            const channels = isSixChannelAudio
+                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4] : [0, 1])
+                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
             audioGains.forEach((gain) => {
                 gain.gain.cancelScheduledValues(now);
-                gain.gain.setValueAtTime(0, now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(channels.includes(audioGains.indexOf(gain)) ? 1 : 0, transitionEnd);
             });
-            const channels = isSixChannelAudio
-                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4, 5] : [0, 1])
-                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
-            channels.forEach((channel) => audioGains[channel].gain.setValueAtTime(1, now));
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = mode === 'guide' ? "🎵 目前模式：導唱" : mode === 'instrumental' ? "🚫 目前模式：伴奏" : "🎤 目前模式：原聲";

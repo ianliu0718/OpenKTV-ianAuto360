@@ -31,7 +31,8 @@
         #idle-screen { text-align: center; width: 100%; }
         #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
         #waiting:hover { color: #fff; border-color: #fff; }
-        #engine-status { position: absolute; bottom: 10px; left: 15px; z-index: 10; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; }
+        #engine-status { position: absolute; right: 90px; bottom: 10px; left: 15px; z-index: 40; overflow: hidden; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
+        #engine-status.debug-visible { right: 15px; padding: 6px 10px; box-sizing: border-box; background: rgba(0, 0, 0, .72); color: #f9f9c5; border: 1px solid rgba(102, 217, 197, .75); border-radius: 4px; }
         #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
         #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
         #remote-qr-label { font-size: 12px; font-weight: bold; }
@@ -40,15 +41,20 @@
         #danmaku-overlay { position: absolute; inset: 0; z-index: 26; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
         #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(18px, 3vw, 34px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
         @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
+        #photo-overlay { position: absolute; inset: 0; z-index: 27; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
+        #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
+        @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
         #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px #000, -1px -1px 2px #000; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000 }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -113,6 +119,8 @@
         ul#list li { background: #2a2a2a; padding: 12px; margin-bottom: 6px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444;}
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
         .song-btn.added { background: #607d8b; cursor: wait; }
+        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        ul#list li.song-playing { background: #174d48; border-color: #26a69a; }
         /* 待播歌曲備註面板，採用固定面板避免影響播放器版面。 */
         #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 60; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
         #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
@@ -125,13 +133,28 @@
         .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
         .note-indicator { color: #ffd54f; margin-left: 6px; }
         .danmaku-button { background: #e91e63; }
-        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        .sound-effect-button { background: #00897b; }
+        #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); flex-direction: column; }
         #danmaku-panel h4 { margin: 0 0 12px; }
+        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
+        .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
+        .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
+        .emotion-tab-panel[hidden] { display: none; }
+        .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
+        .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
+        .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
+        .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
+        .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
         #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
         .danmaku-actions .btn { flex: 1; margin: 0; }
+        .emotion-footer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; }
+        .emotion-footer .btn { flex: 1; margin: 0; min-height: 46px; }
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -157,6 +180,7 @@
         <div id="seek-status">播放位置偏移：0 秒</div>
         <div id="song-announcement"></div>
         <div id="danmaku-overlay"></div>
+        <div id="photo-overlay"></div>
         <div id="queue-add-announcement"></div>
         <div id="ktv-subtitle" aria-live="polite"></div>
         <div id="engine-status">音訊引擎：尚未啟動</div>
@@ -188,7 +212,7 @@
                 <button id="subtitle-size-increase" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(10)">＋</button>
             </div>
         </div>
-        
+
         <div class="grid">
             <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/播放</button>
             <button class="btn stop" onclick="cmd('cut')">⏹ 切歌 (下一首)</button>
@@ -196,7 +220,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
 <div class="control-group">
@@ -231,17 +255,44 @@
     </div>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
-        <h4 id="danmaku-title">發送彈幕</h4>
-        <div class="danmaku-presets">
-            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+        <h4 id="danmaku-title">情緒價值</h4>
+        <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
+            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
+            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
+            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
         </div>
-        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
-        <div class="danmaku-actions">
+        <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
+            <div class="effect-section">
+            <div class="danmaku-presets">
+                <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+                <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+            </div>
+            <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+            </div>
+        </div>
+        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
+            <div class="effect-section">
+            <div class="sound-effect-list">
+                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 歡呼拍手</button>
+            </div>
+            </div>
+        </div>
+        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
+            <div class="photo-picker">
+                <label for="emotion-photo-input">拍照或選擇手機照片</label>
+                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
+            </div>
+        </div>
+        <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
-            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendEmotionAction()">送出</button>
         </div>
     </div>
 
@@ -278,15 +329,16 @@ const socket = io();
         const playerContainer = document.getElementById('player-container');
         const engineStatus = document.getElementById('engine-status');
         const playbackModeStatus = document.getElementById('playback-mode-status');
-        const subtitleTrack = document.getElementById('subtitle-track');
+        let subtitleTrack = document.getElementById('subtitle-track');
         const ktvSubtitle = document.getElementById('ktv-subtitle');
         const songAnnouncement = document.getElementById('song-announcement');
         const queueAddAnnouncement = document.getElementById('queue-add-announcement');
         const danmakuOverlay = document.getElementById('danmaku-overlay');
+        const photoOverlay = document.getElementById('photo-overlay');
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift;
+        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -298,14 +350,20 @@ const socket = io();
         let currentFilename = '';
         let currentSubtitleFontSize = 120;
         let currentLoudness = null;
+        let liveLoudness = null;
+        let liveLoudnessTimer = null;
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
         let keyStatusTimer;
         let seekStatusTimer;
         let lastDualSyncTime = 0;
+        let playbackGeneration = 0;
+        let endedPlaybackGeneration = -1;
+        let pendingPlaybackData = null;
 
         /**
          * Updates the KEY value shown on the all-in-one playback screen.
@@ -379,9 +437,106 @@ const socket = io();
             danmakuOverlay.appendChild(danmakuItem);
         }
 
+        function showPhoto(data) {
+            if (!data || !data.data) return;
+            const photo = document.createElement('img');
+            photo.className = 'photo-item';
+            photo.src = data.data;
+            photo.alt = '現場照片';
+            photo.addEventListener('animationend', () => photo.remove(), { once: true });
+            photoOverlay.appendChild(photo);
+        }
+
+        async function playSoundEffect(effect) {
+            if (effect !== 'clap' || !audioCtx) return;
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            if (!clapBufferPromise) {
+                clapBufferPromise = fetch('/effects/clap.wav')
+                    .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error('音效載入失敗')))
+                    .then(bufferData => audioCtx.decodeAudioData(bufferData));
+            }
+            try {
+                const buffer = await clapBufferPromise;
+                const sourceNode = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                const duration = Math.min(buffer.duration, 4);
+                const fadeInDuration = Math.min(0.08, duration / 3);
+                const fadeOutDuration = Math.min(0.35, duration / 3);
+                const now = audioCtx.currentTime;
+                sourceNode.buffer = buffer;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.linearRampToValueAtTime(0.75, now + fadeInDuration);
+                gainNode.gain.setValueAtTime(0.75, now + duration - fadeOutDuration);
+                gainNode.gain.linearRampToValueAtTime(0.0001, now + duration);
+                sourceNode.connect(gainNode).connect(audioCtx.destination);
+                sourceNode.start(now, 0, duration);
+            } catch (error) {
+                clapBufferPromise = null;
+                console.warn('音效無法播放', error);
+            }
+        }
+
         function openDanmakuPanel() {
-            document.getElementById('danmaku-panel').style.display = 'block';
+            switchEmotionTab('danmaku');
+            document.getElementById('danmaku-panel').style.display = 'flex';
             document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function switchEmotionTab(tabName) {
+            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo'].forEach((name) => {
+                const active = activeEmotionTab === name;
+                document.getElementById(`emotion-panel-${name}`).hidden = !active;
+                document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
+                document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
+            });
+        }
+
+        let activeEmotionTab = 'danmaku';
+        let pendingEmotionPhoto = '';
+
+        function sendEmotionAction() {
+            if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function prepareEmotionPhoto(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const image = new Image();
+            image.onload = () => {
+                const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.width * scale));
+                canvas.height = Math.max(1, Math.round(image.height * scale));
+                canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                pendingEmotionPhoto = canvas.toDataURL('image/jpeg', 0.82);
+                const preview = document.getElementById('emotion-photo-preview');
+                preview.src = pendingEmotionPhoto;
+                preview.style.display = 'block';
+            };
+            image.src = URL.createObjectURL(file);
+        }
+
+        function sendEmotionPhoto() {
+            if (!pendingEmotionPhoto) return;
+            socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
+                if (!result || !result.success) {
+                    alert(result && result.error ? result.error : '照片發送失敗');
+                    return;
+                }
+                clearEmotionPhoto();
+                alert('照片發送成功');
+            });
+        }
+
+        function clearEmotionPhoto() {
+            pendingEmotionPhoto = '';
+            const input = document.getElementById('emotion-photo-input');
+            const preview = document.getElementById('emotion-photo-preview');
+            input.value = '';
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
         }
 
         function closeDanmakuPanel() {
@@ -395,8 +550,20 @@ const socket = io();
             socket.emit('danmaku_submit', { text: message });
         }
 
+        function sendSoundEffect(effect) {
+            socket.emit('sound_effect', { effect });
+        }
+
         function sendCustomDanmaku() {
             sendDanmaku(document.getElementById('danmaku-custom-text').value);
+        }
+
+        function sendRandomCompliment() {
+            const openers = ['✨ 這歌聲', '🎤 這個高音', '💖 這個情感', '🔥 這個氣勢', '👏 這段表現', '🌙 這個聲線', '🎶 這個節奏', '💫 這個轉音', '🥹 這個投入感', '🎧 這個音色', '🌈 這個氛圍', '👑 這位歌手'];
+            const compliments = ['太有魅力了！', '完全唱進心裡！', '好聽到想重播！', '根本是今晚最佳演出！', '穩到像原唱！', '讓全場都安靜下來了！', '每一句都好有故事！', '感染力直接滿分！', '聽得人心都融化了！', '這表現真的太驚喜！', '把整首歌唱活了！', '情緒拿捏得剛剛好！', '一開口就知道不簡單！', '這就是舞台該有的樣子！', '大家都被你的歌聲圈粉了！'];
+            const endings = ['🌟', '🥰', '🎶', '🙌', '💯', '🫶', '✨', '👏', '🔥', '💖', '🎉', '👑'];
+            const pick = (items) => items[Math.floor(Math.random() * items.length)];
+            sendDanmaku(`${pick(openers)}${pick(compliments)} ${pick(endings)}`);
         }
 
         /**
@@ -424,8 +591,16 @@ const socket = io();
 
         createRemoteQrCode();
         socket.on('qr_visibility', updateRemoteQrVisibility);
+        socket.on('connect', () => {
+            socket.emit('request_engine_status_config');
+            if (!window.engineStatusSyncTimer) {
+                window.engineStatusSyncTimer = window.setInterval(() => socket.emit('request_engine_status_config'), 1000);
+            }
+        });
+
         socket.on('engine_status_config', (data) => {
             engineDebugEnabled = Boolean(data && data.debug);
+            engineStatus.classList.toggle('debug-visible', engineDebugEnabled);
             renderEngineStatus();
         });
 
@@ -439,9 +614,25 @@ const socket = io();
         function buildQueueHistoryText(playlist) {
             const queueEntries = Array.isArray(playlist) ? playlist.map((entry) => stripFileExtension(entry)) : [];
             if (!queueEntries.length) return '播放清單：無';
-            const visibleEntries = queueEntries.slice(0, 3);
-            const suffix = queueEntries.length > 3 ? ' | ...' : '';
-            return `播放清單：${visibleEntries.join(' | ')}${suffix}`;
+            const availableWidth = Math.max(120, engineStatus.getBoundingClientRect().width);
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(engineStatus).font;
+            const prefix = '播放清單：';
+            const separator = ' | ';
+            let visibleEntries = [];
+            for (const entry of queueEntries) {
+                const candidate = `${prefix}${[...visibleEntries, entry].join(separator)}`;
+                const remaining = visibleEntries.length + 1 < queueEntries.length;
+                const withSuffix = remaining ? `${candidate}${separator}...` : candidate;
+                if (context.measureText(withSuffix).width > availableWidth) break;
+                visibleEntries.push(entry);
+            }
+            if (!visibleEntries.length) {
+                visibleEntries = [queueEntries[0]];
+            }
+            const hasHiddenEntries = visibleEntries.length < queueEntries.length;
+            return `${prefix}${visibleEntries.join(separator)}${hasHiddenEntries ? `${separator}...` : ''}`;
         }
 
         function renderEngineStatus() {
@@ -453,12 +644,23 @@ const socket = io();
          * @param {string} message Engine name and optional diagnostic detail.
          */
         function setEngineStatus(message) {
-            const volumeText = currentLoudness === null ? '' : `｜曲目音量：${currentLoudness.toFixed(1)} LUFS`;
+            const loudness = liveLoudness ?? currentLoudness;
+            const volumeText = loudness === null ? '' : `｜即時 LUFS：${loudness.toFixed(1)}`;
             const channelText = currentChannelLayout ? `｜聲道模式：${currentChannelLayout}` : '';
             const sourceText = source ? `｜WebAudio：${source.channelCount}ch/${source.channelCountMode}` : '';
             const activeText = currentActiveChannels ? `｜啟用：${currentActiveChannels}` : '';
             currentEngineSummary = `音訊引擎：${message}${volumeText}${channelText}${sourceText}${activeText}`;
             renderEngineStatus();
+        }
+
+        /** Estimates the current output loudness from the Web Audio signal. */
+        function updateLiveLoudness() {
+            if (!liveLoudnessAnalyser) return;
+            const samples = new Float32Array(liveLoudnessAnalyser.fftSize);
+            liveLoudnessAnalyser.getFloatTimeDomainData(samples);
+            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+            liveLoudness = rms > 0.00001 ? Math.max(-60, 20 * Math.log10(rms)) : -60;
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
         }
 
         /**
@@ -467,18 +669,24 @@ const socket = io();
          * @param {boolean} visible Whether subtitles should be visible.
          */
         function setSubtitle(filename, visible) {
+            const nextTrack = subtitleTrack.cloneNode(false);
+            subtitleTrack.replaceWith(nextTrack);
+            subtitleTrack = nextTrack;
+            subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
             currentFilename = filename;
             if (!filename || !visible) {
                 subtitleTrack.src = '';
                 subtitleTrack.track.mode = 'disabled';
                 ktvSubtitle.style.display = 'none';
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
                 ktvSubtitle.replaceChildren();
                 return;
             }
             const subtitlePath = `/subtitles/${encodeURIComponent(filename.replace(/\.mp4$/i, '.vtt'))}`;
-            subtitleTrack.src = subtitlePath;
+            subtitleTrack.src = `${subtitlePath}?t=${Date.now()}`;
             subtitleTrack.track.mode = 'hidden';
             ktvSubtitle.style.display = 'flex';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
             ktvSubtitle.replaceChildren();
         }
 
@@ -491,6 +699,7 @@ const socket = io();
             if (!Number.isFinite(size)) return;
             const clampedSize = Math.min(200, Math.max(80, size));
             ktvSubtitle.style.setProperty('--subtitle-scale', String(clampedSize / 100));
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
         }
 
         /**
@@ -512,23 +721,46 @@ const socket = io();
         }
 
         /**
-         * Renders the active WebVTT cue as at most two KTV subtitle lines.
+         * Renders the active WebVTT cue as either a sliding plain-lyrics window or two KTV lines.
          */
         function renderKtvSubtitle() {
             const activeCues = subtitleTrack.track.activeCues;
-            ktvSubtitle.replaceChildren();
-            if (!activeCues || !activeCues.length) return;
+            if (!activeCues || !activeCues.length) {
+                ktvSubtitle.replaceChildren();
+                ktvSubtitle.classList.remove('plain-lyrics-mode');
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            const plainLyrics = activeCues[0].id.startsWith('PLAIN_LYRICS_');
             const lines = String(activeCues[0].text || '')
                 .replace(/<[^>]*>/g, '')
                 .split(/\r?\n/)
-                .filter(Boolean)
-                .slice(0, 2);
-            lines.forEach((line) => {
+                .filter(Boolean);
+            if (!plainLyrics) lines.splice(2);
+            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
+            if (!plainLyrics) {
+                ktvSubtitle.replaceChildren(...lines.map(line => {
+                    const lineElement = document.createElement('span');
+                    lineElement.className = 'subtitle-line';
+                    lineElement.appendChild(createSubtitleTextLayer(line));
+                    return lineElement;
+                }));
+                ktvSubtitle._plainLyricsState = null;
+                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+                return;
+            }
+            ktvSubtitle.replaceChildren(...lines.map(line => {
                 const lineElement = document.createElement('span');
                 lineElement.className = 'subtitle-line';
                 lineElement.appendChild(createSubtitleTextLayer(line));
-                ktvSubtitle.appendChild(lineElement);
-            });
+                return lineElement;
+            }));
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = getComputedStyle(ktvSubtitle).font;
+            const longestLine = Math.max(...lines.map((line) => context.measureText(line).width), 0);
+            const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
+            ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
         }
 
         subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
@@ -536,7 +768,10 @@ const socket = io();
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
             subtitleTrack.track.mode = 'disabled';
+            subtitleTrack.removeAttribute('src');
             ktvSubtitle.style.display = 'none';
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle._plainLyricsState = null;
             ktvSubtitle.replaceChildren();
         }
 
@@ -600,6 +835,15 @@ const socket = io();
         }
 
         function resetAudioGraph() {
+            if (liveLoudnessTimer) {
+                window.clearInterval(liveLoudnessTimer);
+                liveLoudnessTimer = null;
+            }
+            if (liveLoudnessAnalyser) {
+                try { liveLoudnessAnalyser.disconnect(); } catch (error) {}
+                liveLoudnessAnalyser = null;
+            }
+            liveLoudness = null;
             if (source) {
                 try { source.disconnect(); } catch (error) {}
                 source = null;
@@ -625,6 +869,28 @@ const socket = io();
             }
             isAudioSetup = false;
             audioSetupPromise = null;
+        }
+
+        /** Smoothly stops media before clearing its source to prevent speaker clicks. */
+        function stopMediaWithFade(stopGeneration) {
+            const fadeDuration = 0.03;
+            if (masterGain && audioCtx) {
+                const now = audioCtx.currentTime;
+                masterGain.gain.cancelScheduledValues(now);
+                masterGain.gain.setValueAtTime(masterGain.gain.value, now);
+                masterGain.gain.linearRampToValueAtTime(0, now + fadeDuration);
+            }
+            window.setTimeout(() => {
+                if (stopGeneration !== playbackGeneration) return;
+                video.pause();
+                if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
+                video.src = '';
+                if (isDualMediaSeekCorrectionActive()) audioTrack.src = '';
+                if (masterGain && audioCtx) {
+                    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+                    masterGain.gain.setValueAtTime(currentVolume, audioCtx.currentTime);
+                }
+            }, fadeDuration * 1000);
         }
 
         function reloadCurrentSongForDualMedia() {
@@ -661,6 +927,11 @@ const socket = io();
             waitingBtn.innerHTML = "✅ 音效已啟動<br><span style='font-size:16px;color:#888;'>請從下方/右方點歌</span>";
             waitingBtn.style.borderColor = "#4CAF50";
             waitingBtn.style.color = "#4CAF50";
+            if (pendingPlaybackData) {
+                const playbackData = pendingPlaybackData;
+                pendingPlaybackData = null;
+                startComboPlayback(playbackData);
+            }
         }
 
         /**
@@ -701,8 +972,8 @@ const socket = io();
                     splitter.connect(gain, channel);
                     if (isSixChannelAudio) {
                         gain.connect(merger, 0, channel % 2);
-                        /** Duplicates guide c2 to both speakers while ignoring unreliable c3. */
-                        if (channel === 2) gain.connect(merger, 0, 1);
+                        /** Duplicates the mono guide and instrumental channels to both speakers. */
+                        if (channel === 2 || channel === 4) gain.connect(merger, 0, 1);
                     }
                     else {
                         gain.connect(merger, 0, 0);
@@ -710,11 +981,15 @@ const socket = io();
                     }
                 });
                 merger.connect(masterGain);
+                liveLoudnessAnalyser = audioCtx.createAnalyser();
+                liveLoudnessAnalyser.fftSize = 2048;
+                masterGain.connect(liveLoudnessAnalyser);
                 if (useSoundTouch) masterGain.connect(soundTouchNode).connect(audioCtx.destination);
                 else Tone.connect(masterGain, pitchShift);
                 masterGain.gain.value = currentVolume;
                 isAudioSetup = true;
                 setAudioMode(currentMode);
+                liveLoudnessTimer = window.setInterval(updateLiveLoudness, 250);
             })();
             return audioSetupPromise;
         }
@@ -783,6 +1058,7 @@ const socket = io();
                 if (masterGain) {
                     masterGain.gain.setTargetAtTime(currentVolume, audioCtx.currentTime, 0.1);
                 }
+                setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
                 document.getElementById('vol').value = currentVolume;
                 document.getElementById('vol-val').innerText = Math.round(currentVolume * 100) + "%";
             }
@@ -815,7 +1091,11 @@ const socket = io();
         });
 
         // 👑 修正點 1：刪除重複的 play_video 事件，合併為一個乾淨的版本
-        socket.on('play_video', (data) => {
+        function startComboPlayback(data) {
+            const generation = ++playbackGeneration;
+            pendingPlaybackData = data;
+            video.pause();
+            audioTrack.pause();
             updatePlaybackModeStatus(isDualMediaSeekCorrectionActive() ? 'dual' : 'single');
             idleScreen.style.display = 'none';
             video.style.display = 'block';
@@ -827,23 +1107,24 @@ const socket = io();
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
-            currentKey = 0;
             updateKeyStatus(currentKey);
             setSubtitle(data.filename, Boolean(data.visible));
-            setAudioKey(0);
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             if (isDualMediaSeekCorrectionActive()) {
                 syncMediaMuteState();
                 video.src = songUrl;
                 audioTrack.src = songUrl;
                 video.addEventListener('loadedmetadata', () => {
+                    if (generation !== playbackGeneration) return;
                     setupAudio().then(() => {
+                        if (generation !== playbackGeneration) return;
                         configureSourceChannels();
                         return Promise.all([video.play(), audioTrack.play()]);
                     }).then(() => {
+                        if (generation === playbackGeneration) pendingPlaybackData = null;
                         updateEffect();
-                        socket.emit('control_effect', { pitch: 0 });
                     }).catch(() => {
+                        pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
                     });
                 }, { once: true });
@@ -853,24 +1134,31 @@ const socket = io();
                 audioTrack.src = '';
                 video.src = songUrl;
                 video.addEventListener('loadedmetadata', () => {
+                    if (generation !== playbackGeneration) return;
                     setupAudio().then(() => {
+                        if (generation !== playbackGeneration) return;
                         configureSourceChannels();
                         return video.play();
                     }).then(() => {
+                        if (generation === playbackGeneration) pendingPlaybackData = null;
                         updateEffect();
-                        socket.emit('control_effect', { pitch: 0 });
                     }).catch(() => {
+                        pendingPlaybackData = data;
                         overlay.innerText = "⚠️ 請點擊畫面開始播放";
                     });
                 }, { once: true });
                 video.load();
             }
-        });
+        }
+
+        socket.on('play_video', startComboPlayback);
 
         socket.on('queue_song_added', (data) => showQueueAddAnnouncement(data.filename));
         socket.on('danmaku_show', (data) => {
             if (data && data.text) showDanmaku(data.text);
         });
+        socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
+        socket.on('photo_show', showPhoto);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {
@@ -879,18 +1167,24 @@ const socket = io();
             }
         });
 
-        // 👑 修正點 2：當影片播完時，發送 song_ended 讓後端決定下一首歌
-        video.onended = function() { clearCurrentSubtitle(); socket.emit('song_ended'); };
+        // 當影片播完時只發送一次 song_ended，讓後端決定下一首歌。
+        function handleVideoEnded() {
+            const endedFilename = currentFilename;
+            const endedGeneration = playbackGeneration;
+            if (!endedFilename || endedPlaybackGeneration === endedGeneration) return;
+            endedPlaybackGeneration = endedGeneration;
+            clearCurrentSubtitle();
+            socket.emit('song_ended', { filename: endedFilename });
+        }
+        video.onended = handleVideoEnded;
 
         socket.on('connect', () => { overlay.innerText = "✅ 已連線"; });
 
         socket.on('stop_video', (data) => {
             if (data && data.filename && data.filename !== currentFilename) return;
+            playbackGeneration += 1;
             clearCurrentSubtitle();
-            video.pause();
-            if (isDualMediaSeekCorrectionActive()) audioTrack.pause();
-            video.src = "";
-            if (isDualMediaSeekCorrectionActive()) audioTrack.src = "";
+            stopMediaWithFade(playbackGeneration);
             video.style.display = 'none';
             currentFilename = '';
             idleScreen.style.display = 'block'; overlay.innerText = "⏹ 已停止 (待機中)";
@@ -945,14 +1239,15 @@ const socket = io();
         function setAudioMode(mode) {
             if(!isAudioSetup || !audioGains) return;
             const now = audioCtx.currentTime;
+            const transitionEnd = now + 0.02;
+            const channels = isSixChannelAudio
+                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4] : [0, 1])
+                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
             audioGains.forEach((gain) => {
                 gain.gain.cancelScheduledValues(now);
-                gain.gain.setValueAtTime(0, now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(channels.includes(audioGains.indexOf(gain)) ? 1 : 0, transitionEnd);
             });
-            const channels = isSixChannelAudio
-                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4, 5] : [0, 1])
-                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
-            channels.forEach((channel) => audioGains[channel].gain.setValueAtTime(1, now));
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = mode === 'guide' ? "🎵 模式：導唱" : mode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";
@@ -964,7 +1259,6 @@ const socket = io();
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
         const pendingSongs = new Set();
-
         /**
          * Loads the songs that have a matching subtitle file.
          */
@@ -1054,6 +1348,10 @@ const socket = io();
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            if (!currentPlayingFilename) {
+                currentQueueHistory = [];
+                renderQueue([]);
+            }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
@@ -1163,6 +1461,7 @@ const socket = io();
                     qList.appendChild(item);
                 });
             }
+            filter();
         }
 
         // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
@@ -1286,10 +1585,14 @@ const socket = io();
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
+                const queueIndex = currentQueueHistory.indexOf(s);
+                const isQueued = queueIndex !== -1;
+                const isPlaying = queueIndex === 0;
+                const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
-                list.innerHTML += `<li class="song-row ${isPending ? 'song-added' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${name}</span><span>${subtitleButton}${playButton}</span></li>`;
+                list.innerHTML += `<li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${statusLabel}${name}</span><span>${subtitleButton}${playButton}</span></li>`;
             });
         }
 

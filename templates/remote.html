@@ -22,6 +22,8 @@
         #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
         .song-btn.added { background: #607d8b; cursor: wait; }
+        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        li.song-playing { background: #174d48; border: 1px solid #26a69a; }
         li.song-row { cursor: pointer; }
         li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
@@ -34,7 +36,7 @@
         .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
         .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
         .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
-        .setting-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .setting-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
         .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
         .setting-button input { width: auto; flex: 0 0 auto; }
         .tab-panel[hidden] { display: none; }
@@ -50,13 +52,28 @@
         .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
         .note-indicator { color: #ffd54f; margin-left: 6px; }
         .danmaku-button { background: #e91e63; }
-        #danmaku-panel { display: none; position: fixed; inset: 12% 5% auto; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
+        .sound-effect-button { background: #00897b; }
+        #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
         #danmaku-panel h4 { margin: 0 0 12px; }
+        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
+        .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
+        .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
+        .emotion-tab-panel[hidden] { display: none; }
+        .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
+        .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
+        .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
+        .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
+        .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
+        .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
         #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
         .danmaku-actions .btn { flex: 1; margin: 0; }
+        .emotion-footer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; }
+        .emotion-footer .btn { flex: 1; margin: 0; min-height: 46px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -110,6 +127,10 @@
                 <input type="checkbox" id="random-play" style="width:auto;">
                 無點歌時隨機播歌
             </label>
+            <label class="setting-button">
+                <input type="checkbox" id="screen-wake-lock" checked style="width:auto;">
+                螢幕保持常亮
+            </label>
         </div>
 
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
@@ -119,7 +140,7 @@
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 發送彈幕</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
@@ -140,7 +161,7 @@
             </div>
         </div>
 
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+        <div id="seek-correction-control" style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
             </div>
@@ -160,17 +181,44 @@
     </section>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
-        <h4 id="danmaku-title">發送彈幕</h4>
-        <div class="danmaku-presets">
-            <button class="btn" type="button" onclick="sendDanmaku('大家一起唱！')">大家一起唱！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('太好聽了！')">太好聽了！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('掌聲鼓勵！')">掌聲鼓勵！</button>
-            <button class="btn" type="button" onclick="sendDanmaku('生日快樂！')">生日快樂！</button>
+        <h4 id="danmaku-title">情緒價值</h4>
+        <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
+            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
+            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
+            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
         </div>
-        <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
-        <div class="danmaku-actions">
+        <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
+            <div class="effect-section">
+            <div class="danmaku-presets">
+                <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+                <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+                <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+            </div>
+            <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+            </div>
+        </div>
+        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
+            <div class="effect-section">
+            <div class="sound-effect-list">
+                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 歡呼拍手</button>
+            </div>
+            </div>
+        </div>
+        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
+            <div class="photo-picker">
+                <label for="emotion-photo-input">拍照或選擇手機照片</label>
+                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
+            </div>
+        </div>
+        <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
-            <button class="btn" style="background:#e91e63;" type="button" onclick="sendCustomDanmaku()">送出</button>
+            <button class="btn" style="background:#e91e63;" type="button" onclick="sendEmotionAction()">送出</button>
         </div>
     </div>
 
@@ -210,6 +258,61 @@
         const pendingSongs = new Set();
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
+        const screenWakeLock = document.getElementById('screen-wake-lock');
+        let screenWakeLockSentinel = null;
+        let screenWakeLockEnabled = localStorage.getItem('ktv-screen-wake-lock') !== 'false';
+
+        /** Requests the browser to keep this phone or tablet screen awake. */
+        async function requestScreenWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                screenWakeLock.disabled = true;
+                screenWakeLock.checked = false;
+                screenWakeLockEnabled = false;
+                return false;
+            }
+            try {
+                screenWakeLockSentinel = await navigator.wakeLock.request('screen');
+                screenWakeLockSentinel.addEventListener('release', () => {
+                    screenWakeLockSentinel = null;
+                    if (screenWakeLockEnabled && document.visibilityState === 'visible') {
+                        requestScreenWakeLock();
+                    }
+                }, { once: true });
+                return true;
+            } catch (error) {
+                screenWakeLockSentinel = null;
+                return false;
+            }
+        }
+
+        function releaseScreenWakeLock() {
+            if (screenWakeLockSentinel) {
+                screenWakeLockSentinel.release();
+                screenWakeLockSentinel = null;
+            }
+        }
+
+        async function setScreenWakeLock(enabled) {
+            screenWakeLockEnabled = Boolean(enabled);
+            localStorage.setItem('ktv-screen-wake-lock', String(screenWakeLockEnabled));
+            if (screenWakeLockEnabled) {
+                const acquired = await requestScreenWakeLock();
+                screenWakeLock.checked = acquired;
+                if (!acquired) screenWakeLockEnabled = false;
+            } else {
+                releaseScreenWakeLock();
+                screenWakeLock.checked = false;
+            }
+        }
+
+        screenWakeLock.checked = screenWakeLockEnabled;
+        screenWakeLock.addEventListener('change', () => setScreenWakeLock(screenWakeLock.checked));
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && screenWakeLockEnabled && !screenWakeLockSentinel) {
+                requestScreenWakeLock().then((acquired) => { screenWakeLock.checked = acquired; });
+            }
+        });
+        if (screenWakeLockEnabled) setScreenWakeLock(true);
 
         /**
          * Switches between song selection and playback control panels.
@@ -239,36 +342,37 @@
             queueList.innerHTML = '';
             if (!currentPlaylist.length) {
                 queueList.innerHTML = '<li>(無)</li>';
-                return;
+            } else {
+                currentPlaylist.forEach((filename, index) => {
+                    const item = document.createElement('li');
+                    const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = name;
+                    item.appendChild(nameSpan);
+                    if (hasMeaningfulSongNote(songNotes[filename])) {
+                        const noteIndicator = document.createElement('span');
+                        noteIndicator.className = 'note-indicator';
+                        noteIndicator.textContent = '📝';
+                        nameSpan.appendChild(noteIndicator);
+                    }
+                    const noteButton = document.createElement('button');
+                    noteButton.className = 'song-btn';
+                    noteButton.textContent = '備註';
+                    noteButton.addEventListener('click', () => openSongNote(filename));
+                    item.appendChild(noteButton);
+                    if (index === 0) {
+                        item.style.color = '#4CAF50';
+                    } else {
+                        const removeButton = document.createElement('button');
+                        removeButton.className = 'song-btn';
+                        removeButton.textContent = '刪除';
+                        removeButton.addEventListener('click', () => removeQueuedSong(index));
+                        item.appendChild(removeButton);
+                    }
+                    queueList.appendChild(item);
+                });
             }
-            currentPlaylist.forEach((filename, index) => {
-                const item = document.createElement('li');
-                const name = index === 0 ? `播放中：${filename.replace('.mp4', '')}` : filename.replace('.mp4', '');
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = name;
-                item.appendChild(nameSpan);
-                if (hasMeaningfulSongNote(songNotes[filename])) {
-                    const noteIndicator = document.createElement('span');
-                    noteIndicator.className = 'note-indicator';
-                    noteIndicator.textContent = '📝';
-                    nameSpan.appendChild(noteIndicator);
-                }
-                const noteButton = document.createElement('button');
-                noteButton.className = 'song-btn';
-                noteButton.textContent = '備註';
-                noteButton.addEventListener('click', () => openSongNote(filename));
-                item.appendChild(noteButton);
-                if (index === 0) {
-                    item.style.color = '#4CAF50';
-                } else {
-                    const removeButton = document.createElement('button');
-                    removeButton.className = 'song-btn';
-                    removeButton.textContent = '刪除';
-                    removeButton.addEventListener('click', () => removeQueuedSong(index));
-                    item.appendChild(removeButton);
-                }
-                queueList.appendChild(item);
-            });
+            filter();
         }
 
         // 只有備註真的有內容時才顯示提示圖示，避免空白儲存也出現圖案。
@@ -322,8 +426,66 @@
         }
 
         function openDanmakuPanel() {
-            document.getElementById('danmaku-panel').style.display = 'block';
+            switchEmotionTab('danmaku');
+            document.getElementById('danmaku-panel').style.display = 'flex';
             document.getElementById('danmaku-custom-text').focus();
+        }
+
+        function switchEmotionTab(tabName) {
+            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo'].forEach((name) => {
+                const active = activeEmotionTab === name;
+                document.getElementById(`emotion-panel-${name}`).hidden = !active;
+                document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
+                document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
+            });
+        }
+
+        let activeEmotionTab = 'danmaku';
+        let pendingEmotionPhoto = '';
+
+        function sendEmotionAction() {
+            if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function prepareEmotionPhoto(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const image = new Image();
+            image.onload = () => {
+                const scale = Math.min(1, 1280 / Math.max(image.width, image.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.width * scale));
+                canvas.height = Math.max(1, Math.round(image.height * scale));
+                canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                pendingEmotionPhoto = canvas.toDataURL('image/jpeg', 0.82);
+                const preview = document.getElementById('emotion-photo-preview');
+                preview.src = pendingEmotionPhoto;
+                preview.style.display = 'block';
+            };
+            image.src = URL.createObjectURL(file);
+        }
+
+        function sendEmotionPhoto() {
+            if (!pendingEmotionPhoto) return;
+            socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
+                if (!result || !result.success) {
+                    alert(result && result.error ? result.error : '照片發送失敗');
+                    return;
+                }
+                clearEmotionPhoto();
+                alert('照片發送成功');
+            });
+        }
+
+        function clearEmotionPhoto() {
+            pendingEmotionPhoto = '';
+            const input = document.getElementById('emotion-photo-input');
+            const preview = document.getElementById('emotion-photo-preview');
+            input.value = '';
+            preview.removeAttribute('src');
+            preview.style.display = 'none';
         }
 
         function closeDanmakuPanel() {
@@ -337,8 +499,20 @@
             socket.emit('danmaku_submit', { text: message });
         }
 
+        function sendSoundEffect(effect) {
+            socket.emit('sound_effect', { effect });
+        }
+
         function sendCustomDanmaku() {
             sendDanmaku(document.getElementById('danmaku-custom-text').value);
+        }
+
+        function sendRandomCompliment() {
+            const openers = ['✨ 這歌聲', '🎤 這個高音', '💖 這個情感', '🔥 這個氣勢', '👏 這段表現', '🌙 這個聲線', '🎶 這個節奏', '💫 這個轉音', '🥹 這個投入感', '🎧 這個音色', '🌈 這個氛圍', '👑 這位歌手'];
+            const compliments = ['太有魅力了！', '完全唱進心裡！', '好聽到想重播！', '根本是今晚最佳演出！', '穩到像原唱！', '讓全場都安靜下來了！', '每一句都好有故事！', '感染力直接滿分！', '聽得人心都融化了！', '這表現真的太驚喜！', '把整首歌唱活了！', '情緒拿捏得剛剛好！', '一開口就知道不簡單！', '這就是舞台該有的樣子！', '大家都被你的歌聲圈粉了！'];
+            const endings = ['🌟', '🥰', '🎶', '🙌', '💯', '🫶', '✨', '👏', '🔥', '💖', '🎉', '👑'];
+            const pick = (items) => items[Math.floor(Math.random() * items.length)];
+            sendDanmaku(`${pick(openers)}${pick(compliments)} ${pick(endings)}`);
         }
 
         // 將目前面板內容送到 server，由 server 驗證歌曲仍在待播清單中。
@@ -470,6 +644,10 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            if (!currentPlayingFilename) {
+                currentPlaylist = [];
+                renderQueue([]);
+            }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
             currentSubtitleFontSize = Number(data.font_size) || 120;
@@ -514,6 +692,13 @@
         }
 
         socket.on('current_song', updateCurrentSong);
+
+        socket.on('stop_video', () => {
+            currentPlayingFilename = '';
+            currentPlaylist = [];
+            renderQueue([]);
+            renderCurrentSongControl();
+        });
 
         /**
          * Updates the remote control's QR Code switch from the server state.
@@ -597,12 +782,16 @@
             }).forEach(s => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
+                const queueIndex = currentPlaylist.indexOf(s);
+                const isQueued = queueIndex !== -1;
+                const isPlaying = queueIndex === 0;
+                const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
-                    <li class="song-row ${isPending ? 'song-added' : ''}" onclick="playSongFromRow(this, '${s}', event)">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${s}</span>
+                    <li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)">
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${statusLabel}${s}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
@@ -705,6 +894,8 @@
          */
         function updateSeekCorrectionState(enabled) {
             seekCorrectionEnabled = Boolean(enabled);
+            // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
+            document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';

@@ -1,9 +1,11 @@
 import sys
 import os
+import base64
 import glob
 import queue
 import random
 import re
+import math
 
 # ==========================================
 # 【終極修復】修正 Bad file descriptor 崩潰問題
@@ -61,7 +63,7 @@ import multiprocessing
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.0.9.8"
+APP_VERSION = "v1.1.0.2"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -96,6 +98,24 @@ def get_ffprobe_path(ffmpeg_path):
     """Return the FFprobe executable beside FFmpeg or from PATH."""
     sibling_path = os.path.join(os.path.dirname(ffmpeg_path), 'ffprobe.exe')
     return sibling_path if os.path.exists(sibling_path) else shutil.which('ffprobe')
+
+def get_media_duration(song_path):
+    """Return a media file's duration in seconds for plain lyric timing."""
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffprobe_path or not os.path.exists(song_path):
+        return None
+    result = subprocess.run(
+        [ffprobe_path, '-v', 'error', '-show_entries', 'format=duration',
+         '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    try:
+        duration = float(result.stdout.strip())
+    except (TypeError, ValueError):
+        return None
+    return duration if duration > 0 else None
 
 def get_audio_channel_count(filename):
     """Return the first audio stream channel count for a song, or zero when unavailable."""
@@ -150,7 +170,7 @@ def _mode_pan_filter(mode, channels):
     if mode not in {'original', 'guide', 'instrumental'}:
         mode = 'original'
     if channels >= 6:
-        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c2'), 'instrumental': ('c4', 'c5')}[mode]
+        mode_channels = {'original': ('c0', 'c1'), 'guide': ('c2', 'c2'), 'instrumental': ('c4', 'c4')}[mode]
         return f'pan=stereo|c0={mode_channels[0]}|c1={mode_channels[1]}'
     elif mode == 'instrumental':
         return 'pan=stereo|c0=c1|c1=c1'
@@ -158,8 +178,8 @@ def _mode_pan_filter(mode, channels):
         return 'pan=stereo|c0=c0|c1=c1'
     return 'pan=stereo|c0=c0|c1=c0'
 
-def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
-    """Measure one audio file's selected mode without changing the file."""
+def _measure_audio_metrics(ffmpeg_path, song_path, mode, channels=6):
+    """Measure integrated loudness and true peak for one selected playback mode."""
     null_device = 'NUL' if os.name == 'nt' else '/dev/null'
     try:
         result = subprocess.run(
@@ -169,9 +189,17 @@ def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
-    return float(match.group(1)) if match else None
+        return None, None
+    loudness_match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
+    peak_matches = re.findall(r'^\s*Peak:\s*(-?\d+(?:\.\d+)?)\s+dBFS', result.stderr, re.MULTILINE)
+    loudness = float(loudness_match.group(1)) if loudness_match else None
+    peak = float(peak_matches[-1]) if peak_matches else None
+    return loudness, peak
+
+def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
+    """Measure one audio file's selected mode without changing the file."""
+    loudness, _ = _measure_audio_metrics(ffmpeg_path, song_path, mode, channels)
+    return loudness
 
 def get_audio_loudness(filename, mode='original'):
     """Return the selected mode's integrated loudness in LUFS, cached until the song changes."""
@@ -196,6 +224,7 @@ if ffmpeg_location:
 os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
+EFFECTS_DIR = os.path.join(BASE_DIR, "static", "sounds")
 TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing") 
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
 audio_loudness_cache = {}
@@ -217,6 +246,7 @@ LYRICS_PROVIDERS = {
 LYRICS_USER_AGENT = f'ianAutoKTV/{APP_VERSION} (local KTV lyrics downloader)'
 
 if not os.path.exists(SONGS_DIR): os.makedirs(SONGS_DIR)
+if not os.path.exists(EFFECTS_DIR): os.makedirs(EFFECTS_DIR)
 if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 
 # ==========================================
@@ -525,6 +555,10 @@ def page_index(): return render_template('remote.html')
 def serve_song(filename):
     return send_from_directory(SONGS_DIR, filename)
 
+@app.route('/effects/<path:filename>')
+def serve_effect(filename):
+    return send_from_directory(EFFECTS_DIR, filename)
+
 def _song_has_subtitle(filename):
     """Returns True only when the current song actually has a matching VTT file."""
     if not filename:
@@ -776,10 +810,11 @@ def download_lyrics():
         return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
     if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
         return json.dumps({'success': False, 'error': '請選擇有效的本地歌曲'}), 400
-    try:
-        record_id = int(record_id)
-    except (TypeError, ValueError):
-        return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
+    if provider_id != 'lyrics_ovh':
+        try:
+            record_id = int(record_id)
+        except (TypeError, ValueError):
+            return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
     output_name = os.path.splitext(song_filename)[0] + '.vtt'
     output_path = os.path.join(SONGS_DIR, output_name)
     if os.path.exists(output_path) and not overwrite:
@@ -793,13 +828,20 @@ def download_lyrics():
                 'artistName': '',
             }
         elif provider_id == 'lyrics_ovh':
-            return json.dumps({'success': False, 'error': 'lyrics.ovh 僅提供純文字歌詞，沒有同步時間碼，請使用 NetEase 或 LRCLIB'}), 400
+            artist, title = str(record_id).split('|', 1) if '|' in str(record_id) else ('', str(record_id))
+            record = lyrics_ovh_get_lyrics(title, artist)
+            record = {
+                'plainLyrics': record.get('lyrics', '') if isinstance(record, dict) else '',
+                'trackName': title,
+                'artistName': artist,
+            }
         else:
             record = lyrics_provider_request(provider_id, f'/get/{record_id}')
         synced_lyrics = str(record.get('syncedLyrics') or '').strip()
-        if not synced_lyrics:
-            return json.dumps({'success': False, 'error': '此搜尋結果沒有同步歌詞，無法直接套用到 KTV'}), 400
-        output_name = save_subtitle(song_filename, synced_lyrics, 'lrc')
+        plain_lyrics = str(record.get('plainLyrics') or '').strip()
+        if not synced_lyrics and not plain_lyrics:
+            return json.dumps({'success': False, 'error': '此搜尋結果沒有可用歌詞'}), 400
+        output_name = save_subtitle(song_filename, synced_lyrics or plain_lyrics, 'lrc' if synced_lyrics else 'plain')
         socketio.emit('refresh_list')
         return json.dumps({'success': True, 'filename': output_name, 'trackName': record.get('trackName', ''), 'artistName': record.get('artistName', '')}, ensure_ascii=False)
     except (RuntimeError, ValueError, OSError) as error:
@@ -844,17 +886,19 @@ def save_manual_subtitle():
     if not isinstance(cues, list) or not cues:
         return json.dumps({'success': False, 'error': '請至少建立一句歌詞'}), 400
     normalized_cues = []
-    for cue in cues:
+    for cue_index, cue in enumerate(cues, start=1):
         if not isinstance(cue, dict):
-            return json.dumps({'success': False, 'error': '歌詞資料格式錯誤'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞資料格式錯誤'}, ensure_ascii=False), 400
         text = str(cue.get('text', '')).strip()
         try:
             start = float(cue.get('start'))
             end = float(cue.get('end'))
         except (TypeError, ValueError):
-            return json.dumps({'success': False, 'error': '歌詞時間格式錯誤'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞時間格式錯誤'}, ensure_ascii=False), 400
+        if not math.isfinite(start) or not math.isfinite(end):
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞時間必須是有限數值'}, ensure_ascii=False), 400
         if not text or start < 0 or end <= start:
-            return json.dumps({'success': False, 'error': '歌詞內容或時間範圍無效'}), 400
+            return json.dumps({'success': False, 'error': f'第 {cue_index} 筆歌詞內容或時間範圍無效'}, ensure_ascii=False), 400
         normalized_cues.append((start, end, text))
     normalized_cues.sort(key=lambda cue: cue[0])
     for index in range(1, len(normalized_cues)):
@@ -903,29 +947,9 @@ def optimize_video():
         if not ffmpeg_path:
             broadcast_log('❌ 影片最佳化失敗：找不到 FFmpeg。')
             return json.dumps({'error': '找不到 FFmpeg'}), 500
-        broadcast_log(f'🔧 使用 FFmpeg：{ffmpeg_path}')
+        broadcast_log(f"🔧 使用 FFmpeg：{ffmpeg_path}")
         broadcast_log('⏳ 正在重新編碼為 H.264 / 最高 720p / 30fps，請稍候...')
-        command = [
-            ffmpeg_path, '-y', '-i', source_path,
-            '-map', '0:v:0', '-map', '0:a?',
-            '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-            '-profile:v', 'main', '-level', '3.1', '-pix_fmt', 'yuv420p',
-            '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
-            '-c:a', 'aac', '-movflags', '+faststart',
-            output_path,
-        ]
-        result = subprocess.run(
-            command, capture_output=True, text=True, encoding='utf-8', errors='replace',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            detail = result.stderr.strip()[-500:] if result.stderr else 'FFmpeg 未產生輸出檔案'
-            broadcast_log(f'❌ FFmpeg 轉檔失敗（return code {result.returncode}）：{detail}')
-            return json.dumps({'success': False, 'error': f'影片轉檔失敗：{detail}'}, ensure_ascii=False), 400
-        if os.path.getsize(output_path) == 0:
-            broadcast_log('❌ FFmpeg 轉檔失敗：輸出檔案為空。')
-            return json.dumps({'success': False, 'error': '影片轉檔失敗：輸出檔案為空'}), 400
+        _optimize_downloaded_video(ffmpeg_path, source_path, output_path)
         broadcast_log(f'✅ FFmpeg 轉檔完成：輸出 {os.path.getsize(output_path):,} bytes。')
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ 已取代原始影片：{filename}')
@@ -943,21 +967,29 @@ def optimize_video():
 def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     """Correct each final stereo pair to the shared -14 LUFS target."""
     mode_levels = {
-        mode: _measure_audio_loudness(ffmpeg_path, source_path, mode)
+        mode: _measure_audio_metrics(ffmpeg_path, source_path, mode)
         for mode in ('original', 'guide', 'instrumental')
     }
-    if any(level is None for level in mode_levels.values()):
-        raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量')
-    corrections = {mode: -14 - level for mode, level in mode_levels.items()}
+    if any(level[0] is None or level[1] is None for level in mode_levels.values()):
+        raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
+    # c4 是唯一可用的伴奏來源；c5 不參與伴奏處理，避免把人聲帶回輸出。
+    instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
+    mode_processor = (
+        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
+            'loudnorm=I=-14:TP=-1:LRA=11,'
+        'alimiter=limit=0.501187:attack=5:release=50:level=disabled'
+    )
     audio_filter = (
-        f'[0:a]{_mode_pan_filter("original", 6)},volume={corrections["original"]:.3f}dB[original];'
-        f'[0:a]{_mode_pan_filter("guide", 6)},volume={corrections["guide"]:.3f}dB[guide];'
-        f'[0:a]{_mode_pan_filter("instrumental", 6)},volume={corrections["instrumental"]:.3f}dB[instrumental];'
+        f'[0:a]pan=stereo|c0=c0|c1=c1,{mode_processor}[original];'
+        f'[0:a]pan=stereo|c0=c2|c1=c2,{mode_processor}[guide];'
+        f'[0:a]{instrumental_filter},{mode_processor}[instrumental];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
+        '[guide_r]volume=0[guide_unused];'
         '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
-        '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
+        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+        'alimiter=limit=0.501187:attack=5:release=50:level=disabled,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     subprocess.run(
@@ -971,28 +1003,37 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
     loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
+    # c4 is played as c4/c4; leave headroom for the mono-to-stereo duplication.
+    accompaniment_loudnorm = 'loudnorm=I=-16:TP=-1:LRA=11,' if normalize_volume else ''
+    dynamic_normalizer = (
+        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
+        if normalize_volume else ''
+    )
+    peak_limiter = 'alimiter=limit=0.501187:attack=5:release=50:level=disabled,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=stereo|c0=FL|c1=FR,{loudnorm}aresample=async=1,'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
-        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
+        '[1:a]pan=mono|c0=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_mono];'
-        '[accompaniment_mono]asplit=4[guide_acc_l_raw][guide_acc_r_raw][accompaniment_l_raw][accompaniment_r_raw];'
-        '[guide_acc_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_l];'
-        '[guide_acc_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc_r];'
-        '[accompaniment_l_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
-        '[accompaniment_r_raw]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
-        '[guide_acc_l][guide_acc_r]amerge=inputs=2,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
-        '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
-        '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
-        '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{dynamic_normalizer}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_mono];'
+        '[accompaniment_mono]asplit=2[accompaniment_l_raw][accompaniment_r_raw];'
+        '[accompaniment_l_raw][accompaniment_r_raw]amerge=inputs=2,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,'
+        f'{accompaniment_loudnorm}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
+        '[accompaniment]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc];'
+        '[vocals][guide_acc]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+        f'{dynamic_normalizer}{loudnorm}aresample=async=1,{peak_limiter}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide];'
+        '[guide]asplit=2[guide_l][guide_r];'
+        '[guide_r]volume=0[guide_unused];'
+        '[accompaniment]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
+        '[accompaniment]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
         '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
         '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
-        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
+        '[original_l][original_r][guide_l][guide_unused][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+        + peak_limiter
+        + 'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
         ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
@@ -1023,6 +1064,71 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     )
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
+    if normalize_volume:
+        _rebalance_encoded_six_channel_audio(ffmpeg_path, output_path)
+
+def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
+    """Correct encoded playback modes once, using the measured final LUFS values."""
+    measured = {
+        mode: _measure_audio_metrics(ffmpeg_path, song_path, mode)
+        for mode in ('original', 'guide', 'instrumental')
+    }
+    if any(level[0] is None for level in measured.values()):
+        raise RuntimeError('FFmpeg 無法量測編碼後的三種播放模式')
+    corrections = {
+        mode: -14.0 - level[0]
+        for mode, level in measured.items()
+        if abs(level[0] + 14.0) > 0.2
+    }
+    if not corrections:
+        return
+    temporary_path = song_path + '.rebalance.mp4'
+    original_gain = corrections.get('original', 0.0)
+    guide_gain = corrections.get('guide', 0.0)
+    instrumental_gain = corrections.get('instrumental', 0.0)
+    audio_filter = (
+        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB[original];'
+        f'[0:a]pan=mono|c0=c2,volume={guide_gain:.3f}dB[guide];'
+        f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB[instrumental];'
+        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+        '[guide]asplit=2[guide_l][guide_r];[guide_r]volume=0[guide_unused];'
+        '[instrumental]asplit=2[instrumental_l][instrumental_r];'
+        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
+        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR'
+        '[audio]'
+    )
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-y', '-i', song_path, '-filter_complex', audio_filter,
+             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+             '-movflags', '+faststart', temporary_path],
+            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(temporary_path):
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'編碼後響度修正失敗：{detail}')
+        os.replace(temporary_path, song_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+
+def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
+    """Reject final files whose three playback modes are not safely balanced."""
+    channel_count = get_audio_channel_count_from_path(song_path, ffprobe_path)
+    if channel_count != 6:
+        raise RuntimeError(f'最終音訊驗證失敗：聲道數為 {channel_count or "未知"}，預期 6')
+    failures = []
+    for mode in ('original', 'guide', 'instrumental'):
+        loudness, peak = _measure_audio_metrics(ffmpeg_path, song_path, mode)
+        if loudness is None or peak is None:
+            failures.append(f'{mode}=無法量測')
+            continue
+        if abs(loudness + 14) > 1.0 or peak > -1.0:
+            failures.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBFS')
+    if failures:
+        raise RuntimeError('最終音訊驗證失敗：' + '；'.join(failures))
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
@@ -1107,6 +1213,7 @@ def ai_vocal_remove_video():
             ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path,
             output_path, normalize_volume=True,
         )
+        _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ AI 去人聲完成：{filename}（六聲道：原聲 / 導唱 / 伴奏）')
         socketio.emit('refresh_list')
@@ -1149,10 +1256,11 @@ def normalize_video_audio():
         ffprobe_path = get_ffprobe_path(ffmpeg_path)
         if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
             balanced_source = source_path
-            for pass_index in range(2):
-                balanced_path = os.path.join(job_dir, f'balanced_{pass_index}.mp4')
-                _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
-                balanced_source = balanced_path
+            balanced_path = os.path.join(job_dir, 'balanced.mp4')
+            # 平衡流程已包含動態處理與峰值保護；只允許一次 AAC 輸出，避免重編碼再次推高峰值。
+            _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
+            balanced_source = balanced_path
+            _validate_six_channel_audio(ffmpeg_path, ffprobe_path, balanced_source)
             shutil.move(balanced_source, final_path)
             broadcast_log(f'✅ 六聲道音量平衡完成：{filename}')
             socketio.emit('refresh_list')
@@ -1183,18 +1291,21 @@ def normalize_video_audio():
 
 def save_subtitle(song_filename, content, subtitle_extension):
     """Convert subtitle text and save it as the matching song's WebVTT file."""
-    converted_content = convert_to_webvtt(content, subtitle_extension)
+    song_path = os.path.join(SONGS_DIR, os.path.basename(song_filename))
+    converted_content = convert_to_webvtt(content, subtitle_extension, get_media_duration(song_path))
     output_name = os.path.splitext(song_filename)[0] + '.vtt'
     with open(os.path.join(SONGS_DIR, output_name), 'w', encoding='utf-8', newline='\n') as output_file:
         output_file.write(converted_content)
     return output_name
 
-def convert_to_webvtt(content, subtitle_extension):
-    """Convert SRT, LRC, or VTT text into browser-compatible WebVTT text."""
+def convert_to_webvtt(content, subtitle_extension, duration=None):
+    """Convert timed or plain lyrics into browser-compatible WebVTT text."""
     if subtitle_extension == 'srt':
         return srt_to_webvtt(content)
     if subtitle_extension == 'lrc':
         return lrc_to_webvtt(content)
+    if subtitle_extension == 'plain':
+        return plain_lyrics_to_webvtt(content, duration)
     if not content.lstrip().startswith('WEBVTT'):
         return 'WEBVTT\n\n' + content
     return content
@@ -1210,7 +1321,9 @@ def detect_subtitle_format(content, extension=''):
         return 'srt'
     if extension in SUBTITLE_EXTENSIONS:
         return extension
-    raise ValueError('無法判斷字幕格式，請確認內容是 SRT、LRC 或 VTT。')
+    if normalized:
+        return 'plain'
+    raise ValueError('歌詞內容不可為空白。')
 
 def srt_to_webvtt(content):
     """Convert SRT timestamp separators to the WebVTT format."""
@@ -1248,6 +1361,38 @@ def lrc_to_webvtt(content):
         ])
     if not cues:
         raise ValueError('找不到有效的 LRC 時間標記')
+    return '\n'.join(converted)
+
+def plain_lyrics_to_webvtt(content, duration):
+    """Create a twelve-line lyric window that advances one line at a time."""
+    if not duration or duration <= 0:
+        raise ValueError('無法取得歌曲長度，無法自動安排普通歌詞時間')
+    lines = [line.strip() for line in content.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip()]
+    if not lines:
+        raise ValueError('歌詞內容不可為空白')
+    lyric_duration = max(0.1, duration - 30)
+    converted = ['WEBVTT', '']
+    line_duration = round(lyric_duration / len(lines), 3)
+    last_window_start = max(0, len(lines) - 12)
+    lead_in = min(15, duration)
+    first_window_duration = lead_in + line_duration * 6
+    for index, window_start in enumerate(range(last_window_start + 1)):
+        window = lines[window_start:window_start + 12]
+        if index == 0:
+            start_ms = 0
+            end_ms = round(first_window_duration * 1000)
+        else:
+            start_ms = round((first_window_duration + (index - 1) * line_duration) * 1000)
+            end_ms = round((first_window_duration + index * line_duration) * 1000)
+        if window_start == last_window_start:
+            end_ms = round(duration * 1000)
+        end_ms = min(end_ms, round(duration * 1000))
+        converted.extend([
+            f'PLAIN_LYRICS_{index}_{window_start}',
+            f'{format_vtt_time(start_ms)} --> {format_vtt_time(end_ms)}',
+            '\n'.join(window),
+            '',
+        ])
     return '\n'.join(converted)
 
 def format_vtt_time(milliseconds):
@@ -1303,6 +1448,7 @@ qr_visible = True
 random_play_enabled = False
 random_play_explicitly_enabled = False
 playback_rate = 1.0
+current_pitch = 0
 current_track_mode = 'original'
 seek_offset = 0.0
 seek_correction_enabled = False
@@ -1331,7 +1477,7 @@ def broadcast_engine_status_state():
     """Sync the single engine-debug toggle to all clients."""
     socketio.emit('engine_status_config', {
         'debug': engine_debug_enabled,
-    }, broadcast=True)
+    })
 
 
 """
@@ -1392,7 +1538,7 @@ def handle_connect():
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('engine_status_config', {'debug': engine_debug_enabled})
-    emit('apply_effect', {'playback_rate': playback_rate})
+    emit('apply_effect', {'playback_rate': playback_rate, 'pitch': current_pitch})
     emit('set_audio', {'mode': current_track_mode})
 
 @socketio.on('set_engine_debug')
@@ -1400,7 +1546,13 @@ def handle_set_engine_debug(data):
     """Toggle verbose engine diagnostics for the status strip; when off, show compact playback history."""
     global engine_debug_enabled
     engine_debug_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
+    print(f'音訊引擎除錯資訊：{"開啟" if engine_debug_enabled else "關閉"}')
     broadcast_engine_status_state()
+
+@socketio.on('request_engine_status_config')
+def handle_request_engine_status_config():
+    """Return the current engine-debug setting to a client after connection or reload."""
+    emit('engine_status_config', {'debug': engine_debug_enabled})
 
 @socketio.on('set_seek_correction')
 def handle_set_seek_correction(data):
@@ -1409,9 +1561,9 @@ def handle_set_seek_correction(data):
     seek_correction_enabled = bool(data.get('enabled')) if isinstance(data, dict) else False
     if not seek_correction_enabled:
         seek_offset = 0.0
-    socketio.emit('seek_correction', {'enabled': seek_correction_enabled}, broadcast=True)
+    socketio.emit('seek_correction', {'enabled': seek_correction_enabled})
     if not seek_correction_enabled:
-        socketio.emit('seek_video', {'seconds': 0, 'offset': 0}, broadcast=True)
+        socketio.emit('seek_video', {'seconds': 0, 'offset': 0})
 
 @socketio.on('set_qr_visibility')
 def handle_qr_visibility(data):
@@ -1457,13 +1609,13 @@ def handle_add_queue(data):
 
 @socketio.on('replay_current_song')
 def handle_replay_current_song():
-    """Insert the current song after itself, then cut to replay it immediately."""
+    """Insert the current song after itself, then cut to replay it immediately while preserving the active key."""
     if not playlist_queue:
         return
     filename = playlist_queue[0]
     playlist_queue.insert(1, filename)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
-    handle_song_ended()
+    handle_song_ended(reset_pitch=False)
 
 @socketio.on('toggle_subtitle')
 def handle_toggle_subtitle(data):
@@ -1560,13 +1712,22 @@ def handle_song_note_submit(data):
     emit('song_note_updated', note, broadcast=True)
 
 @socketio.on('song_ended')
-def handle_song_ended():
-    """Advance the queue while preventing random idle fill from racing user-selected songs."""
-    global subtitle_visible, seek_offset, last_user_action_time
+def handle_song_ended(data=None, reset_pitch=True):
+    """Advance the queue while preventing random idle fill from racing user-selected songs.
+    Replay intentionally preserves the active pitch so the user keeps the same KEY when restarting the same song.
+    """
+    global subtitle_visible, seek_offset, last_user_action_time, current_pitch
+    ended_filename = os.path.basename(str(data.get('filename', '')).strip()) if isinstance(data, dict) else ''
+    if ended_filename and (not playlist_queue or ended_filename != playlist_queue[0]):
+        return
     if len(playlist_queue) > 0:
         # 移除剛剛唱完的那首歌
         playlist_queue.pop(0)
         seek_offset = 0.0
+        if reset_pitch:
+            # 每首歌結束後只重設升降 KEY，其他播放設定維持原狀。
+            current_pitch = 0
+            socketio.emit('apply_effect', {'pitch': current_pitch})
         emit('update_queue', playlist_queue, broadcast=True)
 
         # 檢查是否還有下一首
@@ -1584,14 +1745,35 @@ def handle_song_ended():
                     return
             # 沒歌了，停止畫面並回到待機狀態
             emit('stop_video', broadcast=True)
+            # 再同步一次最終空佇列，避免控制頁面保留上一首的「播放中」標籤。
+            emit('update_queue', playlist_queue, broadcast=True)
             broadcast_current_song()
 
 @socketio.on('control')
 def handle_control(action):
+    global current_pitch
     if action == 'cut':
-        if playlist_queue:
-            emit('stop_video', {'filename': playlist_queue[0]}, broadcast=True)
-        handle_song_ended()
+        if not playlist_queue:
+            return
+        current_filename = playlist_queue[0]
+        emit('stop_video', {'filename': current_filename}, broadcast=True)
+
+        if len(playlist_queue) > 1:
+            playlist_queue.pop(0)
+            current_pitch = 0
+            socketio.emit('apply_effect', {'pitch': current_pitch})
+            emit('update_queue', playlist_queue, broadcast=True)
+            next_song = playlist_queue[0]
+            emit('play_video', _play_video_payload(next_song), broadcast=True)
+            broadcast_current_song()
+            return
+
+        playlist_queue.pop(0)
+        current_pitch = 0
+        socketio.emit('apply_effect', {'pitch': current_pitch})
+        emit('update_queue', playlist_queue, broadcast=True)
+        broadcast_current_song()
+        return
     else:
         # 其他指令 (例如 pause) 照常發送
         emit('command', action, broadcast=True)
@@ -1606,6 +1788,34 @@ def handle_danmaku_submit(data):
         return
     # 彈幕是即時氣氛訊息，不寫入歌曲或備註檔案。
     emit('danmaku_show', {'text': text}, broadcast=True)
+
+@socketio.on('sound_effect')
+def handle_sound_effect(data):
+    """Broadcast a supported short audience-reaction sound effect."""
+    if not isinstance(data, dict):
+        return
+    effect = str(data.get('effect', '')).strip().lower()
+    if effect not in {'clap'}:
+        return
+    emit('sound_effect', {'effect': effect}, broadcast=True)
+
+@socketio.on('photo_submit')
+def handle_photo_submit(data):
+    """Validate and broadcast one temporary camera photo to playback screens."""
+    if not isinstance(data, dict):
+        return {'success': False, 'error': '照片資料格式錯誤'}
+    image_data = str(data.get('data', '')).strip()
+    match = re.fullmatch(r'data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)', image_data)
+    if not match:
+        return {'success': False, 'error': '照片格式不支援'}
+    try:
+        decoded = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error):
+        return {'success': False, 'error': '照片資料無效'}
+    if not decoded or len(decoded) > 5 * 1024 * 1024:
+        return {'success': False, 'error': '照片大小不可超過 5 MB'}
+    emit('photo_show', {'data': image_data}, broadcast=True)
+    return {'success': True}
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
@@ -1629,7 +1839,7 @@ def handle_seek_video(data):
 @socketio.on('control_effect')
 def handle_effect(data):
     """Normalize and broadcast audio control updates for volume, pitch, and playback rate."""
-    global playback_rate
+    global playback_rate, current_pitch
     if not isinstance(data, dict):
         return
 
@@ -1643,8 +1853,19 @@ def handle_effect(data):
             return
         playback_rate = requested_rate
 
+    normalized_data = dict(data)
+    if 'pitch' in data:
+        try:
+            requested_pitch = int(data['pitch'])
+        except (TypeError, ValueError):
+            return
+        if requested_pitch < -12 or requested_pitch > 12:
+            return
+        current_pitch = requested_pitch
+        normalized_data['pitch'] = current_pitch
+
     # 升降 KEY / 音量 / 速度都以同一個事件廣播，讓遙控器與播放器同步。
-    emit('apply_effect', data, broadcast=True)
+    emit('apply_effect', normalized_data, broadcast=True)
 
 @socketio.on('change_track')
 def handle_track(mode):
@@ -1978,6 +2199,7 @@ class KTVProcessor:
                 ffmpeg_path, ffprobe_path, temp_input, voc_path, acc_path,
                 temp_output, normalize_volume,
             )
+            _validate_six_channel_audio(ffmpeg_path, ffprobe_path, temp_output)
 
             current_step = '步驟 5/5 儲存檔案'
             self.log(f"步驟 5/5: 儲存為 {safe_title}.mp4")
@@ -2088,7 +2310,11 @@ class ServerApp(tk.Tk):
 
     def toggle_engine_debug(self):
         """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""
-        handle_set_engine_debug({'enabled': bool(self.engine_debug_var.get())})
+        global engine_debug_enabled
+        # 以伺服器目前狀態反轉，避免 Tk Checkbutton 回呼讀到尚未更新的舊值。
+        enabled = not engine_debug_enabled
+        self.engine_debug_var.set(enabled)
+        handle_set_engine_debug({'enabled': enabled})
 
     def enable_lan_access(self):
         """請求 UAC 提權建立 Windows 防火牆入站規則。"""
