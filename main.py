@@ -992,13 +992,16 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         'alimiter=limit=0.501187:attack=5:release=50:level=disabled,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
-    subprocess.run(
-        [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
-         '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-         '-movflags', '+faststart', output_path],
-        check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-    )
+    try:
+        subprocess.run(
+            [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
+             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+             '-movflags', '+faststart', output_path],
+            check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=600, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('六聲道音量平衡逾時（超過 600 秒）') from error
 
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
@@ -1067,18 +1070,19 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     if normalize_volume:
         _rebalance_encoded_six_channel_audio(ffmpeg_path, output_path)
 
-def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
-    """Correct encoded playback modes once, using the measured final LUFS values."""
+def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path, attempt=0):
+    """Apply at most one measured AAC correction pass after the initial output."""
     measured = {
         mode: _measure_audio_metrics(ffmpeg_path, song_path, mode)
         for mode in ('original', 'guide', 'instrumental')
     }
-    if any(level[0] is None for level in measured.values()):
+    if any(level[0] is None or level[1] is None for level in measured.values()):
         raise RuntimeError('FFmpeg 無法量測編碼後的三種播放模式')
     corrections = {
-        mode: -14.0 - level[0]
+        # AAC 編碼可能使 True Peak 回升；修正時不得把已超峰值的模式再放大。
+        mode: min(-14.0 - level[0], -1.0 - level[1])
         for mode, level in measured.items()
-        if abs(level[0] + 14.0) > 0.2
+        if abs(level[0] + 14.0) > 0.2 or level[1] > -1.0
     }
     if not corrections:
         return
@@ -1087,22 +1091,25 @@ def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
     guide_gain = corrections.get('guide', 0.0)
     instrumental_gain = corrections.get('instrumental', 0.0)
     audio_filter = (
-        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB[original];'
-        f'[0:a]pan=mono|c0=c2,volume={guide_gain:.3f}dB[guide];'
-        f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB[instrumental];'
+        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
+        'alimiter=limit=0.891251:attack=5:release=50:level=disabled[original];'
+        f'[0:a]pan=mono|c0=c2,volume={guide_gain:.3f}dB,'
+        'alimiter=limit=0.891251:attack=5:release=50:level=disabled[guide];'
+        f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB,'
+        'alimiter=limit=0.891251:attack=5:release=50:level=disabled[instrumental];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
         '[guide]asplit=2[guide_l][guide_r];[guide_r]volume=0[guide_unused];'
         '[instrumental]asplit=2[instrumental_l][instrumental_r];'
         '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR'
-        '[audio]'
+        ',alimiter=limit=0.891251:attack=5:release=50:level=disabled[audio]'
     )
     try:
         result = subprocess.run(
             [ffmpeg_path, '-y', '-i', song_path, '-filter_complex', audio_filter,
              '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
              '-movflags', '+faststart', temporary_path],
-            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300,
             encoding='utf-8', errors='replace',
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
@@ -1113,6 +1120,8 @@ def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
     finally:
         if os.path.exists(temporary_path):
             os.remove(temporary_path)
+    if attempt < 1:
+        _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path, attempt + 1)
 
 def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
     """Reject final files whose three playback modes are not safely balanced."""
@@ -1272,11 +1281,23 @@ def normalize_video_audio():
             '-c:a', 'aac', '-movflags', '+faststart', output_path,
         ]
         result = subprocess.run(
-            command, capture_output=True, text=True,
+            command, capture_output=True, text=True, timeout=600,
+            encoding='utf-8', errors='replace',
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
         if result.returncode != 0 or not os.path.exists(output_path):
-            raise RuntimeError('FFmpeg 音量平衡失敗')
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'FFmpeg 音量平衡失敗：{detail}')
+        validation = subprocess.run(
+            [ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+             '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+             'NUL' if os.name == 'nt' else '/dev/null'],
+            check=False, capture_output=True, text=True, timeout=600,
+            encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if validation.returncode != 0:
+            raise RuntimeError('FFmpeg 完整解碼驗證失敗')
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ 音量平衡完成：{filename}')
         socketio.emit('refresh_list')
@@ -1287,6 +1308,84 @@ def normalize_video_audio():
     finally:
         is_processing = False
         socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+@app.route('/api/videos/normalize-audio-batch', methods=['POST'])
+def normalize_videos_audio_batch():
+    """Balance a selected folder of MP4 songs sequentially with the same single-file rules."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_files = [file for file in request.files.getlist('videos') if file and file.filename]
+    video_files = [file for file in video_files if os.path.basename(file.filename).lower().endswith('.mp4')]
+    if not video_files:
+        return json.dumps({'error': '請選擇含有 MP4 的歌曲資料夾'}), 400
+
+    ffmpeg_dir = get_ffmpeg_location()
+    ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffmpeg_path or not ffprobe_path:
+        return json.dumps({'error': '找不到 FFmpeg 或 FFprobe'}), 500
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'normalize_audio_batch_{time.time_ns()}')
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy', 'batch': True, 'total': len(video_files)})
+    successes = []
+    failures = []
+    try:
+        broadcast_log(f'=== 開始批次平衡音量：共 {len(video_files)} 首 ===')
+        for index, video_file in enumerate(video_files, start=1):
+            filename = os.path.basename(video_file.filename)
+            source_path = os.path.join(job_dir, f'{index}_input.mp4')
+            output_path = os.path.join(job_dir, f'{index}_balanced.mp4')
+            final_path = os.path.join(SONGS_DIR, filename)
+            try:
+                video_file.save(source_path)
+                broadcast_log(f'=== 批次音量平衡 {index}/{len(video_files)}：{filename} ===')
+                if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
+                    _balance_six_channel_loudness(ffmpeg_path, source_path, output_path)
+                    _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
+                else:
+                    result = subprocess.run(
+                        [ffmpeg_path, '-y', '-i', source_path, '-map', '0:v:0', '-map', '0:a?',
+                         '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
+                         '-c:a', 'aac', '-movflags', '+faststart', output_path],
+                        check=False, capture_output=True, text=True, timeout=600,
+                        encoding='utf-8', errors='replace',
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                    )
+                    if result.returncode != 0 or not os.path.exists(output_path):
+                        detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+                        raise RuntimeError(f'FFmpeg 音量平衡失敗：{detail}')
+                    validation = subprocess.run(
+                        [ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+                         '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+                         'NUL' if os.name == 'nt' else '/dev/null'],
+                        check=False, capture_output=True, text=True, timeout=600,
+                        encoding='utf-8', errors='replace',
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                    )
+                    if validation.returncode != 0:
+                        raise RuntimeError('FFmpeg 完整解碼驗證失敗')
+                os.replace(output_path, final_path)
+                successes.append(filename)
+                broadcast_log(f'✅ 批次音量平衡完成：{filename}')
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                failures.append({'filename': filename, 'error': str(error)})
+                broadcast_log(f'❌ 批次音量平衡失敗：{filename}：{error}')
+        socketio.emit('refresh_list')
+        broadcast_log(f'=== 批次音量平衡完成：成功 {len(successes)} 首，失敗 {len(failures)} 首 ===')
+        return json.dumps({
+            'success': not failures,
+            'success_count': len(successes),
+            'failure_count': len(failures),
+            'successes': successes,
+            'failures': failures,
+        }, ensure_ascii=False)
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle', 'batch': True})
         shutil.rmtree(job_dir, ignore_errors=True)
 
 def save_subtitle(song_filename, content, subtitle_extension):
