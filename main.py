@@ -1841,7 +1841,11 @@ def handle_song_ended(data=None, reset_pitch=True):
 def handle_control(action):
     global current_pitch
     if action == 'cut':
+        # 防呆：切歌後若隊列空了，仍要檢查「無點播時隨機播歌」設定，
+        # 否則使用者勾選自動補播時，會因為漏判而直接停住不播下一首。
         if not playlist_queue:
+            if random_play_explicitly_enabled and can_start_random_song():
+                start_random_song()
             return
         current_filename = playlist_queue[0]
         emit('stop_video', {'filename': current_filename}, broadcast=True)
@@ -1860,6 +1864,9 @@ def handle_control(action):
         current_pitch = 0
         socketio.emit('apply_effect', {'pitch': current_pitch})
         emit('update_queue', playlist_queue, broadcast=True)
+        if random_play_explicitly_enabled and can_start_random_song():
+            if start_random_song():
+                return
         broadcast_current_song()
         return
     else:
