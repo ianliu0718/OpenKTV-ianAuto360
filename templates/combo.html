@@ -342,6 +342,7 @@ const socket = io();
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
+        let audioModeRequestId = 0;
         let seekCorrectionEnabled = false;
         let currentSeekOffset = 0;
         let currentMode = 'original';
@@ -1222,14 +1223,44 @@ const socket = io();
             }
         });
 
+        function requestAudioMode(mode, requestId = null) {
+            const safeMode = ['original', 'guide', 'instrumental'].includes(mode) ? mode : 'original';
+            const token = requestId === null ? ++audioModeRequestId : requestId;
+            currentMode = safeMode;
+            if (requestId === null) {
+                audioModeRequestId = token;
+            }
+            if (!isAudioSetup || !audioGains || !audioCtx) return;
+            if (token !== audioModeRequestId) return;
+            const now = audioCtx.currentTime;
+            const transitionEnd = now + 0.02;
+            const channels = isSixChannelAudio
+                ? (safeMode === 'guide' ? [2] : safeMode === 'instrumental' ? [4] : [0, 1])
+                : (safeMode === 'instrumental' ? [1] : safeMode === 'guide' ? [0, 1] : [0]);
+            audioGains.forEach((gain) => {
+                const channelIndex = audioGains.indexOf(gain);
+                gain.gain.cancelScheduledValues(now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(channels.includes(channelIndex) ? 1 : 0, transitionEnd);
+            });
+            currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
+            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
+            overlay.innerText = safeMode === 'guide' ? "🎵 模式：導唱" : safeMode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";
+        }
+
         socket.on('set_audio', (data) => {
             const mode = typeof data === 'string' ? data : data.mode;
-            currentMode = mode;
+            const requestId = Number.isFinite(Number(data && data.request_id)) ? Number(data.request_id) : null;
+            const safeMode = ['original', 'guide', 'instrumental'].includes(mode) ? mode : 'original';
+            if (requestId !== null) {
+                audioModeRequestId = Math.max(audioModeRequestId, requestId);
+            }
+            currentMode = safeMode;
             if (data && typeof data === 'object' && Number.isFinite(Number(data.audio_loudness_lufs))) {
                 currentLoudness = Number(data.audio_loudness_lufs);
                 setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             }
-            setAudioMode(mode);
+            requestAudioMode(safeMode, requestId !== null ? requestId : ++audioModeRequestId);
         });
 
         /**
@@ -1237,20 +1268,7 @@ const socket = io();
          * @param {string} mode Playback mode: original, guide, or instrumental.
          */
         function setAudioMode(mode) {
-            if(!isAudioSetup || !audioGains) return;
-            const now = audioCtx.currentTime;
-            const transitionEnd = now + 0.02;
-            const channels = isSixChannelAudio
-                ? (mode === 'guide' ? [2] : mode === 'instrumental' ? [4] : [0, 1])
-                : (mode === 'instrumental' ? [1] : mode === 'guide' ? [0, 1] : [0]);
-            audioGains.forEach((gain) => {
-                gain.gain.cancelScheduledValues(now);
-                gain.gain.setValueAtTime(gain.gain.value, now);
-                gain.gain.linearRampToValueAtTime(channels.includes(audioGains.indexOf(gain)) ? 1 : 0, transitionEnd);
-            });
-            currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
-            setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
-            overlay.innerText = mode === 'guide' ? "🎵 模式：導唱" : mode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";
+            requestAudioMode(mode, audioModeRequestId);
         }
 
         // --- 遙控器邏輯 ---

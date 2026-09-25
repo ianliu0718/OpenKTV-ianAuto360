@@ -1537,6 +1537,7 @@ random_play_explicitly_enabled = False
 playback_rate = 1.0
 current_pitch = 0
 current_track_mode = 'original'
+track_mode_request_id = 0
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
@@ -1957,26 +1958,33 @@ def handle_effect(data):
 @socketio.on('change_track')
 def handle_track(mode):
     """Switch the playback mode immediately and keep it active for all subsequent songs until changed again."""
-    global current_track_mode
+    global current_track_mode, track_mode_request_id
     if mode not in {'original', 'guide', 'instrumental'}:
         return
+    track_mode_request_id += 1
+    request_id = track_mode_request_id
     current_track_mode = mode
     filename = playlist_queue[0] if playlist_queue else ''
     emit('set_audio', {
         'mode': mode,
         'audio_loudness_lufs': None,
+        'request_id': request_id,
     }, broadcast=True)
     if not filename:
         return
 
     def update_loudness():
-        """Send the selected mode's LUFS after the blocking FFmpeg analysis finishes."""
+        """Send the selected mode's LUFS only when the same mode request is still the newest."""
         loudness = get_audio_loudness(filename, mode)
-        if playlist_queue and playlist_queue[0] == filename:
-            socketio.emit('set_audio', {
-                'mode': mode,
-                'audio_loudness_lufs': loudness,
-            })
+        if not playlist_queue or playlist_queue[0] != filename:
+            return
+        if track_mode_request_id != request_id:
+            return
+        socketio.emit('set_audio', {
+            'mode': mode,
+            'audio_loudness_lufs': loudness,
+            'request_id': request_id,
+        })
 
     socketio.start_background_task(update_loudness)
 
