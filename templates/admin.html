@@ -59,6 +59,8 @@
         .nav-remote { background: #E91E63; }
         .nav-console { background: #9C27B0; }
         .nav-player { background: #2196F3; }
+        .channel-inspector video { display: block; width: 100%; background: #000; margin: 10px 0; }
+        .channel-inspector-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -170,6 +172,26 @@
             <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-14 LUFS）</button>
             <p id="normalize_audio_status"></p>
         </details>
+        <details class="channel-inspector">
+            <summary>進階：六聲道逐聲道播放檢查</summary>
+            <label for="channel_inspector_song">選擇要檢查的歌曲:</label>
+            <select id="channel_inspector_song">
+                <option value="">請選擇歌曲</option>
+            </select>
+            <div class="channel-inspector-controls">
+                <select id="channel_inspector_channel" aria-label="選擇音訊聲道">
+                    <option value="0">c0 原聲左</option>
+                    <option value="1">c1 原聲右</option>
+                    <option value="2">c2 導唱</option>
+                    <option value="3">c3 不使用</option>
+                    <option value="4">c4 伴奏</option>
+                    <option value="5">c5 不使用</option>
+                </select>
+                <button type="button" id="btn_channel_inspector_stop" class="btn-update">停止播放</button>
+            </div>
+            <video id="channel_inspector_video" controls preload="metadata"></video>
+            <p id="channel_inspector_status">請選擇歌曲與聲道。</p>
+        </details>
         <details class="system-maintenance">
             <summary>進階：系統維護</summary>
             <button id="btn_update" class="btn-update" onclick="updateYtDlp()">🔄 手動更新 yt-dlp 核心</button>
@@ -194,6 +216,11 @@
         const normalizeAudioFile = document.getElementById('normalize_audio_file');
         const normalizeAudioButton = document.getElementById('btn_normalize_audio');
         const normalizeAudioStatus = document.getElementById('normalize_audio_status');
+        const channelInspectorSong = document.getElementById('channel_inspector_song');
+        const channelInspectorChannel = document.getElementById('channel_inspector_channel');
+        const channelInspectorVideo = document.getElementById('channel_inspector_video');
+        const channelInspectorStopButton = document.getElementById('btn_channel_inspector_stop');
+        const channelInspectorStatus = document.getElementById('channel_inspector_status');
         const batchDownloads = document.getElementById('batch_downloads');
         const batchDownloadButton = document.getElementById('btn_batch_dl');
         const batchDownloadStatus = document.getElementById('batch_download_status');
@@ -222,6 +249,75 @@
         let songNotes = {};
         let manualLyricSearchTimer = null;
         let manualLyricPreviewUrl = '';
+        let channelInspectorAudioContext = null;
+        let channelInspectorSource = null;
+        let channelInspectorSplitter = null;
+        let channelInspectorMerger = null;
+        let channelInspectorGains = [];
+
+        /** 建立只輸出單一離散聲道的檢查播放器，不修改來源 MP4。 */
+        function setupChannelInspectorAudio() {
+            if (channelInspectorSource) return;
+            channelInspectorAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            channelInspectorSource = channelInspectorAudioContext.createMediaElementSource(channelInspectorVideo);
+            channelInspectorSource.channelInterpretation = 'discrete';
+            channelInspectorSource.channelCountMode = 'explicit';
+            channelInspectorSource.channelCount = 6;
+            channelInspectorSplitter = channelInspectorAudioContext.createChannelSplitter(6);
+            channelInspectorSplitter.channelInterpretation = 'discrete';
+            channelInspectorMerger = channelInspectorAudioContext.createChannelMerger(2);
+            channelInspectorMerger.channelInterpretation = 'discrete';
+            channelInspectorGains = Array.from({ length: 6 }, () => channelInspectorAudioContext.createGain());
+            channelInspectorSource.connect(channelInspectorSplitter);
+            channelInspectorGains.forEach((gain, index) => {
+                channelInspectorSplitter.connect(gain, index);
+                gain.connect(channelInspectorMerger, 0, 0);
+                gain.connect(channelInspectorMerger, 0, 1);
+            });
+            channelInspectorMerger.connect(channelInspectorAudioContext.destination);
+            setChannelInspectorChannel();
+        }
+
+        /** 將檢查播放器切換至指定 c0-c5，並複製到左右輸出。 */
+        function setChannelInspectorChannel() {
+            if (!channelInspectorGains.length) return;
+            const selectedChannel = Number(channelInspectorChannel.value);
+            channelInspectorGains.forEach((gain, index) => {
+                gain.gain.value = index === selectedChannel ? 1 : 0;
+            });
+            const option = channelInspectorChannel.options[channelInspectorChannel.selectedIndex];
+            channelInspectorStatus.innerText = `目前檢查：${option ? option.text : `c${selectedChannel}`}`;
+        }
+
+        /** 載入管理端可用歌曲，供六聲道逐聲道檢查使用。 */
+        function loadChannelInspectorSongs() {
+            fetch('/api/list').then((response) => response.json()).then((songs) => {
+                channelInspectorSong.innerHTML = '<option value="">請選擇歌曲</option>'
+                    + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            }).catch(() => {
+                channelInspectorStatus.innerText = '歌曲清單載入失敗。';
+            });
+        }
+
+        channelInspectorSong.addEventListener('change', () => {
+            const filename = channelInspectorSong.value;
+            if (!filename) {
+                channelInspectorVideo.pause();
+                channelInspectorVideo.removeAttribute('src');
+                channelInspectorVideo.load();
+                channelInspectorStatus.innerText = '請選擇歌曲與聲道。';
+                return;
+            }
+            setupChannelInspectorAudio();
+            channelInspectorVideo.src = `/songs/${encodeURIComponent(filename)}?channel_check=${Date.now()}`;
+            channelInspectorVideo.load();
+            channelInspectorStatus.innerText = '歌曲載入中，請按播放。';
+        });
+        channelInspectorChannel.addEventListener('change', setChannelInspectorChannel);
+        channelInspectorStopButton.addEventListener('click', () => {
+            channelInspectorVideo.pause();
+            channelInspectorVideo.currentTime = 0;
+        });
 
         /** Formats seconds as a WebVTT timestamp for the manual editor preview. */
         function formatManualVttTime(seconds) {
@@ -301,6 +397,7 @@
             window.addEventListener('resize', updateManualLyricOverlayFontSize);
         }
         updateManualLyricOverlayFontSize();
+        loadChannelInspectorSongs();
 
         /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
         function prioritizeSongNotes(songs) {

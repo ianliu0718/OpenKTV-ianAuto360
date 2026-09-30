@@ -60,6 +60,9 @@ from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import multiprocessing
 
+# Windows worker 必須沿用目前虛擬環境，避免子程序誤以系統 Python 再啟動一份伺服器。
+multiprocessing.set_executable(sys.executable)
+
 # ==========================================
 # 設定區
 # ==========================================
@@ -970,70 +973,64 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         mode: _measure_audio_metrics(ffmpeg_path, source_path, mode)
         for mode in ('original', 'guide', 'instrumental')
     }
-    if any(level[0] is None or level[1] is None for level in mode_levels.values()):
+    if any(level[0] is None or (mode != 'original' and level[1] is None)
+           for mode, level in mode_levels.items()):
         raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
-    # c4 是唯一可用的伴奏來源；c5 不參與伴奏處理，避免把人聲帶回輸出。
-    instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
-    mode_processor = (
-        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
-            'loudnorm=I=-14:TP=-1:LRA=11,'
-        'alimiter=limit=0.501187:attack=5:release=50:level=disabled'
-    )
+    original_gain = -14.0 - mode_levels['original'][0]
+    guide_gain = min(-14.0 - mode_levels['guide'][0], -2.5 - mode_levels['guide'][1])
+    instrumental_gain = min(-14.0 - mode_levels['instrumental'][0], -2.5 - mode_levels['instrumental'][1])
     audio_filter = (
-        f'[0:a]pan=stereo|c0=c0|c1=c1,{mode_processor}[original];'
-        f'[0:a]pan=stereo|c0=c2|c1=c2,{mode_processor}[guide];'
-        f'[0:a]{instrumental_filter},{mode_processor}[instrumental];'
+        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
+        f'[0:a]pan=stereo|c0=c2|c1=c2,volume={guide_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        f'[0:a]pan=stereo|c0=c4|c1=c4,volume={instrumental_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
         '[guide_r]volume=0[guide_unused];'
         '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
         '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-        'alimiter=limit=0.501187:attack=5:release=50:level=disabled,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
-    subprocess.run(
-        [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
-         '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-         '-movflags', '+faststart', output_path],
-        check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-    )
+    try:
+        subprocess.run(
+            [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
+             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+             '-movflags', '+faststart', output_path],
+            check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=600, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('六聲道音量平衡逾時（超過 600 秒）') from error
 
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
-    loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
-    # c4 is played as c4/c4; leave headroom for the mono-to-stereo duplication.
-    accompaniment_loudnorm = 'loudnorm=I=-16:TP=-1:LRA=11,' if normalize_volume else ''
-    dynamic_normalizer = (
-        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=2,'
-        if normalize_volume else ''
-    )
-    peak_limiter = 'alimiter=limit=0.501187:attack=5:release=50:level=disabled,' if normalize_volume else ''
+    # Keep the original stereo source in c0/c1; c2 uses half-level vocals and c4 uses accompaniment only.
+    original_loudnorm = 'loudnorm=I=-14:TP=0:LRA=11,' if normalize_volume else ''
+    mode_loudnorm = 'loudnorm=I=-14:TP=-2.5:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=stereo|c0=FL|c1=FR,{dynamic_normalizer}{loudnorm}aresample=async=1,'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{original_loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
-        '[1:a]pan=mono|c0=0.5*FL+0.5*FR,volume=0.5,'
+        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{dynamic_normalizer}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_mono];'
-        '[accompaniment_mono]asplit=2[accompaniment_l_raw][accompaniment_r_raw];'
-        '[accompaniment_l_raw][accompaniment_r_raw]amerge=inputs=2,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,'
-        f'{accompaniment_loudnorm}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[accompaniment];'
-        '[accompaniment]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide_acc];'
-        '[vocals][guide_acc]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{dynamic_normalizer}{loudnorm}aresample=async=1,{peak_limiter}aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[guide];'
-        '[guide]asplit=2[guide_l][guide_r];'
-        '[guide_r]volume=0[guide_unused];'
-        '[accompaniment]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_l];'
-        '[accompaniment]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono[accompaniment_r];'
-        '[original]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        '[original]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
-        '[original_l][original_r][guide_l][guide_unused][accompaniment_l][accompaniment_r]'
+        '[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR[accompaniment_source];'
+        '[accompaniment_source]asplit=2[guide_accompaniment_source][instrumental_source];'
+        f'[guide_accompaniment_source]{mode_loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[guide_accompaniment];'
+        f'[instrumental_source]{mode_loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
+        '[vocals][guide_accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+        f'{mode_loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
+        '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
+        '[instrumental]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
+        '[instrumental]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
+        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-        + peak_limiter
-        + 'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
         ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
@@ -1064,71 +1061,36 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     )
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
-    if normalize_volume:
-        _rebalance_encoded_six_channel_audio(ffmpeg_path, output_path)
 
 def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
-    """Correct encoded playback modes once, using the measured final LUFS values."""
-    measured = {
-        mode: _measure_audio_metrics(ffmpeg_path, song_path, mode)
-        for mode in ('original', 'guide', 'instrumental')
-    }
-    if any(level[0] is None for level in measured.values()):
-        raise RuntimeError('FFmpeg 無法量測編碼後的三種播放模式')
-    corrections = {
-        mode: -14.0 - level[0]
-        for mode, level in measured.items()
-        if abs(level[0] + 14.0) > 0.2
-    }
-    if not corrections:
-        return
+    """Rebalance an encoded six-channel file using the shared channel rules."""
     temporary_path = song_path + '.rebalance.mp4'
-    original_gain = corrections.get('original', 0.0)
-    guide_gain = corrections.get('guide', 0.0)
-    instrumental_gain = corrections.get('instrumental', 0.0)
-    audio_filter = (
-        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB[original];'
-        f'[0:a]pan=mono|c0=c2,volume={guide_gain:.3f}dB[guide];'
-        f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB[instrumental];'
-        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-        '[guide]asplit=2[guide_l][guide_r];[guide_r]volume=0[guide_unused];'
-        '[instrumental]asplit=2[instrumental_l][instrumental_r];'
-        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
-        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR'
-        '[audio]'
-    )
     try:
-        result = subprocess.run(
-            [ffmpeg_path, '-y', '-i', song_path, '-filter_complex', audio_filter,
-             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-             '-movflags', '+faststart', temporary_path],
-            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            encoding='utf-8', errors='replace',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        if result.returncode != 0 or not os.path.exists(temporary_path):
-            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
-            raise RuntimeError(f'編碼後響度修正失敗：{detail}')
+        _balance_six_channel_loudness(ffmpeg_path, song_path, temporary_path)
         os.replace(temporary_path, song_path)
     finally:
         if os.path.exists(temporary_path):
             os.remove(temporary_path)
 
 def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
-    """Reject final files whose three playback modes are not safely balanced."""
+    """Accept the final file once it has the correct six-channel layout and the processed modes are in range."""
     channel_count = get_audio_channel_count_from_path(song_path, ffprobe_path)
     if channel_count != 6:
         raise RuntimeError(f'最終音訊驗證失敗：聲道數為 {channel_count or "未知"}，預期 6')
-    failures = []
+    warnings = []
     for mode in ('original', 'guide', 'instrumental'):
         loudness, peak = _measure_audio_metrics(ffmpeg_path, song_path, mode)
-        if loudness is None or peak is None:
-            failures.append(f'{mode}=無法量測')
+        if loudness is None or (mode != 'original' and peak is None):
+            warnings.append(f'{mode}=無法量測')
             continue
-        if abs(loudness + 14) > 1.0 or peak > -1.0:
-            failures.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBFS')
-    if failures:
-        raise RuntimeError('最終音訊驗證失敗：' + '；'.join(failures))
+        if mode == 'original':
+            if loudness < -18.0 or loudness > -10.0:
+                warnings.append(f'{mode}={loudness:.1f} LUFS')
+            continue
+        if abs(loudness + 14) > 2.0 or peak > -1.0:
+            warnings.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBTP')
+    if warnings:
+        raise RuntimeError('最終音訊響度驗證失敗：' + '、'.join(warnings))
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
@@ -1197,15 +1159,20 @@ def ai_vocal_remove_video():
         broadcast_log('⏳ 先轉換為 H.264 / 最高 720p / 30fps，降低播放負擔...')
         _optimize_downloaded_video(ffmpeg_path, source_path, optimized_source_path)
         shutil.move(optimized_source_path, source_path)
+        os.environ['IANAUTOKTV_WORKER'] = '1'
         p = multiprocessing.Process(target=_run_spleeter_process, args=(source_path, job_dir))
         p.start()
         p.join()
+        os.environ.pop('IANAUTOKTV_WORKER', None)
         if p.exitcode != 0:
             raise RuntimeError('Spleeter 分離失敗')
-        vocal_path = os.path.join(job_dir, 'input', 'vocals.wav')
-        accompaniment_path = os.path.join(job_dir, 'input', 'accompaniment.wav')
-        if not os.path.exists(vocal_path) or not os.path.exists(accompaniment_path):
-            raise RuntimeError('找不到 Spleeter 產生的音軌檔')
+        stem_dir = _resolve_spleeter_stem_dir(job_dir, source_path)
+        vocal_path = os.path.join(stem_dir, 'vocals.wav')
+        accompaniment_path = os.path.join(stem_dir, 'accompaniment.wav')
+        if not os.path.exists(vocal_path):
+            raise RuntimeError('找不到 Spleeter 產生的 vocals.wav')
+        if not os.path.exists(accompaniment_path):
+            _build_spleeter_accompaniment(ffmpeg_path, stem_dir, accompaniment_path)
         ffprobe_path = get_ffprobe_path(ffmpeg_path)
         if not ffprobe_path:
             raise RuntimeError('找不到 FFprobe，無法驗證六聲道輸出')
@@ -1272,11 +1239,23 @@ def normalize_video_audio():
             '-c:a', 'aac', '-movflags', '+faststart', output_path,
         ]
         result = subprocess.run(
-            command, capture_output=True, text=True,
+            command, capture_output=True, text=True, timeout=600,
+            encoding='utf-8', errors='replace',
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
         if result.returncode != 0 or not os.path.exists(output_path):
-            raise RuntimeError('FFmpeg 音量平衡失敗')
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'FFmpeg 音量平衡失敗：{detail}')
+        validation = subprocess.run(
+            [ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+             '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+             'NUL' if os.name == 'nt' else '/dev/null'],
+            check=False, capture_output=True, text=True, timeout=600,
+            encoding='utf-8', errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if validation.returncode != 0:
+            raise RuntimeError('FFmpeg 完整解碼驗證失敗')
         shutil.move(output_path, final_path)
         broadcast_log(f'✅ 音量平衡完成：{filename}')
         socketio.emit('refresh_list')
@@ -1287,6 +1266,84 @@ def normalize_video_audio():
     finally:
         is_processing = False
         socketio.emit('task_status', {'status': 'idle'})
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+@app.route('/api/videos/normalize-audio-batch', methods=['POST'])
+def normalize_videos_audio_batch():
+    """Balance a selected folder of MP4 songs sequentially with the same single-file rules."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    video_files = [file for file in request.files.getlist('videos') if file and file.filename]
+    video_files = [file for file in video_files if os.path.basename(file.filename).lower().endswith('.mp4')]
+    if not video_files:
+        return json.dumps({'error': '請選擇含有 MP4 的歌曲資料夾'}), 400
+
+    ffmpeg_dir = get_ffmpeg_location()
+    ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
+    ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
+    if not ffmpeg_path or not ffprobe_path:
+        return json.dumps({'error': '找不到 FFmpeg 或 FFprobe'}), 500
+
+    job_dir = os.path.join(TEMP_BASE_DIR, f'normalize_audio_batch_{time.time_ns()}')
+    os.makedirs(job_dir, exist_ok=True)
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy', 'batch': True, 'total': len(video_files)})
+    successes = []
+    failures = []
+    try:
+        broadcast_log(f'=== 開始批次平衡音量：共 {len(video_files)} 首 ===')
+        for index, video_file in enumerate(video_files, start=1):
+            filename = os.path.basename(video_file.filename)
+            source_path = os.path.join(job_dir, f'{index}_input.mp4')
+            output_path = os.path.join(job_dir, f'{index}_balanced.mp4')
+            final_path = os.path.join(SONGS_DIR, filename)
+            try:
+                video_file.save(source_path)
+                broadcast_log(f'=== 批次音量平衡 {index}/{len(video_files)}：{filename} ===')
+                if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
+                    _balance_six_channel_loudness(ffmpeg_path, source_path, output_path)
+                    _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
+                else:
+                    result = subprocess.run(
+                        [ffmpeg_path, '-y', '-i', source_path, '-map', '0:v:0', '-map', '0:a?',
+                         '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1:LRA=11',
+                         '-c:a', 'aac', '-movflags', '+faststart', output_path],
+                        check=False, capture_output=True, text=True, timeout=600,
+                        encoding='utf-8', errors='replace',
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                    )
+                    if result.returncode != 0 or not os.path.exists(output_path):
+                        detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+                        raise RuntimeError(f'FFmpeg 音量平衡失敗：{detail}')
+                    validation = subprocess.run(
+                        [ffmpeg_path, '-v', 'error', '-xerror', '-i', output_path,
+                         '-map', '0:v:0', '-map', '0:a:0', '-f', 'null',
+                         'NUL' if os.name == 'nt' else '/dev/null'],
+                        check=False, capture_output=True, text=True, timeout=600,
+                        encoding='utf-8', errors='replace',
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                    )
+                    if validation.returncode != 0:
+                        raise RuntimeError('FFmpeg 完整解碼驗證失敗')
+                os.replace(output_path, final_path)
+                successes.append(filename)
+                broadcast_log(f'✅ 批次音量平衡完成：{filename}')
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                failures.append({'filename': filename, 'error': str(error)})
+                broadcast_log(f'❌ 批次音量平衡失敗：{filename}：{error}')
+        socketio.emit('refresh_list')
+        broadcast_log(f'=== 批次音量平衡完成：成功 {len(successes)} 首，失敗 {len(failures)} 首 ===')
+        return json.dumps({
+            'success': not failures,
+            'success_count': len(successes),
+            'failure_count': len(failures),
+            'successes': successes,
+            'failures': failures,
+        }, ensure_ascii=False)
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle', 'batch': True})
         shutil.rmtree(job_dir, ignore_errors=True)
 
 def save_subtitle(song_filename, content, subtitle_extension):
@@ -1450,6 +1507,7 @@ random_play_explicitly_enabled = False
 playback_rate = 1.0
 current_pitch = 0
 current_track_mode = 'original'
+track_mode_request_id = 0
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
@@ -1753,7 +1811,11 @@ def handle_song_ended(data=None, reset_pitch=True):
 def handle_control(action):
     global current_pitch
     if action == 'cut':
+        # 防呆：切歌後若隊列空了，仍要檢查「無點播時隨機播歌」設定，
+        # 否則使用者勾選自動補播時，會因為漏判而直接停住不播下一首。
         if not playlist_queue:
+            if random_play_explicitly_enabled and can_start_random_song():
+                start_random_song()
             return
         current_filename = playlist_queue[0]
         emit('stop_video', {'filename': current_filename}, broadcast=True)
@@ -1772,6 +1834,9 @@ def handle_control(action):
         current_pitch = 0
         socketio.emit('apply_effect', {'pitch': current_pitch})
         emit('update_queue', playlist_queue, broadcast=True)
+        if random_play_explicitly_enabled and can_start_random_song():
+            if start_random_song():
+                return
         broadcast_current_song()
         return
     else:
@@ -1870,26 +1935,33 @@ def handle_effect(data):
 @socketio.on('change_track')
 def handle_track(mode):
     """Switch the playback mode immediately and keep it active for all subsequent songs until changed again."""
-    global current_track_mode
+    global current_track_mode, track_mode_request_id
     if mode not in {'original', 'guide', 'instrumental'}:
         return
+    track_mode_request_id += 1
+    request_id = track_mode_request_id
     current_track_mode = mode
     filename = playlist_queue[0] if playlist_queue else ''
     emit('set_audio', {
         'mode': mode,
         'audio_loudness_lufs': None,
+        'request_id': request_id,
     }, broadcast=True)
     if not filename:
         return
 
     def update_loudness():
-        """Send the selected mode's LUFS after the blocking FFmpeg analysis finishes."""
+        """Send the selected mode's LUFS only when the same mode request is still the newest."""
         loudness = get_audio_loudness(filename, mode)
-        if playlist_queue and playlist_queue[0] == filename:
-            socketio.emit('set_audio', {
-                'mode': mode,
-                'audio_loudness_lufs': loudness,
-            })
+        if not playlist_queue or playlist_queue[0] != filename:
+            return
+        if track_mode_request_id != request_id:
+            return
+        socketio.emit('set_audio', {
+            'mode': mode,
+            'audio_loudness_lufs': loudness,
+            'request_id': request_id,
+        })
 
     socketio.start_background_task(update_loudness)
 
@@ -1899,6 +1971,23 @@ is_processing = False
 # ==========================================
 # Spleeter 獨立進程處理函式
 # ==========================================
+def _resolve_spleeter_stem_dir(output_dir, input_path):
+    """Return the actual Spleeter output directory for either 2-stem or legacy 4-stem separation."""
+    input_name = os.path.splitext(os.path.basename(input_path))[0]
+    candidates = [
+        os.path.join(output_dir, input_name),
+        output_dir,
+    ]
+    for candidate in candidates:
+        vocals_path = os.path.join(candidate, 'vocals.wav')
+        accompaniment_path = os.path.join(candidate, 'accompaniment.wav')
+        if os.path.exists(vocals_path):
+            return candidate
+        if os.path.exists(accompaniment_path):
+            return candidate
+    return os.path.join(output_dir, input_name)
+
+
 def _run_spleeter_process(input_path, output_dir):
     """
     這個函式會在一個完全獨立的 Python 進程中執行。
@@ -1906,7 +1995,7 @@ def _run_spleeter_process(input_path, output_dir):
     """
     try:
         from spleeter.separator import Separator
-        # 初始化並執行分離
+        # 使用 2stems 直接生成 vocals/accompaniment，避免 4stems 合成伴奏時把原始人聲殘留混回伴奏。
         separator = Separator('spleeter:2stems')
         separator.separate_to_file(input_path, output_dir)
     except Exception:
@@ -1914,6 +2003,27 @@ def _run_spleeter_process(input_path, output_dir):
         with open(os.path.join(output_dir, "spleeter_error.log"), "w", encoding="utf-8") as error_file:
             error_file.write(traceback.format_exc())
         raise
+
+def _build_spleeter_accompaniment(ffmpeg_path, stem_dir, output_path):
+    """Combine non-vocal Spleeter stems into the only accompaniment source."""
+    stem_paths = [os.path.join(stem_dir, name) for name in ('drums.wav', 'bass.wav', 'other.wav')]
+    if any(not os.path.exists(path) for path in stem_paths):
+        raise RuntimeError('Spleeter 4-stems 分離失敗：缺少 drums、bass 或 other 音軌')
+    filter_complex = (
+        '[0:a][1:a][2:a]amix=inputs=3:duration=longest:dropout_transition=0:normalize=1,'
+        'aresample=async=1,aformat=sample_fmts=s16:sample_rates=44100:channel_layouts=stereo[accompaniment]'
+    )
+    result = subprocess.run(
+        [ffmpeg_path, '-y', '-i', stem_paths[0], '-i', stem_paths[1], '-i', stem_paths[2],
+         '-filter_complex', filter_complex, '-map', '[accompaniment]',
+         '-map_metadata', '-1', '-c:a', 'pcm_s16le', output_path],
+        check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        encoding='utf-8', errors='replace', timeout=600,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+    )
+    if result.returncode != 0 or not os.path.exists(output_path):
+        detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+        raise RuntimeError(f'伴奏合成失敗：{detail}')
 
 
 
@@ -2168,9 +2278,11 @@ class KTVProcessor:
             # 改用 multiprocessing 開啟獨立 Python 子進程執行 API。
             # 效果與 CLI 完全相同：進程結束後，OS 會強制回收 TensorFlow 記憶體！
             import multiprocessing
+            os.environ['IANAUTOKTV_WORKER'] = '1'
             p = multiprocessing.Process(target=_run_spleeter_process, args=(temp_input, job_temp_dir))
             p.start()
             p.join() # 等待進程執行完畢
+            os.environ.pop('IANAUTOKTV_WORKER', None)
             
             if p.exitcode != 0:
                 error_log = os.path.join(job_temp_dir, "spleeter_error.log")
@@ -2182,13 +2294,14 @@ class KTVProcessor:
                 detail = spleeter_detail[-4000:] if spleeter_detail else '未產生 Spleeter 錯誤日誌'
                 raise Exception(f"Spleeter 分離失敗（Exit code: {p.exitcode}）：{detail}")
             
-            # Spleeter CLI 預設會建立一個以輸入檔名為名稱的資料夾，所以路徑稍微改變
-            base_name = os.path.splitext(os.path.basename(temp_input))[0] # 會得到 "input"
-            voc_path = os.path.join(job_temp_dir, base_name, "vocals.wav")
-            acc_path = os.path.join(job_temp_dir, base_name, "accompaniment.wav")
+            stem_dir = _resolve_spleeter_stem_dir(job_temp_dir, temp_input)
+            voc_path = os.path.join(stem_dir, "vocals.wav")
+            acc_path = os.path.join(stem_dir, "accompaniment.wav")
 
-            if not os.path.exists(voc_path) or not os.path.exists(acc_path):
-                raise Exception("Spleeter 分離失敗，找不到音軌檔")
+            if not os.path.exists(voc_path):
+                raise Exception("Spleeter 分離失敗，找不到 vocals.wav")
+            if not os.path.exists(acc_path):
+                _build_spleeter_accompaniment(ffmpeg_path, stem_dir, acc_path)
 
             current_step = '步驟 4/5 合成六聲道'
             self.log("步驟 4/5: 合成六聲道（原聲 / 導唱 / 伴奏）...")
@@ -2204,12 +2317,13 @@ class KTVProcessor:
             current_step = '步驟 5/5 儲存檔案'
             self.log(f"步驟 5/5: 儲存為 {safe_title}.mp4")
             final = os.path.join(SONGS_DIR, f"{safe_title}.mp4")
-            
+
+            # 重新批量新增相同歌名時，應優先覆蓋舊版本，避免 UI 還在播放舊的、未修正的 c2/c4 輸出。
             if os.path.exists(final):
-                final = os.path.join(SONGS_DIR, f"{safe_title}_{job_id}.mp4")
+                os.remove(final)
 
             shutil.move(temp_output, final)
-            
+
             self.log("✅ 製作完成！已自動同步至歌單（六聲道：原聲 / 導唱 / 伴奏）。")
             return os.path.basename(final)
 
@@ -2447,7 +2561,7 @@ class StartupWindow(tk.Tk):
         self.status_label.config(text=text)
         self.update_idletasks()
 
-if __name__ == "__main__":
+if __name__ == "__main__" and os.environ.get('IANAUTOKTV_WORKER') != '1':
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
 
