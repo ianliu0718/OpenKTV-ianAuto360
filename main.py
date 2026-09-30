@@ -973,22 +973,19 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         mode: _measure_audio_metrics(ffmpeg_path, source_path, mode)
         for mode in ('original', 'guide', 'instrumental')
     }
-    if any(level[0] is None or level[1] is None for level in mode_levels.values()):
+    if any(level[0] is None or (mode != 'original' and level[1] is None)
+           for mode, level in mode_levels.items()):
         raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
-    # c0/c1 只做粗略整體音量大致平衡，不做 c2/c4 這種細節級的最終處理；
-    # 目標是讓整體音量不偏離過大，但保留原始動態與音質。
-    original_gain = max(-3.0, min(3.0, -14.0 - mode_levels['original'][0]))
-    # c4 是唯一可用的伴奏來源；c5 不參與伴奏處理，避免把人聲帶回輸出。
-    instrumental_filter = 'pan=stereo|c0=c4|c1=c4'
-    processed_mode = (
-        'acompressor=threshold=-30dB:ratio=4:attack=20:release=300:makeup=1,'
-            'loudnorm=I=-14:TP=-1:LRA=11,'
-        'alimiter=limit=0.501187:attack=5:release=50:level=disabled'
-    )
+    original_gain = -14.0 - mode_levels['original'][0]
+    guide_gain = min(-14.0 - mode_levels['guide'][0], -2.5 - mode_levels['guide'][1])
+    instrumental_gain = min(-14.0 - mode_levels['instrumental'][0], -2.5 - mode_levels['instrumental'][1])
     audio_filter = (
-        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB[original];'
-        f'[0:a]pan=stereo|c0=c2|c1=c2,{processed_mode}[guide];'
-        f'[0:a]{instrumental_filter}[instrumental];'
+        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
+        f'[0:a]pan=stereo|c0=c2|c1=c2,volume={guide_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        f'[0:a]pan=stereo|c0=c4|c1=c4,volume={instrumental_gain:.3f}dB,'
+        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
         '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
         '[guide_r]volume=0[guide_unused];'
@@ -1010,26 +1007,27 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
 
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
-    # This is the proven successful mix from the earlier v1.0.6.8 implementation:
-    # - c0/c1 keep the original track as-is
-    # - c2 = low vocal + accompaniment
-    # - c4 = accompaniment only
-    loudnorm = 'loudnorm=I=-14:TP=-1:LRA=11,' if normalize_volume else ''
+    # Keep the original stereo source in c0/c1; c2 uses half-level vocals and c4 uses accompaniment only.
+    original_loudnorm = 'loudnorm=I=-14:TP=0:LRA=11,' if normalize_volume else ''
+    mode_loudnorm = 'loudnorm=I=-14:TP=-2.5:LRA=11,' if normalize_volume else ''
     audio_filter = (
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_l];'
-        f'[0:a]pan=mono|c0=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[original_r];'
-        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.3,'
+        f'[0:a]pan=stereo|c0=FL|c1=FR,{original_loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[original];'
+        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        f'[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,{loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[accompaniment];'
-        '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+        '[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR[accompaniment_source];'
+        '[accompaniment_source]asplit=2[guide_accompaniment_source][instrumental_source];'
+        f'[guide_accompaniment_source]{mode_loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[guide_accompaniment];'
+        f'[instrumental_source]{mode_loudnorm}aresample=async=1,'
+        'aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
+        '[vocals][guide_accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+        f'{mode_loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
         '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
         '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
-        '[2:a]pan=mono|c0=0.5*FL+0.5*FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
+        '[instrumental]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
+        '[instrumental]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
         '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
@@ -1064,40 +1062,15 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
     if probe_result.stdout.strip() != '6':
         raise RuntimeError(f'FFprobe 驗證失敗：輸出音訊聲道數為 {probe_result.stdout.strip() or "未知"}，預期 6')
 
-def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path, attempt=0):
-    """Normalize only the processed guide/instrumental channels to the shared target."""
-    # The UI and validation both treat the six-channel stream as a custom index layout:
-    # c0/c1 = original, c2 = guide, c4 = instrumental. Keep original untouched and
-    # apply the loudness target only to the processed channels, which is the true fix.
+def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
+    """Rebalance an encoded six-channel file using the shared channel rules."""
     temporary_path = song_path + '.rebalance.mp4'
-    audio_filter = (
-        '[0:a]pan=stereo|c0=c0|c1=c1[original];'
-        '[0:a]pan=stereo|c0=c2|c1=c2,loudnorm=I=-14:TP=-1:LRA=11[guide];'
-        '[0:a]pan=stereo|c0=c4|c1=c4,loudnorm=I=-14:TP=-1:LRA=11[instrumental];'
-        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-        '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
-        '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
-        '[original_l][original_r][guide_l][guide_r][instrumental_l][instrumental_r]'
-        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR[audio]'
-    )
     try:
-        result = subprocess.run(
-            [ffmpeg_path, '-y', '-i', song_path, '-filter_complex', audio_filter,
-             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-             '-movflags', '+faststart', temporary_path],
-            check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300,
-            encoding='utf-8', errors='replace',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
-        if result.returncode != 0 or not os.path.exists(temporary_path):
-            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
-            raise RuntimeError(f'編碼後響度修正失敗：{detail}')
+        _balance_six_channel_loudness(ffmpeg_path, song_path, temporary_path)
         os.replace(temporary_path, song_path)
     finally:
         if os.path.exists(temporary_path):
             os.remove(temporary_path)
-    if attempt < 1:
-        _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path, attempt + 1)
 
 def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
     """Accept the final file once it has the correct six-channel layout and the processed modes are in range."""
@@ -1107,20 +1080,17 @@ def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
     warnings = []
     for mode in ('original', 'guide', 'instrumental'):
         loudness, peak = _measure_audio_metrics(ffmpeg_path, song_path, mode)
-        if loudness is None or peak is None:
+        if loudness is None or (mode != 'original' and peak is None):
             warnings.append(f'{mode}=無法量測')
             continue
         if mode == 'original':
             if loudness < -18.0 or loudness > -10.0:
-                warnings.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBFS')
+                warnings.append(f'{mode}={loudness:.1f} LUFS')
             continue
-        if abs(loudness + 14) > 2.0 or peak > 0.0:
-            warnings.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBFS')
+        if abs(loudness + 14) > 2.0 or peak > -1.0:
+            warnings.append(f'{mode}={loudness:.1f} LUFS/{peak:.1f} dBTP')
     if warnings:
-        # Old successful version was accepted once the mix topology matched the intended KTV semantics.
-        # Do not reject a valid generated file just because a single real-world song sits slightly off the
-        # ideal target; the final product has already been created correctly at the channel level.
-        return
+        raise RuntimeError('最終音訊響度驗證失敗：' + '、'.join(warnings))
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
