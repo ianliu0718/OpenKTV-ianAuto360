@@ -234,7 +234,7 @@ python main.py
 .\build_update.ps1
 ```
 
-只修改 `templates` 時可建立前端更新包：
+只修改 `templates` 或 `static/sounds` 時可建立前端更新包：
 
 ```powershell
 .\build_update.ps1 -FrontendOnly
