@@ -143,6 +143,13 @@
         .emotion-tab-panel[hidden] { display: none; }
         .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
         .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
+        .photo-picker-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .photo-picker-actions .btn { margin: 0; }
+        .photo-upload-button { background: #00695c; color: #fff; border: 1px solid #4db6ac; }
+        .photo-upload-button:hover { background: #00897b; }
+        .photo-camera-button { background: #1565c0; color: #fff; border: 1px solid #64b5f6; }
+        .photo-camera-button:hover { background: #1976d2; }
+        .photo-picker-actions .btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
         .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
@@ -290,8 +297,12 @@
         </div>
         <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
             <div class="photo-picker">
-                <label for="emotion-photo-input">拍照或選擇手機照片</label>
-                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <div class="photo-picker-actions">
+                    <button class="btn photo-upload-button" type="button" onclick="chooseEmotionPhotoUpload()">🖼️ 上傳照片</button>
+                    <button class="btn photo-camera-button" type="button" onclick="openEmotionCamera()">📷 開啟相機</button>
+                </div>
+                <input id="emotion-photo-upload-input" type="file" accept="image/*" hidden onchange="prepareEmotionPhoto(event)">
+                <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden onchange="prepareEmotionPhoto(event)">
                 <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
         </div>
@@ -526,6 +537,10 @@ const socket = io();
             image.src = URL.createObjectURL(file);
         }
 
+        /** Opens either the photo library or the rear camera from its dedicated file input. */
+        function chooseEmotionPhotoUpload() { document.getElementById('emotion-photo-upload-input').click(); }
+        function openEmotionCamera() { document.getElementById('emotion-photo-camera-input').click(); }
+
         function sendEmotionPhoto() {
             if (!pendingEmotionPhoto) return;
             socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
@@ -540,9 +555,11 @@ const socket = io();
 
         function clearEmotionPhoto() {
             pendingEmotionPhoto = '';
-            const input = document.getElementById('emotion-photo-input');
+            const uploadInput = document.getElementById('emotion-photo-upload-input');
+            const cameraInput = document.getElementById('emotion-photo-camera-input');
             const preview = document.getElementById('emotion-photo-preview');
-            input.value = '';
+            uploadInput.value = '';
+            cameraInput.value = '';
             preview.removeAttribute('src');
             preview.style.display = 'none';
         }
