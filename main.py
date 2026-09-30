@@ -66,7 +66,7 @@ multiprocessing.set_executable(sys.executable)
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.1.0.2"
+APP_VERSION = "v1.1.1.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -168,6 +168,34 @@ def get_audio_channel_count_from_path(song_path, ffprobe_path):
     except (TypeError, ValueError):
         return 0
 
+VOCAL_STEM_LAYOUT_TAG = 'handler_name'
+VOCAL_STEM_LAYOUT_VERSION = 'vocal-stem-v1'
+
+
+def _has_separated_vocal_track(ffmpeg_path, song_path):
+    """Return whether the first audio stream uses the vocal-stem layout."""
+    metadata = _get_vocal_layout_metadata(ffmpeg_path, song_path)
+    return bool(metadata and metadata.startswith(VOCAL_STEM_LAYOUT_VERSION))
+
+
+def _get_vocal_layout_metadata(ffmpeg_path, song_path):
+    """Return the audio handler metadata used to identify the separated-vocal layout."""
+    ffprobe_path = get_ffprobe_path(ffmpeg_path)
+    if not ffprobe_path or not os.path.exists(song_path):
+        return ''
+    try:
+        result = subprocess.run(
+            [ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
+             '-show_entries', f'stream_tags={VOCAL_STEM_LAYOUT_TAG}',
+             '-of', 'default=noprint_wrappers=1:nokey=1', song_path],
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    return result.stdout.strip()
+
+
 def _mode_pan_filter(mode, channels):
     """Return the FFmpeg pan filter for one playback mode."""
     if mode not in {'original', 'guide', 'instrumental'}:
@@ -184,10 +212,26 @@ def _mode_pan_filter(mode, channels):
 def _measure_audio_metrics(ffmpeg_path, song_path, mode, channels=6):
     """Measure integrated loudness and true peak for one selected playback mode."""
     null_device = 'NUL' if os.name == 'nt' else '/dev/null'
+    is_vocal_stem = mode == 'guide' and _has_separated_vocal_track(ffmpeg_path, song_path)
+    if is_vocal_stem:
+        command = [
+            ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
+            '-filter_complex',
+            '[0:a]pan=mono|c0=c2,volume=0.5[vocals];'
+            '[0:a]pan=mono|c0=c4[accompaniment];'
+            '[vocals][accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
+            'pan=stereo|c0=c0|c1=c0,ebur128=peak=true:framelog=verbose[metrics]',
+            '-map', '[metrics]', '-f', 'null', null_device,
+        ]
+    else:
+        command = [
+            ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
+            '-af', f'{_mode_pan_filter(mode, channels)},ebur128=peak=true:framelog=verbose',
+            '-f', 'null', null_device,
+        ]
     try:
         result = subprocess.run(
-            [ffmpeg_path, '-v', 'info', '-i', song_path, '-vn', '-sn', '-dn',
-             '-af', f'{_mode_pan_filter(mode, channels)},ebur128=peak=true:framelog=verbose', '-f', 'null', null_device],
+            command,
             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
@@ -573,11 +617,13 @@ def _song_has_subtitle(filename):
 def _play_video_payload(filename):
     """Build a playback event payload with server-confirmed audio metadata and per-song subtitle state."""
     visible = subtitle_visible and _song_has_subtitle(filename)
+    guide_audio_state = _guide_audio_control_state(filename)
     return {
         'filename': filename,
         'title': filename,
         'audio_channels': get_audio_channel_count(filename),
         'audio_channel_layout': get_audio_channel_layout(filename),
+        **guide_audio_state,
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
         'visible': visible,
@@ -976,29 +1022,50 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     if any(level[0] is None or (mode != 'original' and level[1] is None)
            for mode, level in mode_levels.items()):
         raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
+    has_vocal_stem = _has_separated_vocal_track(ffmpeg_path, source_path)
     original_gain = -14.0 - mode_levels['original'][0]
-    guide_gain = min(-14.0 - mode_levels['guide'][0], -2.5 - mode_levels['guide'][1])
     instrumental_gain = min(-14.0 - mode_levels['instrumental'][0], -2.5 - mode_levels['instrumental'][1])
-    audio_filter = (
-        f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
-        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
-        f'[0:a]pan=stereo|c0=c2|c1=c2,volume={guide_gain:.3f}dB,'
-        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
-        f'[0:a]pan=stereo|c0=c4|c1=c4,volume={instrumental_gain:.3f}dB,'
-        'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
-        '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-        '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
-        '[guide_r]volume=0[guide_unused];'
-        '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
-        '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
-        'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
-    )
+    if has_vocal_stem:
+        audio_filter = (
+            f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
+            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
+            '[0:a]pan=mono|c0=c2[vocals];[vocals]volume=0[unused_vocal];'
+            f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB,'
+            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
+            '[instrumental]volume=0[unused_instrumental];'
+            '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+            '[original_l][original_r][vocals][unused_vocal][instrumental][unused_instrumental]'
+            'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+            'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+        )
+    else:
+        guide_gain = min(-14.0 - mode_levels['guide'][0], -2.5 - mode_levels['guide'][1])
+        audio_filter = (
+            f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
+            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
+            f'[0:a]pan=stereo|c0=c2|c1=c2,volume={guide_gain:.3f}dB,'
+            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
+            f'[0:a]pan=stereo|c0=c4|c1=c4,volume={instrumental_gain:.3f}dB,'
+            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
+            '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
+            '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
+            '[guide_r]volume=0[guide_unused];'
+            '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
+            '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
+            'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
+            'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+        )
+    command = [
+        ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
+        '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
+        '-movflags', '+faststart',
+    ]
+    if has_vocal_stem:
+        command.extend(['-metadata:s:a:0', f'{VOCAL_STEM_LAYOUT_TAG}={VOCAL_STEM_LAYOUT_VERSION}'])
+    command.append(output_path)
     try:
         subprocess.run(
-            [ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
-             '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-             '-movflags', '+faststart', output_path],
+            command,
             check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=600, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
@@ -1007,28 +1074,23 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
 
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
-    # Keep the original stereo source in c0/c1; c2 uses half-level vocals and c4 uses accompaniment only.
+    # Store isolated vocals in c2 so playback can change vocal gain without changing c4 accompaniment.
     original_loudnorm = 'loudnorm=I=-14:TP=0:LRA=11,' if normalize_volume else ''
-    mode_loudnorm = 'loudnorm=I=-14:TP=-2.5:LRA=11,' if normalize_volume else ''
+    # c4 is mono here and duplicated to stereo for playback, so pre-compensate the measured LUFS and AAC peak.
+    mode_loudnorm = 'loudnorm=I=-17:TP=-3.5:LRA=11,' if normalize_volume else ''
     audio_filter = (
         f'[0:a]pan=stereo|c0=FL|c1=FR,{original_loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
         '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-        '[1:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=0.5,'
+        '[1:a]pan=mono|c0=0.5*FL+0.5*FR,'
         'aformat=sample_fmts=fltp:sample_rates=44100[vocals];'
-        '[2:a]pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR[accompaniment_source];'
-        '[accompaniment_source]asplit=2[guide_accompaniment_source][instrumental_source];'
-        f'[guide_accompaniment_source]{mode_loudnorm}aresample=async=1,'
-        'aformat=sample_fmts=fltp:sample_rates=44100[guide_accompaniment];'
-        f'[instrumental_source]{mode_loudnorm}aresample=async=1,'
+        f'[2:a]pan=mono|c0=0.5*FL+0.5*FR,{mode_loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
-        '[vocals][guide_accompaniment]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,'
-        f'{mode_loudnorm}aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
-        '[guide]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[guide_l];'
-        '[guide]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[guide_r];'
-        '[instrumental]pan=mono|c0=FL,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_l];'
-        '[instrumental]pan=mono|c0=FR,aformat=sample_fmts=fltp:sample_rates=44100[accompaniment_r];'
-        '[original_l][original_r][guide_l][guide_r][accompaniment_l][accompaniment_r]'
+        '[vocals]asplit=2[vocal_channel][unused_vocal_source];'
+        '[unused_vocal_source]volume=0[unused_vocal];'
+        '[instrumental]asplit=2[instrumental_channel][unused_instrumental_source];'
+        '[unused_instrumental_source]volume=0[unused_instrumental];'
+        '[original_l][original_r][vocal_channel][unused_vocal][instrumental_channel][unused_instrumental]'
         'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
@@ -1038,7 +1100,8 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '-map', '0:v:0', '-map', '[audio]',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k', '-movflags', '+faststart',
         '-shortest',
-        '-metadata:s:a:0', 'title=原聲、導唱、伴奏（六聲道）', output_path,
+        '-metadata:s:a:0', 'title=原聲、人聲、伴奏（六聲道）',
+        '-metadata:s:a:0', f'{VOCAL_STEM_LAYOUT_TAG}={VOCAL_STEM_LAYOUT_VERSION}', output_path,
     ]
     result = subprocess.run(
         command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -1077,14 +1140,17 @@ def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path):
     channel_count = get_audio_channel_count_from_path(song_path, ffprobe_path)
     if channel_count != 6:
         raise RuntimeError(f'最終音訊驗證失敗：聲道數為 {channel_count or "未知"}，預期 6')
+    has_vocal_stem = _has_separated_vocal_track(ffmpeg_path, song_path)
     warnings = []
     for mode in ('original', 'guide', 'instrumental'):
+        if mode == 'guide' and has_vocal_stem:
+            continue
         loudness, peak = _measure_audio_metrics(ffmpeg_path, song_path, mode)
         if loudness is None or (mode != 'original' and peak is None):
             warnings.append(f'{mode}=無法量測')
             continue
         if mode == 'original':
-            if loudness < -18.0 or loudness > -10.0:
+            if loudness < -18.0 or loudness > -9.5:
                 warnings.append(f'{mode}={loudness:.1f} LUFS')
             continue
         if abs(loudness + 14) > 2.0 or peak > -1.0:
@@ -1507,11 +1573,24 @@ random_play_explicitly_enabled = False
 playback_rate = 1.0
 current_pitch = 0
 current_track_mode = 'original'
+current_vocal_level = 50
 track_mode_request_id = 0
 seek_offset = 0.0
 seek_correction_enabled = False
 last_user_action_time = 0.0
 engine_debug_enabled = False
+
+
+def _guide_audio_control_state(filename):
+    """Return synchronized guide-vocal controls and the song-specific guide mix gain."""
+    ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
+    song_path = os.path.join(SONGS_DIR, os.path.basename(filename)) if filename else ''
+    metadata = _get_vocal_layout_metadata(ffmpeg_path, song_path)
+    supports_vocal_control = metadata.startswith(VOCAL_STEM_LAYOUT_VERSION)
+    return {
+        'guide_vocal_control': supports_vocal_control,
+        'vocal_level': current_vocal_level,
+    }
 
 
 def _format_queue_label(filename):
@@ -1577,6 +1656,7 @@ def broadcast_current_song():
         'visible': visible,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
+        **_guide_audio_control_state(filename),
     })
 
 @socketio.on('connect')
@@ -1591,13 +1671,18 @@ def handle_connect():
         'visible': subtitle_visible and _song_has_subtitle(current_filename),
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
+        **_guide_audio_control_state(current_filename),
     })
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
     emit('engine_status_config', {'debug': engine_debug_enabled})
     emit('apply_effect', {'playback_rate': playback_rate, 'pitch': current_pitch})
-    emit('set_audio', {'mode': current_track_mode})
+    emit('set_audio', {
+        'mode': current_track_mode,
+        **_guide_audio_control_state(current_filename),
+    })
+    emit('set_vocal_level', {'level': current_vocal_level})
 
 @socketio.on('set_engine_debug')
 def handle_set_engine_debug(data):
@@ -1944,6 +2029,7 @@ def handle_track(mode):
     filename = playlist_queue[0] if playlist_queue else ''
     emit('set_audio', {
         'mode': mode,
+        **_guide_audio_control_state(filename),
         'audio_loudness_lufs': None,
         'request_id': request_id,
     }, broadcast=True)
@@ -1959,11 +2045,25 @@ def handle_track(mode):
             return
         socketio.emit('set_audio', {
             'mode': mode,
+            **_guide_audio_control_state(filename),
             'audio_loudness_lufs': loudness,
             'request_id': request_id,
         })
 
     socketio.start_background_task(update_loudness)
+
+
+@socketio.on('change_vocal_level')
+def handle_change_vocal_level(data):
+    """Set the separated guide-vocal gain and synchronize all connected controls."""
+    global current_vocal_level
+    raw_level = data.get('level') if isinstance(data, dict) else data
+    try:
+        level = int(round(float(raw_level)))
+    except (TypeError, ValueError):
+        return
+    current_vocal_level = max(0, min(100, level))
+    emit('set_vocal_level', {'level': current_vocal_level}, broadcast=True)
 
 is_processing = False
 

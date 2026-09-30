@@ -97,7 +97,7 @@
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
+        let audioCtx, source, splitter, audioGains, legacyStereoGains, merger, guideMixGain, legacyGuideGain, instrumentalModeGain, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -114,6 +114,8 @@
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let guideVocalControlSupported = false;
+        let currentVocalLevel = 50;
         let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -608,6 +610,12 @@
                 merger = audioCtx.createChannelMerger(2);
                 merger.channelInterpretation = 'discrete';
                 audioGains = Array.from({ length: 6 }, () => audioCtx.createGain());
+                legacyStereoGains = Array.from({ length: 2 }, () => audioCtx.createGain());
+                guideMixGain = audioCtx.createGain();
+                legacyGuideGain = audioCtx.createGain();
+                legacyGuideGain.gain.value = 0;
+                instrumentalModeGain = audioCtx.createGain();
+                instrumentalModeGain.gain.value = 0;
                 masterGain = audioCtx.createGain();
                 useSoundTouch = Boolean(audioCtx.audioWorklet);
                 if (useSoundTouch) {
@@ -625,18 +633,25 @@
                 setAudioKey(currentKey);
 
                 source.connect(splitter);
+                // Keep all layout paths connected; per-song gains select stereo, legacy 5.1, or vocal-stem 5.1.
                 audioGains.forEach((gain, channel) => {
                     splitter.connect(gain, channel);
-                    if (isSixChannelAudio) {
-                        gain.connect(merger, 0, channel % 2);
-                        /** Duplicates the mono guide and instrumental channels to both speakers. */
-                        if (channel === 2 || channel === 4) gain.connect(merger, 0, 1);
-                    }
-                    else {
-                        gain.connect(merger, 0, 0);
-                        gain.connect(merger, 0, 1);
-                    }
+                    if (channel === 2 || channel === 4) gain.connect(guideMixGain);
+                    if (channel === 2) gain.connect(legacyGuideGain);
+                    if (channel === 4) gain.connect(instrumentalModeGain);
+                    if (channel !== 2 && channel !== 4) gain.connect(merger, 0, channel % 2);
                 });
+                legacyStereoGains.forEach((gain, channel) => {
+                    splitter.connect(gain, channel);
+                    gain.connect(merger, 0, 0);
+                    gain.connect(merger, 0, 1);
+                });
+                guideMixGain.connect(merger, 0, 0);
+                guideMixGain.connect(merger, 0, 1);
+                legacyGuideGain.connect(merger, 0, 0);
+                legacyGuideGain.connect(merger, 0, 1);
+                instrumentalModeGain.connect(merger, 0, 0);
+                instrumentalModeGain.connect(merger, 0, 1);
                 merger.connect(masterGain);
                 liveLoudnessAnalyser = audioCtx.createAnalyser();
                 liveLoudnessAnalyser.fftSize = 2048;
@@ -725,6 +740,8 @@
             overlay.innerText = songName ? `正在播放: ${songName}` : `正在播放: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
+            guideVocalControlSupported = Boolean(data.guide_vocal_control);
+            currentVocalLevel = Number.isFinite(Number(data.vocal_level)) ? Number(data.vocal_level) : 50;
             currentChannelLayout = data.audio_channel_layout || '';
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
@@ -856,14 +873,40 @@
             const now = audioCtx.currentTime;
             const transitionEnd = now + 0.02;
             const channels = isSixChannelAudio
-                ? (safeMode === 'guide' ? [2] : safeMode === 'instrumental' ? [4] : [0, 1])
+                ? (safeMode === 'guide' ? (guideVocalControlSupported ? [2, 4] : [2]) : safeMode === 'instrumental' ? [4] : [0, 1])
                 : (safeMode === 'instrumental' ? [1] : safeMode === 'guide' ? [0, 1] : [0]);
             audioGains.forEach((gain) => {
                 const channelIndex = audioGains.indexOf(gain);
                 gain.gain.cancelScheduledValues(now);
                 gain.gain.setValueAtTime(gain.gain.value, now);
-                gain.gain.linearRampToValueAtTime(channels.includes(channelIndex) ? 1 : 0, transitionEnd);
+                const channelGain = isSixChannelAudio && channels.includes(channelIndex)
+                    ? (guideVocalControlSupported && safeMode === 'guide' && channelIndex === 2 ? currentVocalLevel / 100 : 1)
+                    : 0;
+                gain.gain.linearRampToValueAtTime(channelGain, transitionEnd);
             });
+            legacyStereoGains.forEach((gain, channelIndex) => {
+                gain.gain.setTargetAtTime(!isSixChannelAudio && channels.includes(channelIndex) ? 1 : 0, transitionEnd, 0.01);
+            });
+            if (guideMixGain) {
+                const guideGain = guideVocalControlSupported && safeMode === 'guide' ? 1 : 0;
+                guideMixGain.gain.cancelScheduledValues(now);
+                guideMixGain.gain.setValueAtTime(guideMixGain.gain.value, now);
+                guideMixGain.gain.linearRampToValueAtTime(guideGain, transitionEnd);
+            }
+            if (instrumentalModeGain) {
+                instrumentalModeGain.gain.setTargetAtTime(
+                    isSixChannelAudio && safeMode === 'instrumental' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
+            if (legacyGuideGain) {
+                legacyGuideGain.gain.setTargetAtTime(
+                    isSixChannelAudio && !guideVocalControlSupported && safeMode === 'guide' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = safeMode === 'guide' ? "🎵 目前模式：導唱" : safeMode === 'instrumental' ? "🚫 目前模式：伴奏" : "🎤 目前模式：原聲";
@@ -873,6 +916,10 @@
             const mode = typeof data === 'string' ? data : data.mode;
             const requestId = Number.isFinite(Number(data && data.request_id)) ? Number(data.request_id) : null;
             const safeMode = ['original', 'guide', 'instrumental'].includes(mode) ? mode : 'original';
+            if (data && typeof data === 'object') {
+                if (typeof data.guide_vocal_control === 'boolean') guideVocalControlSupported = data.guide_vocal_control;
+                if (Number.isFinite(Number(data.vocal_level))) currentVocalLevel = Number(data.vocal_level);
+            }
             if (requestId !== null) {
                 audioModeRequestId = Math.max(audioModeRequestId, requestId);
             }
@@ -882,6 +929,16 @@
                 setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             }
             requestAudioMode(safeMode, requestId !== null ? requestId : ++audioModeRequestId);
+        });
+
+        socket.on('set_vocal_level', (data) => {
+            if (!Number.isFinite(Number(data && data.level))) return;
+            currentVocalLevel = Math.max(0, Math.min(100, Number(data.level)));
+            if (guideVocalControlSupported && currentMode === 'guide' && audioGains && audioCtx) {
+                const now = audioCtx.currentTime;
+                audioGains[2].gain.cancelScheduledValues(now);
+                audioGains[2].gain.setTargetAtTime(currentVocalLevel / 100, now, 0.03);
+            }
         });
 
         socket.on('apply_effect', (data) => {

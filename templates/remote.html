@@ -143,6 +143,11 @@
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
+        <div id="guide-vocal-control" class="control-group" style="display:none;">
+            <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span id="guide-vocal-level-label">50%</span></div>
+            <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
+        </div>
+
         <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
             <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
                 <span>🔊 主音量</span><span id="vol-val">100%</span>
@@ -246,6 +251,9 @@
         let subtitleSongs = new Set();
         let currentKey = 0;
         let currentPlayingFilename = '';
+        let currentTrackMode = 'original';
+        let guideVocalControlSupported = false;
+        let currentVocalLevel = 50;
         let currentSubtitleVisible = false;
         let currentSubtitleFontSize = 120;
         let songScrollTop = 0;
@@ -638,12 +646,29 @@
             button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
         }
 
+        /** Show the vocal slider only for a marked vocal-stem song in guide mode. */
+        function renderGuideVocalControl() {
+            const control = document.getElementById('guide-vocal-control');
+            const slider = document.getElementById('guide-vocal-level');
+            document.getElementById('guide-vocal-level-label').textContent = `${currentVocalLevel}%`;
+            slider.value = String(currentVocalLevel);
+            control.style.display = currentTrackMode === 'guide' && guideVocalControlSupported ? 'block' : 'none';
+        }
+
+        /** Send the bounded vocal-only percentage to the server for synchronized playback. */
+        function updateGuideVocalLevel(value) {
+            currentVocalLevel = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+            renderGuideVocalControl();
+            socket.emit('change_vocal_level', { level: currentVocalLevel });
+        }
+
         /**
          * Updates the fixed playback subtitle control from the server state.
          * @param {Object} data Current playback state with filename and visible fields.
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            guideVocalControlSupported = Boolean(data.guide_vocal_control);
             if (!currentPlayingFilename) {
                 currentPlaylist = [];
                 renderQueue([]);
@@ -654,6 +679,7 @@
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
             renderSubtitleFontSizeControl();
+            renderGuideVocalControl();
         }
 
         /**
@@ -693,11 +719,26 @@
 
         socket.on('current_song', updateCurrentSong);
 
+        socket.on('set_audio', (data) => {
+            if (!data || typeof data !== 'object') return;
+            currentTrackMode = data.mode || currentTrackMode;
+            if (typeof data.guide_vocal_control === 'boolean') guideVocalControlSupported = data.guide_vocal_control;
+            if (Number.isFinite(Number(data.vocal_level))) currentVocalLevel = Number(data.vocal_level);
+            renderGuideVocalControl();
+        });
+
+        socket.on('set_vocal_level', (data) => {
+            if (Number.isFinite(Number(data && data.level))) currentVocalLevel = Number(data.level);
+            renderGuideVocalControl();
+        });
+
         socket.on('stop_video', () => {
             currentPlayingFilename = '';
+            guideVocalControlSupported = false;
             currentPlaylist = [];
             renderQueue([]);
             renderCurrentSongControl();
+            renderGuideVocalControl();
         });
 
         /**
