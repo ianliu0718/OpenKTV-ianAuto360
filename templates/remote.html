@@ -76,6 +76,8 @@
         .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
         .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
+        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+        .subtitle-controls-row .btn { min-height: 42px; margin: 0; padding: 8px 5px; font-size: 13px; }
         #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
         .danmaku-actions .btn { flex: 1; margin: 0; }
@@ -115,7 +117,10 @@
     <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div class="subtitle-controls-row">
+                <button id="current-subtitle-button" class="btn" style="background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;" onclick="cycleSubtitleStyleMode()">字幕：背景</button>
+            </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; color:#b8fff2; font-size:13px;">
                 <span>字幕比例</span><span id="subtitle-size-label" style="min-width:56px; text-align:right; color:#f9f9c5; font-weight:700;">120%</span>
             </div>
@@ -267,6 +272,8 @@
         let currentVocalLevel = 50;
         let currentSubtitleVisible = false;
         let currentSubtitleFontSize = 120;
+        let currentSubtitleStyleMode = 0;
+        const subtitleStyleLabels = ['背景', '陰影'];
         let songScrollTop = 0;
         let seekOffset = 0;
         let seekCorrectionEnabled = false;
@@ -660,6 +667,20 @@
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
             button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
+            renderSubtitleStyleButton();
+        }
+
+        /** Show the active background or shadow mode and cycle between them. */
+        function renderSubtitleStyleButton() {
+            const button = document.getElementById('subtitle-style-button');
+            const label = subtitleStyleLabels[currentSubtitleStyleMode] || subtitleStyleLabels[0];
+            button.textContent = `${label}`;
+            button.setAttribute('aria-label', `字幕：${label}，按一下切換`);
+        }
+
+        /** Cycle through the four exclusive modes and let the server synchronize playback clients. */
+        function cycleSubtitleStyleMode() {
+            socket.emit('set_subtitle_style_mode', { mode: (currentSubtitleStyleMode + 1) % subtitleStyleLabels.length });
         }
 
         /** Show the vocal slider only for a marked vocal-stem song in guide mode. */
@@ -734,6 +755,13 @@
         }
 
         socket.on('current_song', updateCurrentSong);
+
+        socket.on('subtitle_style_mode', (data) => {
+            const mode = Number(data && data.mode);
+            if (!Number.isInteger(mode) || mode < 0 || mode >= subtitleStyleLabels.length) return;
+            currentSubtitleStyleMode = mode;
+            renderSubtitleStyleButton();
+        });
 
         socket.on('set_audio', (data) => {
             if (!data || typeof data !== 'object') return;

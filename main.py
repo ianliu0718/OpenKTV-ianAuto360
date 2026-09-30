@@ -1567,6 +1567,7 @@ if _normalize_song_notes(song_notes):
     _save_song_notes()
 subtitle_visible = False
 subtitle_font_size = 100
+subtitle_style_mode = 0
 qr_visible = True
 random_play_enabled = False
 random_play_explicitly_enabled = False
@@ -1673,6 +1674,7 @@ def handle_connect():
         'seek_offset': seek_offset,
         **_guide_audio_control_state(current_filename),
     })
+    emit('subtitle_style_mode', {'mode': subtitle_style_mode})
     emit('qr_visibility', {'visible': qr_visible})
     emit('random_play', {'enabled': random_play_enabled})
     emit('seek_correction', {'enabled': seek_correction_enabled})
@@ -1796,6 +1798,20 @@ def handle_set_subtitle_font_size(data):
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
+
+
+@socketio.on('set_subtitle_style_mode')
+def handle_set_subtitle_style_mode(data):
+    """Update the shared subtitle background/shadow mode and broadcast it."""
+    global subtitle_style_mode
+    try:
+        requested_mode = int(data.get('mode')) if isinstance(data, dict) else -1
+    except (TypeError, ValueError):
+        return
+    if requested_mode not in range(2):
+        return
+    subtitle_style_mode = requested_mode
+    emit('subtitle_style_mode', {'mode': subtitle_style_mode}, broadcast=True)
 
 @socketio.on('remove_from_queue')
 def handle_remove_from_queue(data):

@@ -46,15 +46,19 @@
         @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
         #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000 }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
-        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
         #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+        /* Subtitle style classes are mutually exclusive; background covers lines or the plain-lyrics panel. */
+        #ktv-subtitle.subtitle-style-background:not(.plain-lyrics-mode) .subtitle-line { box-decoration-break: clone; padding: .08em .3em; border-radius: 4px; background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-background.plain-lyrics-mode { background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-shadow { text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -63,6 +67,8 @@
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
         .btn { padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; transition: 0.2s;}
         .btn:active { transform: scale(0.95); }
+        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+        .subtitle-controls-row .btn { min-height: 42px; margin: 0; padding: 8px 5px; font-size: 13px; }
         .subtitle-size-row {
             display: flex;
             align-items: center;
@@ -209,7 +215,10 @@
 
         <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
             <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+            <div class="subtitle-controls-row">
+                <button id="current-subtitle-button" class="btn" style="background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;" onclick="cycleSubtitleStyleMode()">[背景]</button>
+            </div>
             <div class="subtitle-size-row">
                 <span>字幕比例</span>
                 <span id="subtitle-size-label" class="subtitle-size-value">120%</span>
@@ -726,6 +735,16 @@ const socket = io();
             if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
         }
 
+        /** Applies the selected background or shadow mode to the subtitle root. */
+        function applySubtitleStyleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 1) return;
+            currentSubtitleStyleMode = value;
+            const styleClasses = ['subtitle-style-background', 'subtitle-style-shadow'];
+            ktvSubtitle.classList.remove(...styleClasses);
+            ktvSubtitle.classList.add(styleClasses[value]);
+        }
+
         /**
          * Wraps subtitle text in animated characters for the KTV entrance effect.
          * @param {string} text Subtitle line text.
@@ -1207,6 +1226,8 @@ const socket = io();
             }
         });
 
+        socket.on('subtitle_style_mode', (data) => applySubtitleStyleMode(data && data.mode));
+
         // 當影片播完時只發送一次 song_ended，讓後端決定下一首歌。
         function handleVideoEnded() {
             const endedFilename = currentFilename;
@@ -1375,6 +1396,8 @@ const socket = io();
         let subtitleSongs = new Set();
         let currentPlayingFilename = '';
         let currentSubtitleVisible = false;
+        let currentSubtitleStyleMode = 0;
+        const subtitleStyleLabels = ['背景', '陰影'];
         const pendingSongs = new Set();
         /**
          * Loads the songs that have a matching subtitle file.
@@ -1457,6 +1480,19 @@ const socket = io();
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
             button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
+            renderSubtitleStyleButton();
+        }
+
+        /** Show the active background or shadow mode and cycle between them. */
+        function renderSubtitleStyleButton() {
+            const button = document.getElementById('subtitle-style-button');
+            const label = subtitleStyleLabels[currentSubtitleStyleMode] || subtitleStyleLabels[0];
+            button.textContent = `${label}`;
+            button.setAttribute('aria-label', `字幕：${label}，按一下切換`);
+        }
+
+        function cycleSubtitleStyleMode() {
+            socket.emit('set_subtitle_style_mode', { mode: (currentSubtitleStyleMode + 1) % subtitleStyleLabels.length });
         }
 
         /**
@@ -1514,6 +1550,13 @@ const socket = io();
         }
 
         socket.on('current_song', updateCurrentSong);
+
+        socket.on('subtitle_style_mode', (data) => {
+            const mode = Number(data && data.mode);
+            if (!Number.isInteger(mode) || mode < 0 || mode >= subtitleStyleLabels.length) return;
+            currentSubtitleStyleMode = mode;
+            renderSubtitleStyleButton();
+        });
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {

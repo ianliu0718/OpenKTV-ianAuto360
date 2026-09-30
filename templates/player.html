@@ -29,15 +29,19 @@
         #photo-overlay { position: absolute; inset: 0; z-index: 17; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
         #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
         @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
-        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
         #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+        /* Subtitle style classes are mutually exclusive; background covers lines or the plain-lyrics panel. */
+        #ktv-subtitle.subtitle-style-background:not(.plain-lyrics-mode) .subtitle-line { box-decoration-break: clone; padding: .08em .3em; border-radius: 4px; background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-background.plain-lyrics-mode { background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-shadow { text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -108,6 +112,7 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let currentSubtitleStyleMode = 0;
         let currentLoudness = null;
         let liveLoudness = null;
         let liveLoudnessTimer = null;
@@ -377,6 +382,16 @@
             if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
             if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+        }
+
+        /** Applies the selected background or shadow mode to the subtitle root. */
+        function applySubtitleStyleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 1) return;
+            currentSubtitleStyleMode = value;
+            const styleClasses = ['subtitle-style-background', 'subtitle-style-shadow'];
+            ktvSubtitle.classList.remove(...styleClasses);
+            ktvSubtitle.classList.add(styleClasses[value]);
         }
 
         /**
@@ -806,6 +821,8 @@
                 applySubtitleFontSize(data.font_size);
             }
         });
+
+        socket.on('subtitle_style_mode', (data) => applySubtitleStyleMode(data && data.mode));
 
         socket.on('current_song', (data) => {
             applySubtitleFontSize(data.font_size);
