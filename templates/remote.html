@@ -270,7 +270,8 @@
         let currentTrackMode = 'original';
         let guideVocalControlSupported = false;
         let currentVocalLevel = 50;
-        let currentSubtitleVisible = false;
+        let currentSubtitleMode = 0;
+        const subtitleDisplayLabels = ['隱藏', '單行', '雙行', '雙行漸變'];
         let currentSubtitleFontSize = 120;
         let currentSubtitleStyleMode = 0;
         const subtitleStyleLabels = ['背景', '陰影'];
@@ -666,7 +667,7 @@
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
+            button.textContent = `字幕：${subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0]}`;
             renderSubtitleStyleButton();
         }
 
@@ -711,7 +712,7 @@
                 renderQueue([]);
             }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
+            currentSubtitleMode = hasSubtitle ? Math.max(0, Math.min(3, Number(data.subtitle_mode) || 0)) : 0;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
@@ -724,7 +725,8 @@
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                toggleSubtitle(currentPlayingFilename);
+                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }
 
@@ -823,7 +825,7 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
+                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(3, Number(data.subtitle_mode) || 0)) : 0;
                 currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                 renderSubtitleFontSizeControl();
                 renderCurrentSongControl();
@@ -920,12 +922,6 @@
          * Inserts the currently playing song as the next queued song.
          */
         function replayCurrentSong() { socket.emit('replay_current_song'); }
-
-        /**
-         * Requests the player to toggle subtitles for a song with an attached file.
-         * @param {string} filename Song filename used by the player.
-         */
-        function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
 
         function loadList() {
             fetch('/api/list').then(r => r.json()).then(data => {

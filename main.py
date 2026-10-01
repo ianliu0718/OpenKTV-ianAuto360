@@ -616,7 +616,7 @@ def _song_has_subtitle(filename):
 
 def _play_video_payload(filename):
     """Build a playback event payload with server-confirmed audio metadata and per-song subtitle state."""
-    visible = subtitle_visible and _song_has_subtitle(filename)
+    visible = subtitle_mode > 0 and _song_has_subtitle(filename)
     guide_audio_state = _guide_audio_control_state(filename)
     return {
         'filename': filename,
@@ -627,6 +627,7 @@ def _play_video_payload(filename):
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
         'visible': visible,
+        'subtitle_mode': subtitle_mode if visible else 0,
         'font_size': subtitle_font_size,
     }
 
@@ -1565,7 +1566,7 @@ def _save_song_notes():
 song_notes = _load_song_notes()
 if _normalize_song_notes(song_notes):
     _save_song_notes()
-subtitle_visible = False
+subtitle_mode = 0
 subtitle_font_size = 100
 subtitle_style_mode = 0
 qr_visible = True
@@ -1651,10 +1652,11 @@ def start_random_song():
 def broadcast_current_song():
     """Broadcast the current song and its per-song subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
-    visible = subtitle_visible and _song_has_subtitle(filename)
+    visible = subtitle_mode > 0 and _song_has_subtitle(filename)
     socketio.emit('current_song', {
         'filename': filename,
         'visible': visible,
+        'subtitle_mode': subtitle_mode if visible else 0,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
         **_guide_audio_control_state(filename),
@@ -1669,7 +1671,8 @@ def handle_connect():
     emit('song_notes', song_notes)
     emit('current_song', {
         'filename': current_filename,
-        'visible': subtitle_visible and _song_has_subtitle(current_filename),
+        'visible': subtitle_mode > 0 and _song_has_subtitle(current_filename),
+        'subtitle_mode': subtitle_mode if _song_has_subtitle(current_filename) else 0,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
         **_guide_audio_control_state(current_filename),
@@ -1737,7 +1740,7 @@ def handle_random_play(data):
 @socketio.on('add_to_queue')
 def handle_add_queue(data):
     """Append a user-selected song while blocking random fill for a short cooldown period."""
-    global subtitle_visible, seek_offset, last_user_action_time
+    global seek_offset, last_user_action_time
     filename = data['filename']
     last_user_action_time = time.monotonic()
     playlist_queue.append(filename)
@@ -1762,19 +1765,26 @@ def handle_replay_current_song():
     emit('queue_song_added', {'filename': filename}, broadcast=True)
     handle_song_ended(reset_pitch=False)
 
-@socketio.on('toggle_subtitle')
-def handle_toggle_subtitle(data):
-    """Toggle subtitles only for the song currently playing."""
-    global subtitle_visible
+@socketio.on('set_subtitle_mode')
+def handle_set_subtitle_mode(data):
+    """Set the shared subtitle display mode for the song currently playing."""
+    global subtitle_mode
     filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
     if not playlist_queue or filename != playlist_queue[0]:
         return
     if not _song_has_subtitle(filename):
         return
-    subtitle_visible = not subtitle_visible
+    try:
+        requested_mode = int(data.get('mode')) if isinstance(data, dict) else -1
+    except (TypeError, ValueError):
+        return
+    if requested_mode not in range(4):
+        return
+    subtitle_mode = requested_mode
     emit('subtitle_state', {
         'filename': filename,
-        'visible': subtitle_visible,
+        'visible': subtitle_mode > 0,
+        'subtitle_mode': subtitle_mode,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
@@ -1791,10 +1801,11 @@ def handle_set_subtitle_font_size(data):
     subtitle_font_size = round(subtitle_font_size / 10) * 10
     subtitle_font_size = max(80, min(200, subtitle_font_size))
     current_filename = playlist_queue[0] if playlist_queue else ''
-    visible = subtitle_visible and _song_has_subtitle(current_filename)
+    visible = subtitle_mode > 0 and _song_has_subtitle(current_filename)
     emit('subtitle_state', {
         'filename': current_filename,
         'visible': visible,
+        'subtitle_mode': subtitle_mode if visible else 0,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
@@ -1875,7 +1886,7 @@ def handle_song_ended(data=None, reset_pitch=True):
     """Advance the queue while preventing random idle fill from racing user-selected songs.
     Replay intentionally preserves the active pitch so the user keeps the same KEY when restarting the same song.
     """
-    global subtitle_visible, seek_offset, last_user_action_time, current_pitch
+    global seek_offset, last_user_action_time, current_pitch
     ended_filename = os.path.basename(str(data.get('filename', '')).strip()) if isinstance(data, dict) else ''
     if ended_filename and (not playlist_queue or ended_filename != playlist_queue[0]):
         return
