@@ -58,8 +58,8 @@
         .sound-effect-button { background: #00897b; }
         #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
         #danmaku-panel h4 { margin: 0 0 12px; }
-        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
-        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
+        .emotion-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tab { min-width: 0; margin: 0; padding: 8px 3px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 12px; font-weight: normal; white-space: nowrap; box-shadow: none; }
         .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
         .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
         .emotion-tab-panel[hidden] { display: none; }
@@ -73,6 +73,12 @@
         .photo-camera-button:hover { background: #1976d2; }
         .photo-picker-actions .btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
         .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
+        .sticker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 8px 0; }
+        .sticker-option { aspect-ratio: 1; min-width: 0; margin: 0; padding: 5px; border: 1px solid #555; background-color: #333; background-image: radial-gradient(#555 0.7px, transparent 0.7px); background-size: 8px 8px; }
+        .sticker-option.selected { border: 2px solid #2aa894; background-color: #174d48; }
+        .sticker-option img { display: block; width: 100%; height: 100%; object-fit: contain; }
+        .sticker-preview { display: none; max-width: 100%; height: 90px; margin: 8px auto 0; object-fit: contain; }
+        .sticker-picker-status { margin: 4px 0 0; color: #ccc; text-align: center; font-size: 12px; overflow-wrap: anywhere; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
         .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -206,6 +212,7 @@
             <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
             <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
             <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
+            <button id="emotion-tab-sticker" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sticker')">✨ 貼圖</button>
         </div>
         <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
             <div class="effect-section">
@@ -239,6 +246,11 @@
                 <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden onchange="prepareEmotionPhoto(event)">
                 <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
+        </div>
+        <div id="emotion-panel-sticker" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sticker" hidden>
+            <div id="emotion-sticker-grid" class="sticker-grid" aria-label="選擇貼圖"></div>
+            <img id="emotion-sticker-preview" class="sticker-preview" alt="貼圖預覽">
+            <p id="emotion-sticker-status" class="sticker-picker-status">載入貼圖中...</p>
         </div>
         <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
@@ -463,21 +475,89 @@
         }
 
         function switchEmotionTab(tabName) {
-            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
-            ['danmaku', 'sound', 'photo'].forEach((name) => {
+            activeEmotionTab = ['danmaku', 'sound', 'photo', 'sticker'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo', 'sticker'].forEach((name) => {
                 const active = activeEmotionTab === name;
                 document.getElementById(`emotion-panel-${name}`).hidden = !active;
                 document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
                 document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
             });
+            if (activeEmotionTab === 'sticker') loadEmotionStickers();
         }
 
         let activeEmotionTab = 'danmaku';
         let pendingEmotionPhoto = '';
+        let emotionStickerListPromise = null;
+        let pendingEmotionSticker = '';
 
         function sendEmotionAction() {
             if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'sticker') sendEmotionSticker();
             else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function loadEmotionStickers() {
+            if (emotionStickerListPromise) return;
+            const grid = document.getElementById('emotion-sticker-grid');
+            const status = document.getElementById('emotion-sticker-status');
+            emotionStickerListPromise = fetch('/api/stickers')
+                .then((response) => response.ok ? response.json() : Promise.reject(new Error('貼圖清單載入失敗')))
+                .then((stickers) => {
+                    grid.replaceChildren();
+                    stickers.forEach((filename) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'btn sticker-option';
+                        button.setAttribute('aria-label', `選擇貼圖 ${filename}`);
+                        button.setAttribute('aria-pressed', 'false');
+                        const image = document.createElement('img');
+                        image.src = `/static/stickers/${encodeURIComponent(filename)}`;
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        button.appendChild(image);
+                        button.addEventListener('click', () => selectEmotionSticker(filename, button));
+                        grid.appendChild(button);
+                    });
+                    status.textContent = stickers.length ? `選擇一張貼圖（${stickers.length} 張）` : '目前沒有可用貼圖。';
+                })
+                .catch((error) => {
+                    emotionStickerListPromise = null;
+                    status.textContent = error.message;
+                });
+        }
+
+        function selectEmotionSticker(filename, selectedButton) {
+            pendingEmotionSticker = filename;
+            document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                const selected = button === selectedButton;
+                button.classList.toggle('selected', selected);
+                button.setAttribute('aria-pressed', String(selected));
+            });
+            const preview = document.getElementById('emotion-sticker-preview');
+            preview.src = `/static/stickers/${encodeURIComponent(filename)}`;
+            preview.style.display = 'block';
+            document.getElementById('emotion-sticker-status').textContent = filename;
+        }
+
+        function sendEmotionSticker() {
+            if (!pendingEmotionSticker) {
+                document.getElementById('emotion-sticker-status').textContent = '請先選擇貼圖。';
+                return;
+            }
+            socket.emit('sticker_submit', { filename: pendingEmotionSticker }, (result) => {
+                const status = document.getElementById('emotion-sticker-status');
+                if (!result || !result.success) {
+                    status.textContent = result && result.error ? result.error : '貼圖發送失敗。';
+                    return;
+                }
+                status.textContent = `已送出：${pendingEmotionSticker}`;
+                pendingEmotionSticker = '';
+                document.getElementById('emotion-sticker-preview').style.display = 'none';
+                document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                    button.classList.remove('selected');
+                    button.setAttribute('aria-pressed', 'false');
+                });
+            });
         }
 
         function prepareEmotionPhoto(event) {

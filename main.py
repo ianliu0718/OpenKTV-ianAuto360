@@ -74,6 +74,8 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+STICKERS_DIR = os.path.join(BASE_DIR, "static", "stickers")
+STICKER_EXTENSIONS = {'.gif', '.webp', '.png'}
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
 # 待播備註獨立保存於專案目錄，避免重啟 server 後遺失。
@@ -936,6 +938,18 @@ def get_subtitle_list():
         if filename.lower().endswith('.vtt')
     }
     return json.dumps(sorted(subtitles), ensure_ascii=False)
+
+@app.route('/api/stickers')
+def get_sticker_list():
+    """Return only supported sticker files stored in the project asset directory."""
+    if not os.path.isdir(STICKERS_DIR):
+        return json.dumps([], ensure_ascii=False)
+    filenames = [
+        filename for filename in os.listdir(STICKERS_DIR)
+        if os.path.splitext(filename)[1].lower() in STICKER_EXTENSIONS
+        and os.path.isfile(os.path.join(STICKERS_DIR, filename))
+    ]
+    return json.dumps(sorted(filenames, key=str.casefold), ensure_ascii=False)
 
 def parse_vtt_timestamp(timestamp):
     """Convert a WebVTT timestamp into seconds."""
@@ -2351,6 +2365,23 @@ def handle_photo_submit(data):
     if not decoded or len(decoded) > 5 * 1024 * 1024:
         return {'success': False, 'error': '照片大小不可超過 5 MB'}
     emit('photo_show', {'data': image_data}, broadcast=True)
+    return {'success': True}
+
+@socketio.on('sticker_submit')
+def handle_sticker_submit(data):
+    """Broadcast one allowlisted static sticker filename to playback screens."""
+    if not isinstance(data, dict):
+        return {'success': False, 'error': '貼圖資料格式錯誤'}
+    filename = str(data.get('filename', '')).strip()
+    if not filename or filename != os.path.basename(filename):
+        return {'success': False, 'error': '貼圖名稱無效'}
+    extension = os.path.splitext(filename)[1].lower()
+    sticker_path = os.path.join(STICKERS_DIR, filename)
+    if extension not in STICKER_EXTENSIONS or not os.path.isfile(sticker_path):
+        return {'success': False, 'error': '找不到支援的貼圖'}
+    if os.path.getsize(sticker_path) > 2 * 1024 * 1024:
+        return {'success': False, 'error': '貼圖大小不可超過 2 MB'}
+    emit('sticker_show', {'filename': filename}, broadcast=True)
     return {'success': True}
 
 @socketio.on('seek_video')
