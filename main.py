@@ -248,6 +248,28 @@ def _measure_audio_loudness(ffmpeg_path, song_path, mode, channels=6):
     loudness, _ = _measure_audio_metrics(ffmpeg_path, song_path, mode, channels)
     return loudness
 
+def _measure_stereo_source_metrics(ffmpeg_path, source_path):
+    """Measure a stereo source without applying legacy six-channel mode mapping."""
+    null_device = 'NUL' if os.name == 'nt' else '/dev/null'
+    command = [
+        ffmpeg_path, '-v', 'info', '-i', source_path, '-vn', '-sn', '-dn',
+        '-af', 'pan=stereo|c0=c0|c1=c1,ebur128=peak=true:framelog=verbose',
+        '-f', 'null', null_device,
+    ]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, None
+    loudness_match = re.search(r'^\s*I:\s*(-?\d+(?:\.\d+)?)\s+LUFS', result.stderr, re.MULTILINE)
+    peak_matches = re.findall(r'^\s*Peak:\s*(-?\d+(?:\.\d+)?)\s+dBFS', result.stderr, re.MULTILINE)
+    return (
+        float(loudness_match.group(1)) if loudness_match else None,
+        float(peak_matches[-1]) if peak_matches else None,
+    )
+
 def get_audio_loudness(filename, mode='original'):
     """Return the selected mode's integrated loudness in LUFS, cached until the song changes."""
     song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
@@ -1015,7 +1037,7 @@ def optimize_video():
         shutil.rmtree(job_dir, ignore_errors=True)
 
 def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
-    """Correct each final stereo pair to the shared -14 LUFS target."""
+    """Correct each playback mode on its selected channels before rebuilding 5.1."""
     mode_levels = {
         mode: _measure_audio_metrics(ffmpeg_path, source_path, mode)
         for mode in ('original', 'guide', 'instrumental')
@@ -1024,38 +1046,25 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
            for mode, level in mode_levels.items()):
         raise RuntimeError('FFmpeg 無法量測六聲道輸出的模式音量或 True Peak')
     has_vocal_stem = _has_separated_vocal_track(ffmpeg_path, source_path)
-    original_gain = -14.0 - mode_levels['original'][0]
-    instrumental_gain = min(-14.0 - mode_levels['instrumental'][0], -2.5 - mode_levels['instrumental'][1])
-    if has_vocal_stem:
-        audio_filter = (
-            f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
-            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
-            '[0:a]pan=mono|c0=c2[vocals];[vocals]volume=0[unused_vocal];'
-            f'[0:a]pan=mono|c0=c4,volume={instrumental_gain:.3f}dB,'
-            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
-            '[instrumental]volume=0[unused_instrumental];'
-            '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-            '[original_l][original_r][vocals][unused_vocal][instrumental][unused_instrumental]'
-            'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-            'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
-        )
-    else:
-        guide_gain = min(-14.0 - mode_levels['guide'][0], -2.5 - mode_levels['guide'][1])
-        audio_filter = (
-            f'[0:a]pan=stereo|c0=c0|c1=c1,volume={original_gain:.3f}dB,'
-            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[original];'
-            f'[0:a]pan=stereo|c0=c2|c1=c2,volume={guide_gain:.3f}dB,'
-            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[guide];'
-            f'[0:a]pan=stereo|c0=c4|c1=c4,volume={instrumental_gain:.3f}dB,'
-            'aresample=async=1,aformat=sample_fmts=fltp:sample_rates=44100[instrumental];'
-            '[original]pan=mono|c0=FL[original_l];[original]pan=mono|c0=FR[original_r];'
-            '[guide]pan=mono|c0=FL[guide_l];[guide]pan=mono|c0=FR[guide_r];'
-            '[guide_r]volume=0[guide_unused];'
-            '[instrumental]pan=mono|c0=FL[instrumental_l];[instrumental]pan=mono|c0=FR[instrumental_r];'
-            '[original_l][original_r][guide_l][guide_unused][instrumental_l][instrumental_r]'
-            'join=inputs=6:channel_layout=5.1:map=0.0-FL|1.0-FR|2.0-FC|3.0-LFE|4.0-BL|5.0-BR,'
-            'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
-        )
+
+    def gain_factor(mode, peak_target=-2.5):
+        loudness, peak = mode_levels[mode]
+        gain_db = -14.0 - loudness
+        if peak is not None:
+            gain_db = min(gain_db, peak_target - peak)
+        return 10 ** (gain_db / 20.0)
+
+    original_factor = gain_factor('original', peak_target=-1.0)
+    instrumental_factor = gain_factor('instrumental')
+    guide_expression = 'c2'
+    if not has_vocal_stem:
+        guide_expression = f'{gain_factor("guide"):.6f}*c2'
+    audio_filter = (
+        f'[0:a]pan=5.1|c0={original_factor:.6f}*c0|c1={original_factor:.6f}*c1|'
+        f'c2={guide_expression}|c3=c3|c4={instrumental_factor:.6f}*c4|'
+        f'c5={instrumental_factor:.6f}*c5,'
+        'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
+    )
     command = [
         ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
         '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
@@ -1073,12 +1082,64 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     except subprocess.TimeoutExpired as error:
         raise RuntimeError('六聲道音量平衡逾時（超過 600 秒）') from error
 
+def _normalize_accompaniment_source(ffmpeg_path, source_path, output_path):
+    """Normalize and compensate PCM accompaniment before the single final AAC encode."""
+    base_output = output_path + '.base.wav'
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg_path, '-y', '-i', source_path,
+                '-af', 'pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,loudnorm=I=-14:TP=-7.5:LRA=11',
+                '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le', base_output,
+            ],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(base_output):
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'伴奏 pre-AAC 響度處理失敗：{detail}')
+        ffmpeg_metrics = _measure_stereo_source_metrics(ffmpeg_path, base_output)
+        if ffmpeg_metrics[0] is None:
+            raise RuntimeError('伴奏 pre-AAC 響度量測失敗')
+        compensation = max(0.0, min(4.0, -14.0 - ffmpeg_metrics[0]))
+        if compensation < 0.05:
+            os.replace(base_output, output_path)
+            return
+        result = subprocess.run(
+            [
+                ffmpeg_path, '-y', '-i', base_output,
+                '-af', f'volume={compensation:.3f}dB',
+                '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s16le', output_path,
+            ],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        if result.returncode != 0 or not os.path.exists(output_path):
+            detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
+            raise RuntimeError(f'伴奏 PCM 補償失敗：{detail}')
+    finally:
+        if os.path.exists(base_output):
+            os.remove(base_output)
+
 def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path, output_path, normalize_volume=True):
     """Create one MP4 using the six-channel mix topology."""
     # Store isolated vocals in c2 so playback can change vocal gain without changing c4 accompaniment.
-    original_loudnorm = 'loudnorm=I=-14:TP=0:LRA=11,' if normalize_volume else ''
+    original_loudnorm = ''
     # c4 is mono here and duplicated to stereo for playback, so pre-compensate the measured LUFS and AAC peak.
-    mode_loudnorm = 'loudnorm=I=-17:TP=-3.5:LRA=11,' if normalize_volume else ''
+    mode_loudnorm = ''
+    prepared_accompaniment_path = accompaniment_path
+    temporary_accompaniment_path = None
+    if normalize_volume:
+        original_loudness, original_peak = _measure_stereo_source_metrics(ffmpeg_path, source_path)
+        if original_loudness is None or original_peak is None:
+            raise RuntimeError('無法在唯一一次 AAC 輸出前量測原聲或伴奏響度')
+        original_gain = min(-14.0 - original_loudness, -2.5 - original_peak)
+        original_loudnorm = f'volume={original_gain:.3f}dB,'
+        temporary_accompaniment_path = output_path + '.normalized_accompaniment.wav'
+        _normalize_accompaniment_source(ffmpeg_path, accompaniment_path, temporary_accompaniment_path)
+        prepared_accompaniment_path = temporary_accompaniment_path
     audio_filter = (
         f'[0:a]pan=stereo|c0=FL|c1=FR,{original_loudnorm}aresample=async=1,'
         'aformat=sample_fmts=fltp:sample_rates=44100[original];'
@@ -1096,7 +1157,7 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         'aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=5.1[audio]'
     )
     command = [
-        ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', accompaniment_path,
+        ffmpeg_path, '-y', '-i', source_path, '-i', vocal_path, '-i', prepared_accompaniment_path,
         '-filter_complex', audio_filter,
         '-map', '0:v:0', '-map', '[audio]',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k', '-movflags', '+faststart',
@@ -1104,11 +1165,15 @@ def _create_six_channel_mp4(ffmpeg_path, ffprobe_path, source_path, vocal_path, 
         '-metadata:s:a:0', 'title=原聲、人聲、伴奏（六聲道）',
         '-metadata:s:a:0', f'{VOCAL_STEM_LAYOUT_TAG}={VOCAL_STEM_LAYOUT_VERSION}', output_path,
     ]
-    result = subprocess.run(
-        command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-        encoding='utf-8', errors='replace',
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-    )
+    try:
+        result = subprocess.run(
+            command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+    finally:
+        if temporary_accompaniment_path and os.path.exists(temporary_accompaniment_path):
+            os.remove(temporary_accompaniment_path)
     if result.returncode != 0:
         detail = result.stderr.strip()[-3000:] if result.stderr else 'FFmpeg 未提供錯誤訊息'
         raise RuntimeError(f'六聲道合成失敗（return code {result.returncode}）：{detail}')
