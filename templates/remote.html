@@ -267,6 +267,7 @@
     <script>
         const socket = io();
         let allSongs = [];
+        let sortedSongMetadata = [];
         let songAudioExceptions = {};
         let subtitleSongs = new Set();
         let currentKey = 0;
@@ -586,7 +587,7 @@
 
         // --- 歌單與基本控制 ---
         socket.on('update_list', (songs) => {
-            allSongs = songs;
+            setSongList(songs);
             renderCategoryFilters();
             filter();
         });
@@ -638,6 +639,12 @@
             if (firstCode === null) return -1;
             if (secondCode === null) return 1;
             return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
+        }
+
+        function setSongList(songs) {
+            allSongs = Array.isArray(songs) ? songs : [];
+            sortedSongMetadata = allSongs.map((filename) => ({ filename, metadata: parseSongMetadata(filename) }))
+                .sort((firstSong, secondSong) => compareSongCodeDescending(firstSong.filename, secondSong.filename));
         }
 
         /**
@@ -870,15 +877,12 @@
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
             const list = document.getElementById('list');
-            list.innerHTML = "";
-            
-            allSongs.slice().sort(compareSongCodeDescending).filter(s => {
-                const metadata = parseSongMetadata(s);
-                return s.toLowerCase().includes(key)
+            const rows = sortedSongMetadata.filter(({ filename, metadata }) => {
+                return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
                     && (!selectedLanguage || metadata.language === selectedLanguage);
-            }).forEach(s => {
+            }).map(({ filename: s }) => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
                 const queueIndex = currentPlaylist.indexOf(s);
@@ -889,12 +893,13 @@
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
-                list.innerHTML += `
+                return `
                     <li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)">
                         <span class="song-main"><span class="song-name">${statusLabel}${s}</span>${exceptionLabel}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
+            list.innerHTML = rows.join('');
         }
 
         /**
@@ -938,7 +943,7 @@
 
         function loadList() {
             fetch('/api/list').then(r => r.json()).then((songs) => {
-                allSongs = songs;
+                setSongList(songs);
                 renderCategoryFilters();
                 filter();
                 fetch('/api/song-audio-exceptions').then(r => r.json()).then((exceptions) => {
