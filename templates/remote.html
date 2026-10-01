@@ -30,7 +30,7 @@
         li.song-row { cursor: pointer; }
         li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
-        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+        .category-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .search-row { display: flex; gap: 6px; align-items: stretch; }
         .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
@@ -115,9 +115,10 @@
                 <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
             </div>
             <div class="category-filters">
-                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange('song-length-filter')"><option value="">歌曲字數：全部</option></select>
-                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange('singer-filter')"><option value="">主唱者：全部</option></select>
-                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()"><option value="">歌曲字數：全部</option></select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()"><option value="">主唱者：全部</option></select>
+                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()"><option value="">語言：全部</option></select>
+                <select id="affiliation-filter" aria-label="依歌曲歸屬分類" onchange="handleCategoryChange()"><option value="">歸屬：全部</option></select>
             </div>
         </div>
         <ul id="list"></ul>
@@ -691,9 +692,18 @@
         function parseSongMetadata(filename) {
             const name = filename.replace(/\.mp4$/i, '');
             const parts = name.split('-');
-            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識', code: null, affiliation: '未標記' };
             const title = parts[0];
-            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+            const code = /^\d+$/.test(parts[3] || '') ? Number(parts[3]) : null;
+            const affiliation = parts.length > 4 ? parts.slice(4).join('-') : '未標記';
+            return {
+                title,
+                singer: parts[1] || '未辨識',
+                language: parts[2] || '未辨識',
+                length: String(Array.from(title).length),
+                code,
+                affiliation,
+            };
         }
 
         /**
@@ -702,8 +712,7 @@
          * @returns {number|null} Numeric song code, or null when unavailable.
          */
         function getSongCode(filename) {
-            const match = filename.match(/(\d+)(?:\.mp4)?$/i);
-            return match ? Number(match[1]) : null;
+            return parseSongMetadata(filename).code;
         }
 
         /**
@@ -727,22 +736,32 @@
                 .sort((firstSong, secondSong) => compareSongCodeDescending(firstSong.filename, secondSong.filename));
         }
 
-        /**
-         * Rebuilds category selectors from the currently loaded song list.
-         */
+        /** Rebuilds each category from search results matching every other selected category. */
         function renderCategoryFilters() {
             const lengthFilter = document.getElementById('song-length-filter');
             const singerFilter = document.getElementById('singer-filter');
             const languageFilter = document.getElementById('language-filter');
-            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
-            const metadata = allSongs.map(parseSongMetadata);
-            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
-            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliationFilter = document.getElementById('affiliation-filter');
+            const filters = [lengthFilter, singerFilter, languageFilter, affiliationFilter];
+            const previous = filters.map((filterElement) => filterElement.value);
+            const fields = ['length', 'singer', 'language', 'affiliation'];
+            const query = document.getElementById('search').value.toLowerCase();
+            const matchingSongs = sortedSongMetadata.filter(({ filename }) => filename.toLowerCase().includes(query));
+            const valuesForFilter = (filterIndex) => [...new Set(matchingSongs
+                .filter(({ metadata }) => previous.every((value, index) => index === filterIndex || !value || metadata[fields[index]] === value))
+                .map(({ metadata }) => metadata[fields[filterIndex]]))];
+            const lengths = valuesForFilter(0).sort((a, b) => Number(a) - Number(b));
+            const singers = valuesForFilter(1).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = valuesForFilter(2).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliations = valuesForFilter(3).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
             lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
             singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
             languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
-            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            affiliationFilter.innerHTML = '<option value="">歸屬：全部</option>' + affiliations.map(value => `<option value="${value}">${value}</option>`).join('');
+            filters.forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            if (filters.some((filterElement, index) => filterElement.value !== previous[index])) {
+                renderCategoryFilters();
+            }
         }
 
         /**
@@ -926,20 +945,23 @@
         /** Clears all four song filtering methods and restores the full list. */
         function clearFilters() {
             document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            ['song-length-filter', 'singer-filter', 'language-filter', 'affiliation-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears category filters when the free-text search is used. */
+        /** Resets all category filters while a non-empty search query is entered. */
         function handleSearchInput() {
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            if (document.getElementById('search').value) {
+                ['song-length-filter', 'singer-filter', 'language-filter', 'affiliation-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            }
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears search and other categories when one category is selected. @param {string} selectedId Selected filter id. */
-        function handleCategoryChange(selectedId) {
-            document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { if (id !== selectedId) document.getElementById(id).value = ''; });
+        /** Applies category changes without clearing other categories or the search query. */
+        function handleCategoryChange() {
+            renderCategoryFilters();
             filter();
         }
 
@@ -956,12 +978,14 @@
             const selectedLength = document.getElementById('song-length-filter').value;
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
+            const selectedAffiliation = document.getElementById('affiliation-filter').value;
             const list = document.getElementById('list');
             const rows = sortedSongMetadata.filter(({ filename, metadata }) => {
                 return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
-                    && (!selectedLanguage || metadata.language === selectedLanguage);
+                    && (!selectedLanguage || metadata.language === selectedLanguage)
+                    && (!selectedAffiliation || metadata.affiliation === selectedAffiliation);
             }).map(({ filename: s }) => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
