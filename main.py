@@ -739,6 +739,153 @@ def get_song_list():
     songs = [f for f in os.listdir(SONGS_DIR) if f.lower().endswith('.mp4')]
     return json.dumps(songs) 
 
+@app.route('/api/songs/rename', methods=['POST'])
+def batch_rename_songs():
+    """Rename valid song rows while collecting row-specific failures."""
+    global is_processing
+    if is_processing:
+        return json.dumps({'success': False, 'error': '目前已有其他製作或轉檔工作進行中，請稍候'}), 409
+    is_processing = True
+    socketio.emit('task_status', {'status': 'busy'})
+    try:
+        data = request.get_json(silent=True) or {}
+        mappings = data.get('mappings')
+        if not isinstance(mappings, list) or not mappings:
+            return json.dumps({'success': False, 'error': '請至少輸入一筆歌名對照'}), 400
+
+        parsed_mappings = []
+        failures = []
+        invalid_filename_characters = set('<>:"/\\|?*')
+        for index, mapping in enumerate(mappings, start=1):
+            if not isinstance(mapping, dict):
+                failures.append({'line': index, 'old': '', 'new': '', 'error': '格式錯誤，需為舊歌名與新歌名'})
+                continue
+            old_stem = str(mapping.get('old', '')).strip()
+            new_stem = str(mapping.get('new', '')).strip()
+            if old_stem.lower().endswith('.mp4'):
+                old_stem = old_stem[:-4]
+            if new_stem.lower().endswith('.mp4'):
+                new_stem = new_stem[:-4]
+            if (not old_stem or not new_stem or old_stem in {'.', '..'} or new_stem in {'.', '..'}
+                    or any(character in invalid_filename_characters for character in old_stem + new_stem)):
+                failures.append({'line': index, 'old': old_stem, 'new': new_stem, 'error': '歌名空白或包含檔名不允許的字元'})
+                continue
+            parsed_mappings.append({'line': index, 'old': old_stem, 'new': new_stem})
+
+        old_counts = {}
+        new_counts = {}
+        for mapping in parsed_mappings:
+            old_counts[mapping['old'].casefold()] = old_counts.get(mapping['old'].casefold(), 0) + 1
+            new_counts[mapping['new'].casefold()] = new_counts.get(mapping['new'].casefold(), 0) + 1
+        renamed_songs = []
+        queued_songs = {str(filename).casefold() for filename in playlist_queue}
+
+        for mapping in parsed_mappings:
+            line_number = mapping['line']
+            old_stem = mapping['old']
+            new_stem = mapping['new']
+            if old_stem.casefold() == new_stem.casefold():
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': '新舊歌名相同'})
+                continue
+            if old_counts[old_stem.casefold()] > 1:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': '舊歌名在批次中重複'})
+                continue
+            if new_counts[new_stem.casefold()] > 1:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': '新歌名在批次中重複'})
+                continue
+            if f'{old_stem}.mp4'.casefold() in queued_songs:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': '歌曲正在播放或待播，請先移出待播清單'})
+                continue
+
+            files_by_name = {filename.casefold(): filename for filename in os.listdir(SONGS_DIR)}
+            old_song = files_by_name.get(f'{old_stem}.mp4'.casefold())
+            if not old_song:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': f'找不到來源歌曲：{old_stem}.mp4'})
+                continue
+            new_song = f'{new_stem}.mp4'
+            if new_song.casefold() in files_by_name:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': f'目的歌曲已存在：{new_song}'})
+                continue
+            if new_song in song_notes and new_song != old_song:
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': f'目的歌曲已有備註：{new_song}'})
+                continue
+
+            planned_files = []
+            source_stem = os.path.splitext(old_song)[0]
+            for filename in os.listdir(SONGS_DIR):
+                filename_stem, extension = os.path.splitext(filename)
+                if filename_stem.casefold() != source_stem.casefold() or extension.lower() not in {'.mp4', '.vtt', '.srt', '.lrc'}:
+                    continue
+                target_filename = new_stem + extension
+                if target_filename.casefold() in files_by_name:
+                    planned_files = []
+                    failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': f'目的檔案已存在：{target_filename}'})
+                    break
+                planned_files.append((filename, target_filename))
+            if not planned_files:
+                if not any(failure['line'] == line_number for failure in failures):
+                    failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': f'找不到來源歌曲：{old_stem}.mp4'})
+                continue
+
+            staged_files = []
+            notes_snapshot = dict(song_notes) if old_song in song_notes else None
+            try:
+                for index, (source_filename, target_filename) in enumerate(planned_files):
+                    source_path = os.path.join(SONGS_DIR, source_filename)
+                    target_path = os.path.join(SONGS_DIR, target_filename)
+                    temporary_path = os.path.join(SONGS_DIR, f'.batch-rename-{time.time_ns()}-{index}.tmp')
+                    record = {'source': source_path, 'target': target_path, 'temporary': temporary_path, 'committed': False}
+                    staged_files.append(record)
+                    os.replace(source_path, temporary_path)
+                for record in staged_files:
+                    os.rename(record['temporary'], record['target'])
+                    record['committed'] = True
+                if old_song in song_notes:
+                    song_notes[new_song] = song_notes.pop(old_song)
+                    _save_song_notes()
+            except (OSError, RuntimeError, ValueError, TypeError) as error:
+                rollback_errors = []
+                for record in reversed(staged_files):
+                    current_path = record['target'] if record['committed'] else record['temporary']
+                    if os.path.exists(current_path):
+                        try:
+                            os.replace(current_path, record['source'])
+                        except OSError as rollback_error:
+                            rollback_errors.append(str(rollback_error))
+                if notes_snapshot is not None:
+                    song_notes.clear()
+                    song_notes.update(notes_snapshot)
+                    try:
+                        _save_song_notes()
+                    except OSError as rollback_error:
+                        rollback_errors.append(str(rollback_error))
+                detail = f'此列改名失敗，已回復：{error}'
+                if rollback_errors:
+                    detail += f'；回復時另有錯誤：{"、".join(rollback_errors)}'
+                failures.append({'line': line_number, 'old': old_stem, 'new': new_stem, 'error': detail})
+                continue
+
+            renamed_songs.append({
+                'line': line_number,
+                'old': old_stem,
+                'new': new_stem,
+                'lyrics': [os.path.splitext(source)[1] for source, _ in planned_files
+                           if os.path.splitext(source)[1].lower() != '.mp4'],
+            })
+
+        if renamed_songs:
+            socketio.emit('refresh_list')
+        failures.sort(key=lambda failure: failure['line'])
+        return json.dumps({
+            'success': not failures,
+            'total': len(mappings),
+            'renamed': renamed_songs,
+            'failures': failures,
+        }, ensure_ascii=False)
+    finally:
+        is_processing = False
+        socketio.emit('task_status', {'status': 'idle'})
+
 song_audio_exception_cache = {}
 song_audio_exception_cache_lock = threading.Lock()
 

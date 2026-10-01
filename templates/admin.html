@@ -172,6 +172,13 @@
             <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-14 LUFS）</button>
             <p id="normalize_audio_status"></p>
         </details>
+        <details class="batch-song-renamer">
+            <summary>進階：批次修改歌名</summary>
+            <label for="batch_song_renames">每行格式：舊歌名 | 新歌名（不需輸入 .mp4）</label>
+            <textarea id="batch_song_renames" class="batch-input" placeholder="捨不得的時刻-陳華-國-0512 | 捨不得的時刻-陳華-國-0512-ian&#10;運轉人生-邱軍-台-0513 | 運轉人生-邱軍-台-0513-ian&#10;軌跡-周杰倫-國-0514 | 軌跡-周杰倫-國-0514-ian"></textarea>
+            <button type="button" id="btn_batch_song_rename" class="btn-update" onclick="batchRenameSongs()">執行批次改名</button>
+            <p id="batch_song_rename_status"></p>
+        </details>
         <details class="channel-inspector">
             <summary>進階：六聲道逐聲道播放檢查</summary>
             <label for="channel_inspector_song">選擇要檢查的歌曲:</label>
@@ -218,6 +225,9 @@
         const normalizeAudioFile = document.getElementById('normalize_audio_file');
         const normalizeAudioButton = document.getElementById('btn_normalize_audio');
         const normalizeAudioStatus = document.getElementById('normalize_audio_status');
+        const batchSongRenames = document.getElementById('batch_song_renames');
+        const batchSongRenameButton = document.getElementById('btn_batch_song_rename');
+        const batchSongRenameStatus = document.getElementById('batch_song_rename_status');
         const channelInspectorSong = document.getElementById('channel_inspector_song');
         const channelInspectorChannel = document.getElementById('channel_inspector_channel');
         const channelInspectorVideo = document.getElementById('channel_inspector_video');
@@ -1118,6 +1128,44 @@
                 jobs,
                 ai_engine: document.getElementById('ai_engine').value,
             });
+        }
+
+        /** Validate and submit song-title mappings for an atomic batch rename. */
+        async function batchRenameSongs() {
+            const mappings = batchSongRenames.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const fields = line.split('|').map((field) => field.trim());
+                return fields.length === 2 ? { old: fields[0], new: fields[1] } : null;
+            });
+            if (!mappings.length || mappings.some((mapping) => !mapping || !mapping.old || !mapping.new)) {
+                batchSongRenameStatus.innerText = '請確認每行格式都是：舊歌名 | 新歌名';
+                return;
+            }
+            batchSongRenameButton.disabled = true;
+            batchSongRenameStatus.innerText = `正在預檢並修改 ${mappings.length} 首歌曲...`;
+            try {
+                const response = await fetch('/api/songs/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mappings }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    batchSongRenameStatus.innerText = `批次改名失敗：${data.error || `HTTP ${response.status}`}`;
+                    return;
+                }
+                const renamed = Array.isArray(data.renamed) ? data.renamed : [];
+                const failures = Array.isArray(data.failures) ? data.failures : [];
+                const lyricsCount = renamed.reduce((total, song) => total + song.lyrics.length, 0);
+                const summary = `批次完成：成功 ${renamed.length} 首，失敗 ${failures.length} 首；同步歌詞檔 ${lyricsCount} 份。`;
+                const failureDetails = failures.map((failure) => `第 ${failure.line} 行「${failure.old} | ${failure.new}」：${failure.error}`);
+                batchSongRenameStatus.style.whiteSpace = 'pre-wrap';
+                batchSongRenameStatus.innerText = [summary, ...failureDetails].join('\n');
+                if (!failures.length) batchSongRenames.value = '';
+            } catch (error) {
+                batchSongRenameStatus.innerText = `批次改名失敗：${error.message}`;
+            } finally {
+                batchSongRenameButton.disabled = false;
+            }
         }
 
         function updateYtDlp() {
