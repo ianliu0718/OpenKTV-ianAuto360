@@ -165,6 +165,12 @@
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
+        <!-- 歌曲位置調整與畫面延遲校正分開處理，避免改變同步偏移。 -->
+        <div id="song-seek-controls" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:8px;">
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)" disabled>&lt; 快退 10 秒</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)" disabled>快進 10 秒 &gt;</button>
+        </div>
+
         <div id="guide-vocal-control" class="control-group" style="display:none;">
             <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span id="guide-vocal-level-label">50%</span></div>
             <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
@@ -1040,6 +1046,12 @@
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
+        /** 向目前播放歌曲送出 10 秒跳轉，不修改畫面延遲校正值。 */
+        function seekSong(seconds) {
+            if (seekCorrectionEnabled || (seconds !== -10 && seconds !== 10)) return;
+            socket.emit('seek_song', { seconds });
+        }
+
         /**
          * Inserts the currently playing song as the next queued song.
          */
@@ -1103,9 +1115,14 @@
             seekCorrectionEnabled = Boolean(enabled);
             // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
             document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
+            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
+            });
+            document.querySelectorAll('.song-seek-control').forEach((button) => {
+                button.disabled = seekCorrectionEnabled;
+                button.style.opacity = seekCorrectionEnabled ? '0.45' : '1';
             });
             document.getElementById('seek-val').innerText = seekCorrectionEnabled
                 ? (seekOffset === 0 ? '0 秒' : `${seekOffset.toFixed(1)} 秒`)

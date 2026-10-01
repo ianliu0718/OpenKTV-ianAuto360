@@ -2400,6 +2400,19 @@ def handle_seek_video(data):
     seek_offset = 0.0 if seconds == 0 else round(seek_offset + seconds, 1)
     emit('seek_video', {'seconds': seconds, 'offset': seek_offset}, broadcast=True)
 
+@socketio.on('seek_song')
+def handle_seek_song(data):
+    """驗證固定 10 秒的歌曲跳轉，並同步廣播目前播放曲目。"""
+    if not isinstance(data, dict):
+        return
+    try:
+        seconds = float(data.get('seconds'))
+    except (TypeError, ValueError):
+        return
+    if seconds not in {-10.0, 10.0} or not playlist_queue or seek_correction_enabled:
+        return
+    emit('seek_song', {'seconds': seconds, 'filename': playlist_queue[0]}, broadcast=True)
+
 # ------------------------------------------
 # 音效與升降 KEY 控制（單一入口，避免重複事件註冊造成按鍵無反應）
 # ------------------------------------------

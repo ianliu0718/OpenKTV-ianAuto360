@@ -1051,6 +1051,25 @@
             updateSeekStatus(currentSeekOffset);
         });
 
+        // 只跳轉仍在播放的曲目；雙媒體時維持原有音畫偏移。
+        socket.on('seek_song', (data) => {
+            const seconds = Number(data && data.seconds);
+            if (seekCorrectionEnabled || !Number.isFinite(seconds) || !data.filename || data.filename !== currentFilename) return;
+            const dualMode = isDualMediaSeekCorrectionActive();
+            const playbackTime = dualMode ? audioTrack.currentTime : video.currentTime;
+            if (!Number.isFinite(playbackTime) || !Number.isFinite(video.duration)) return;
+            const maxTime = dualMode && Number.isFinite(audioTrack.duration)
+                ? Math.min(video.duration, audioTrack.duration)
+                : video.duration;
+            const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
+            if (dualMode) {
+                audioTrack.currentTime = targetTime;
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaDelaySeconds()));
+            } else {
+                video.currentTime = targetTime;
+            }
+        });
+
         function requestAudioMode(mode, requestId = null) {
             const safeMode = ['original', 'guide', 'instrumental'].includes(mode) ? mode : 'original';
             const token = requestId === null ? ++audioModeRequestId : requestId;

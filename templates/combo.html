@@ -268,6 +268,26 @@
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
         </div>
 
+        <!-- 歌曲位置調整與畫面延遲校正分開處理，避免改變同步偏移。 -->
+        <div id="song-seek-controls" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0 15px;">
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)" disabled>&lt; 快退 10 秒</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)" disabled>快進 10 秒 &gt;</button>
+        </div>
+
+        <!-- 雙媒體模式只顯示畫面延遲校正控制。 -->
+        <div id="seek-correction-control" style="display:none; background:#2a2a2a; padding:12px; border:1px solid #444; border-radius:8px; margin:8px 0 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; color:#ccc; font-size:13px;">
+                <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;">
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding:10px 3px; margin:0;" onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
+            </div>
+        </div>
+
         <div id="guide-vocal-control" class="control-group" style="display:none;">
             <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span id="guide-vocal-level-label">50%</span></div>
             <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
@@ -454,6 +474,19 @@ const socket = io();
             clearTimeout(seekStatusTimer);
             seekStatus.classList.add('visible');
             seekStatusTimer = setTimeout(() => seekStatus.classList.remove('visible'), 3000);
+        }
+
+        /** 依伺服器播放模式切換歌曲快轉與畫面延遲校正控制。 */
+        function updateSeekControls() {
+            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
+            document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
+            document.querySelectorAll('.song-seek-control').forEach((button) => { button.disabled = seekCorrectionEnabled; });
+            document.querySelectorAll('.seek-control').forEach((button) => { button.disabled = !seekCorrectionEnabled; });
+            document.getElementById('seek-val').innerText = currentSeekOffset === 0
+                ? '0 秒'
+                : currentSeekOffset > 0
+                    ? `延遲 ${currentSeekOffset.toFixed(1)} 秒`
+                    : `提前 ${Math.abs(currentSeekOffset).toFixed(1)} 秒`;
         }
 
         function updatePlaybackModeStatus(mode) {
@@ -1385,6 +1418,7 @@ const socket = io();
             currentSeekOffset = 0;
             syncMediaMuteState();
             updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
+            updateSeekControls();
             if (!seekCorrectionEnabled) {
                 audioTrack.pause();
                 audioTrack.src = '';
@@ -1507,6 +1541,7 @@ const socket = io();
         socket.on('seek_video', (data) => {
             const seconds = Number(data.seconds);
             if (!Number.isFinite(seconds)) return;
+            currentSeekOffset = Number(data.offset) || 0;
             if (isDualMediaSeekCorrectionActive()) {
                 // 這裡的語意是：「畫面比音訊延後 X 秒」
                 // 如果音訊時間軸是 01:00.00，畫面應該是 00:55.00。
@@ -1518,7 +1553,27 @@ const socket = io();
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             }
+            updateSeekControls();
             updateSeekStatus(Number(data.offset) || 0);
+        });
+
+        // 只跳轉單媒體播放中的曲目，避免雙媒體時間軸失去同步。
+        socket.on('seek_song', (data) => {
+            const seconds = Number(data && data.seconds);
+            if (seekCorrectionEnabled || !Number.isFinite(seconds) || !data.filename || data.filename !== currentFilename) return;
+            const dualMode = isDualMediaSeekCorrectionActive();
+            const playbackTime = dualMode ? audioTrack.currentTime : video.currentTime;
+            if (!Number.isFinite(playbackTime) || !Number.isFinite(video.duration)) return;
+            const maxTime = dualMode && Number.isFinite(audioTrack.duration)
+                ? Math.min(video.duration, audioTrack.duration)
+                : video.duration;
+            const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
+            if (dualMode) {
+                audioTrack.currentTime = targetTime;
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaDelaySeconds()));
+            } else {
+                video.currentTime = targetTime;
+            }
         });
 
         socket.on('command', (cmd) => {
@@ -2079,6 +2134,19 @@ const socket = io();
         }
 
         function cmd(action) { socket.emit('control', action); }
+
+        /** 只在單媒體模式要求目前歌曲快退或快進 10 秒。 */
+        function seekSong(seconds) {
+            if (seekCorrectionEnabled || (seconds !== -10 && seconds !== 10)) return;
+            socket.emit('seek_song', { seconds });
+        }
+
+        /** 只在雙媒體模式調整畫面與聲音的相對位置。 */
+        function seekVideo(seconds) {
+            if (!seekCorrectionEnabled || ![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            socket.emit('seek_video', { seconds });
+        }
+
         function track(mode) {
             currentMode = mode;
             setAudioMode(mode);
