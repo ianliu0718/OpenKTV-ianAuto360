@@ -23,6 +23,9 @@
         .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
         .song-btn.added { background: #607d8b; cursor: wait; }
         .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        .song-audio-exception { color: #ffcc80; font-size: 12px; font-weight: bold; white-space: normal; overflow-wrap: anywhere; }
+        .song-main { display: flex; flex-direction: column; min-width: 0; max-width: 60%; }
+        .song-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         li.song-playing { background: #174d48; border: 1px solid #26a69a; }
         li.song-row { cursor: pointer; }
         li.song-row:hover { background: #34514e; }
@@ -264,6 +267,7 @@
     <script>
         const socket = io();
         let allSongs = [];
+        let songAudioExceptions = {};
         let subtitleSongs = new Set();
         let currentKey = 0;
         let currentPlayingFilename = '';
@@ -852,6 +856,14 @@
             filter();
         }
 
+        function songAudioExceptionLabel(filename) {
+            const exception = songAudioExceptions[filename];
+            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
+            if (!exception || !Number.isFinite(measuredPeak)) return '';
+            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
+            return `<span class="song-audio-exception">⚠ c4 TP ${peakText}</span>`;
+        }
+
         function filter() {
             const key = document.getElementById('search').value.toLowerCase();
             const selectedLength = document.getElementById('song-length-filter').value;
@@ -873,12 +885,13 @@
                 const isQueued = queueIndex !== -1;
                 const isPlaying = queueIndex === 0;
                 const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
+                const exceptionLabel = songAudioExceptionLabel(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
                 list.innerHTML += `
                     <li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${statusLabel}${s}</span>
+                        <span class="song-main"><span class="song-name">${statusLabel}${s}</span>${exceptionLabel}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
@@ -924,10 +937,14 @@
         function replayCurrentSong() { socket.emit('replay_current_song'); }
 
         function loadList() {
-            fetch('/api/list').then(r => r.json()).then(data => {
-                allSongs = data;
+            fetch('/api/list').then(r => r.json()).then((songs) => {
+                allSongs = songs;
                 renderCategoryFilters();
                 filter();
+                fetch('/api/song-audio-exceptions').then(r => r.json()).then((exceptions) => {
+                    songAudioExceptions = exceptions && typeof exceptions === 'object' ? exceptions : {};
+                    filter();
+                }).catch(() => { songAudioExceptions = {}; });
             });
         }
         

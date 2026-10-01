@@ -200,6 +200,8 @@
 
     <script>
         const socket = io();
+        let songAudioExceptions = {};
+        let songAudioExceptionsPromise = null;
         const logArea = document.getElementById('log');
         const btnDl = document.getElementById('btn_dl');
         const btnUpdate = document.getElementById('btn_update');
@@ -292,8 +294,12 @@
         /** 載入管理端可用歌曲，供六聲道逐聲道檢查使用。 */
         function loadChannelInspectorSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
+                const renderOptions = () => {
                 channelInspectorSong.innerHTML = '<option value="">請選擇歌曲</option>'
-                    + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+                    + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
+                };
+                renderOptions();
+                loadSongAudioExceptions().then(renderOptions);
             }).catch(() => {
                 channelInspectorStatus.innerText = '歌曲清單載入失敗。';
             });
@@ -398,6 +404,12 @@
         }
         updateManualLyricOverlayFontSize();
         loadChannelInspectorSongs();
+        socket.on('refresh_list', () => {
+            songAudioExceptionsPromise = null;
+            loadChannelInspectorSongs();
+            loadLyricsSongs();
+            loadManualLyricSongs();
+        });
 
         /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
         function prioritizeSongNotes(songs) {
@@ -428,6 +440,27 @@
             return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
         }
 
+        /** Return a warning suffix without changing the filename used as the option value. */
+        function songPickerLabel(song) {
+            const exception = songAudioExceptions[song];
+            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
+            if (!exception || !Number.isFinite(measuredPeak)) return song;
+            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
+            return `${song} | ⚠ c4 TP ${peakText}`;
+        }
+
+        function loadSongAudioExceptions(forceRefresh = false) {
+            if (forceRefresh || !songAudioExceptionsPromise) {
+                songAudioExceptionsPromise = fetch('/api/song-audio-exceptions')
+                    .then((response) => response.json())
+                    .then((exceptions) => {
+                        songAudioExceptions = exceptions && typeof exceptions === 'object' ? exceptions : {};
+                    })
+                    .catch(() => { songAudioExceptions = {}; });
+            }
+            return songAudioExceptionsPromise;
+        }
+
         /** Loads the registered online lyrics providers. */
         function loadLyricsProviders() {
             fetch('/api/lyrics/providers').then((response) => response.json()).then((providers) => {
@@ -440,6 +473,7 @@
             fetch('/api/list').then((response) => response.json()).then((songs) => {
                 lyricsSongs = prioritizeSongNotes(songs);
                 renderLyricsSongOptions();
+                return loadSongAudioExceptions().then(renderLyricsSongOptions);
             });
         }
 
@@ -448,7 +482,7 @@
             const keyword = lyricsQuery.value.trim().toLocaleLowerCase();
             const selectedSong = lyricsSong.value;
             const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
-            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
             if (filteredSongs.includes(selectedSong)) {
                 lyricsSong.value = selectedSong;
             }
@@ -574,6 +608,7 @@
             fetch('/api/list').then((response) => response.json()).then((songs) => {
                 manualLyricSongs = prioritizeSongNotes(songs);
                 renderManualLyricSongOptions();
+                return loadSongAudioExceptions().then(renderManualLyricSongOptions);
             });
         }
 
@@ -582,7 +617,7 @@
             const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
             const selectedSong = manualLyricSong.value;
             const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
-            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
             if (filteredSongs.includes(selectedSong)) {
                 manualLyricSong.value = selectedSong;
             }
