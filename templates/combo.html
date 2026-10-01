@@ -203,7 +203,10 @@
         .category-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .search-row { display: flex; gap: 6px; align-items: stretch; }
-        .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
+        .search-row input[type=text] { flex: 1; min-width: 0; margin-bottom: 10px; }
+        .sort-mode-button { flex: 0 0 auto; width: auto; margin: 0 0 10px; padding: 10px 9px; background: #4b5d58; border: 1px solid #72817d; color: #f1f4f3; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 2px 5px rgba(0,0,0,.2); }
+        .sort-mode-button:hover { background: #596b66; border-color: #8a9a95; }
+        .sort-mode-button:focus-visible { outline: 2px solid #a6b2ae; outline-offset: 2px; }
         .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -313,6 +316,8 @@
         </div>
 
         <div class="search-row">
+            <!-- 點歌排序依代號、熱門、國語、台語循環。 -->
+            <button type="button" id="song-sort-mode" class="btn sort-mode-button" onclick="cycleSongSortMode()">代號</button>
             <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
             <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
         </div>
@@ -1698,6 +1703,8 @@ const socket = io();
         // --- 遙控器邏輯 ---
         let allSongs = [];
         let sortedSongMetadata = [];
+        let songPlayCounts = {};
+        let songSortModeIndex = 0;
         let songAudioExceptions = {};
         let subtitleSongs = new Set();
         let currentPlayingFilename = '';
@@ -1765,6 +1772,47 @@ const socket = io();
             return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
         }
 
+        /** Returns the language filter required by the active language sort mode. */
+        function getSongSortLanguage() {
+            return songSortModeIndex === 2 ? '國' : songSortModeIndex === 3 ? '台' : '';
+        }
+
+        /** Keeps the visible language selector aligned with the active sort mode. */
+        function setSongSortLanguage(language) {
+            const languageFilter = document.getElementById('language-filter');
+            if (language && ![...languageFilter.options].some((option) => option.value === language)) {
+                const option = document.createElement('option');
+                option.value = language;
+                option.textContent = language;
+                languageFilter.appendChild(option);
+            }
+            languageFilter.value = language;
+        }
+
+        /** Sorts visible songs by playback starts or by the existing reverse song-code rule. */
+        function sortSongEntries(songs) {
+            return [...songs].sort((firstSong, secondSong) => {
+                if (songSortModeIndex === 0) return compareSongCodeDescending(firstSong.filename, secondSong.filename);
+                const playCountDifference = (Number(songPlayCounts[secondSong.filename]) || 0)
+                    - (Number(songPlayCounts[firstSong.filename]) || 0);
+                return playCountDifference || compareSongCodeDescending(firstSong.filename, secondSong.filename);
+            });
+        }
+
+        /** Cycles the four requested sort modes and applies the language selector when needed. */
+        function cycleSongSortMode() {
+            const previousLanguage = getSongSortLanguage();
+            songSortModeIndex = (songSortModeIndex + 1) % 4;
+            if (previousLanguage && document.getElementById('language-filter').value === previousLanguage) {
+                setSongSortLanguage('');
+            }
+            const nextLanguage = getSongSortLanguage();
+            if (nextLanguage) setSongSortLanguage(nextLanguage);
+            document.getElementById('song-sort-mode').textContent = ['代號', '熱門', '國語', '台語'][songSortModeIndex];
+            renderCategoryFilters();
+            filter();
+        }
+
         function setSongList(songs) {
             allSongs = Array.isArray(songs) ? songs : [];
             sortedSongMetadata = allSongs.map((filename) => ({ filename, metadata: parseSongMetadata(filename) }))
@@ -1787,7 +1835,10 @@ const socket = io();
                 .map(({ metadata }) => metadata[fields[filterIndex]]))];
             const lengths = valuesForFilter(0).sort((a, b) => Number(a) - Number(b));
             const singers = valuesForFilter(1).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-            const languages = valuesForFilter(2).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = valuesForFilter(2);
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && !languages.includes(sortLanguage)) languages.push(sortLanguage);
+            languages.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
             const affiliations = valuesForFilter(3).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
             lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
             singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
@@ -1911,6 +1962,10 @@ const socket = io();
         }
 
         socket.on('update_list', (songs) => { setSongList(songs); renderCategoryFilters(); filter(); });
+        socket.on('song_play_counts', (counts) => {
+            songPlayCounts = counts && typeof counts === 'object' ? counts : {};
+            filter();
+        });
 
         function renderQueue(playlist) {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
@@ -2045,7 +2100,9 @@ const socket = io();
         /** Clears all four song filtering methods and restores the full list. */
         function clearFilters() {
             document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter', 'affiliation-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            const filtersToClear = ['song-length-filter', 'singer-filter', 'affiliation-filter'];
+            if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+            filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
             renderCategoryFilters();
             filter();
         }
@@ -2053,7 +2110,9 @@ const socket = io();
         /** Resets all category filters while a non-empty search query is entered. */
         function handleSearchInput() {
             if (document.getElementById('search').value) {
-                ['song-length-filter', 'singer-filter', 'language-filter', 'affiliation-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+                const filtersToClear = ['song-length-filter', 'singer-filter', 'affiliation-filter'];
+                if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+                filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
             }
             renderCategoryFilters();
             filter();
@@ -2061,6 +2120,11 @@ const socket = io();
 
         /** Applies category changes without clearing other categories or the search query. */
         function handleCategoryChange() {
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && document.getElementById('language-filter').value !== sortLanguage) {
+                songSortModeIndex = 1;
+                document.getElementById('song-sort-mode').textContent = '熱門';
+            }
             renderCategoryFilters();
             filter();
         }
@@ -2078,13 +2142,16 @@ const socket = io();
             const selectedLength = document.getElementById('song-length-filter').value;
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
+                const selectedAffiliation = document.getElementById('affiliation-filter').value;
             const list = document.getElementById('list');
-            const rows = sortedSongMetadata.filter(({ filename, metadata }) => {
+                const matchingSongs = sortedSongMetadata.filter(({ filename, metadata }) => {
                 return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
-                    && (!selectedLanguage || metadata.language === selectedLanguage);
-            }).map(({ filename: s }) => {
+                    && (!selectedLanguage || metadata.language === selectedLanguage)
+                    && (!selectedAffiliation || metadata.affiliation === selectedAffiliation);
+                });
+                const rows = sortSongEntries(matchingSongs).map(({ filename: s }) => {
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);

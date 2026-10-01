@@ -80,6 +80,7 @@ FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
 # 待播備註獨立保存於專案目錄，避免重啟 server 後遺失。
 SONG_NOTES_FILE = os.path.join(BASE_DIR, "song_notes.json")
+SONG_PLAY_COUNTS_FILE = os.path.join(BASE_DIR, "song_play_counts.json")
 
 def get_ytdlp_command():
     if os.path.exists(YT_DLP_PATH):
@@ -1936,9 +1937,48 @@ def _save_song_notes():
     os.replace(temporary_file, SONG_NOTES_FILE)
 
 
+def _load_song_play_counts():
+    """載入歌曲播放開始次數；檔案不存在或格式錯誤時從空計數開始。"""
+    try:
+        with open(SONG_PLAY_COUNTS_FILE, 'r', encoding='utf-8') as counts_file:
+            counts = json.load(counts_file)
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(counts, dict):
+        return {}
+    return {
+        filename: count
+        for filename, count in counts.items()
+        if isinstance(filename, str) and os.path.basename(filename) == filename
+        and isinstance(count, int) and not isinstance(count, bool) and count >= 0
+    }
+
+
+def _save_song_play_counts():
+    """以暫存檔原子取代播放次數資料，避免中斷時留下不完整 JSON。"""
+    temporary_file = SONG_PLAY_COUNTS_FILE + '.tmp'
+    with open(temporary_file, 'w', encoding='utf-8') as counts_file:
+        json.dump(song_play_counts, counts_file, ensure_ascii=False, indent=2)
+    os.replace(temporary_file, SONG_PLAY_COUNTS_FILE)
+
+
+def _record_song_play_start(filename):
+    """在歌曲開始播放時累加次數、保存並同步更新給點歌頁。"""
+    safe_filename = os.path.basename(str(filename).strip())
+    if not safe_filename or safe_filename != str(filename).strip():
+        return
+    song_play_counts[safe_filename] = song_play_counts.get(safe_filename, 0) + 1
+    try:
+        _save_song_play_counts()
+    except OSError as error:
+        print(f'保存歌曲播放次數失敗：{error}')
+    emit('song_play_counts', dict(song_play_counts), broadcast=True)
+
+
 song_notes = _load_song_notes()
 if _normalize_song_notes(song_notes):
     _save_song_notes()
+song_play_counts = _load_song_play_counts()
 subtitle_mode = 0
 subtitle_font_size = 100
 subtitle_style_mode = 0
@@ -2018,6 +2058,7 @@ def start_random_song():
     playlist_queue.append(filename)
     emit('update_queue', playlist_queue, broadcast=True)
     emit('queue_song_added', {'filename': filename}, broadcast=True)
+    _record_song_play_start(filename)
     emit('play_video', _play_video_payload(filename), broadcast=True)
     broadcast_current_song()
     return True
@@ -2042,6 +2083,7 @@ def handle_connect():
     emit('update_queue', playlist_queue)
     # 新連線先同步目前所有歌曲備註，讓遙控器與播放端畫面一致。
     emit('song_notes', song_notes)
+    emit('song_play_counts', song_play_counts)
     emit('current_song', {
         'filename': current_filename,
         'visible': subtitle_mode > 0 and _song_has_subtitle(current_filename),
@@ -2125,6 +2167,7 @@ def handle_add_queue(data):
     # 如果清單裡面只有剛點的這首歌，代表目前沒有歌在播，立刻開始播放
     if len(playlist_queue) == 1:
         seek_offset = 0.0
+        _record_song_play_start(filename)
         emit('play_video', _play_video_payload(filename), broadcast=True)
         broadcast_current_song()
 
@@ -2276,6 +2319,7 @@ def handle_song_ended(data=None, reset_pitch=True):
         # 檢查是否還有下一首
         if len(playlist_queue) > 0:
             next_song = playlist_queue[0]
+            _record_song_play_start(next_song)
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
         else:
@@ -2311,6 +2355,7 @@ def handle_control(action):
             socketio.emit('apply_effect', {'pitch': current_pitch})
             emit('update_queue', playlist_queue, broadcast=True)
             next_song = playlist_queue[0]
+            _record_song_play_start(next_song)
             emit('play_video', _play_video_payload(next_song), broadcast=True)
             broadcast_current_song()
             return
