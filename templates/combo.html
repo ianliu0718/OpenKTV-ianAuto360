@@ -277,14 +277,14 @@
         <!-- 雙媒體模式只顯示畫面延遲校正控制。 -->
         <div id="seek-correction-control" style="display:none; background:#2a2a2a; padding:12px; border:1px solid #444; border-radius:8px; margin:8px 0 15px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; color:#ccc; font-size:13px;">
-                <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
+                <span>⏱ 畫面進度</span><span id="seek-val">0 秒</span>
             </div>
             <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;">
-                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
-                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.1)">&lt;0.1</button>
                 <button class="btn seek-control" style="background:#777; padding:10px 3px; margin:0;" onclick="seekVideo(0)">同步</button>
-                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.1)">0.1&gt;</button>
-                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
@@ -1125,16 +1125,15 @@ const socket = io();
             return seekCorrectionEnabled && audioTrack;
         }
 
-        function getDualMediaDelaySeconds() {
-            if (!Number.isFinite(currentSeekOffset)) return 0;
-            return Math.abs(currentSeekOffset);
+        function getDualMediaOffsetSeconds() {
+            return Number.isFinite(currentSeekOffset) ? currentSeekOffset : 0;
         }
 
         function syncDualMediaTimeline() {
             if (!isDualMediaSeekCorrectionActive()) return;
             if (!Number.isFinite(audioTrack.currentTime) || !Number.isFinite(video.duration)) return;
-            const delay = getDualMediaDelaySeconds();
-            const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
+            const offset = getDualMediaOffsetSeconds();
+            const targetVideoTime = Math.max(0, audioTrack.currentTime - offset);
             const diff = Math.abs(video.currentTime - targetVideoTime);
             if (diff < 0.08) return;
             video.currentTime = Math.min(video.duration, targetVideoTime);
@@ -1547,7 +1546,7 @@ const socket = io();
                 // 如果音訊時間軸是 01:00.00，畫面應該是 00:55.00。
                 // 因此 videoTime = audioTime - delaySeconds。
                 const audioNow = Number.isFinite(audioTrack.currentTime) ? audioTrack.currentTime : 0;
-                const targetTime = seconds === 0 ? audioNow : audioNow - seconds;
+                const targetTime = audioNow - getDualMediaOffsetSeconds();
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             } else {
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
@@ -1570,7 +1569,7 @@ const socket = io();
             const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
             if (dualMode) {
                 audioTrack.currentTime = targetTime;
-                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaDelaySeconds()));
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaOffsetSeconds()));
             } else {
                 video.currentTime = targetTime;
             }

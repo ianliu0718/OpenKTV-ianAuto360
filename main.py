@@ -2969,7 +2969,11 @@ class ServerApp(tk.Tk):
 
     def toggle_seek_correction(self):
         """Apply the server-side video progress correction setting."""
-        handle_set_seek_correction({'enabled': bool(self.seek_correction_var.get())})
+        global seek_correction_enabled
+        # 依伺服器目前狀態反轉，避免 Tk Checkbutton 回呼讀到尚未更新的舊值。
+        enabled = not seek_correction_enabled
+        self.seek_correction_var.set(enabled)
+        handle_set_seek_correction({'enabled': enabled})
 
     def toggle_engine_debug(self):
         """Apply the single server-side toggle: debug on shows detailed engine info; off shows playback history."""

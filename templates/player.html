@@ -644,16 +644,15 @@
             return seekCorrectionEnabled && audioTrack;
         }
 
-        function getDualMediaDelaySeconds() {
-            if (!Number.isFinite(currentSeekOffset)) return 0;
-            return Math.abs(currentSeekOffset);
+        function getDualMediaOffsetSeconds() {
+            return Number.isFinite(currentSeekOffset) ? currentSeekOffset : 0;
         }
 
         function syncDualMediaTimeline() {
             if (!isDualMediaSeekCorrectionActive()) return;
             if (!Number.isFinite(audioTrack.currentTime) || !Number.isFinite(video.duration)) return;
-            const delay = getDualMediaDelaySeconds();
-            const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
+            const offset = getDualMediaOffsetSeconds();
+            const targetVideoTime = Math.max(0, audioTrack.currentTime - offset);
             const diff = Math.abs(video.currentTime - targetVideoTime);
             if (diff < 0.08) return;
             video.currentTime = Math.min(video.duration, targetVideoTime);
@@ -1040,9 +1039,8 @@
             if (!Number.isFinite(seconds)) return;
             currentSeekOffset = Number.isFinite(offset) ? offset : 0;
             if (isDualMediaSeekCorrectionActive()) {
-                const delay = getDualMediaDelaySeconds();
                 const audioNow = Number.isFinite(audioTrack.currentTime) ? audioTrack.currentTime : 0;
-                const targetTime = Math.max(0, audioNow - delay);
+                const targetTime = Math.max(0, audioNow - getDualMediaOffsetSeconds());
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             } else {
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
@@ -1064,7 +1062,7 @@
             const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
             if (dualMode) {
                 audioTrack.currentTime = targetTime;
-                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaDelaySeconds()));
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaOffsetSeconds()));
             } else {
                 video.currentTime = targetTime;
             }
