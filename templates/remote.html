@@ -11,7 +11,9 @@
         .stop { background: #F44336; }
         .vocal { background: #FF9800; color: black; }
         .inst { background: #FFC107; color: black; }
-        .admin-link { background: #607D8B; color: white; text-align: center; display: block; padding: 10px; text-decoration: none; border-radius: 5px; margin-bottom: 10px; }
+        .admin-link { position: absolute; top: 50%; right: 0; display: grid; place-items: center; width: 36px; height: 36px; box-sizing: border-box; margin: 0; padding: 0; transform: translateY(-50%); border-radius: 6px; background: #607D8B; color: white; font-size: 18px; line-height: 1; text-decoration: none; }
+        .admin-link:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
+        .remote-header { position: relative; margin-bottom: 10px; text-align: center; }
         input[type=text] { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px;}
         input[type=range] { width: 100%; margin: 10px 0; }
         li { background: #333; padding: 10px; margin-bottom: 5px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
@@ -88,8 +90,13 @@
         .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
         .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
-        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
-        .subtitle-controls-row .btn { min-height: 42px; margin: 0; padding: 8px 5px; font-size: 13px; }
+        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .subtitle-controls-row .btn { min-height: 34px; margin: 0; padding: 6px 4px; font-size: 12px; }
+        .subtitle-size-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; color: #b8fff2; font-size: 12px; gap: 8px; }
+        .subtitle-size-value { min-width: 48px; text-align: right; color: #f9f9c5; font-weight: 700; }
+        .subtitle-size-controls { display: flex; gap: 6px; margin-top: 6px; }
+        .subtitle-size-btn { flex: 1; min-width: 44px; min-height: 34px; margin: 0; padding: 6px 8px; border-radius: 6px; background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%); color: white; font-size: 16px; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
+        .subtitle-size-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
         .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
         .danmaku-actions .btn { flex: 1; margin: 0; }
@@ -99,12 +106,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 <body>
-    <div style="text-align:center; margin-bottom:10px;">
+    <div class="remote-header">
         <h3 style="margin:0;">📱 KTV 遙控器</h3>
         <small style="color:#aaa;">已連線至主機</small>
+        <a href="/admin" class="admin-link" aria-label="進入後台（下載新歌／管理系統）" title="進入後台（下載新歌／管理系統）">⚙️</a>
     </div>
-
-    <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌/管理系統)</a>
 
     <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
         <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel" onclick="switchTab('song')">🎶 點歌</button>
@@ -130,18 +136,17 @@
     </section>
 
     <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
-        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
-            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
+        <div id="current-song-control" style="display:none; background:#123c36; padding:8px; border:1px solid #2aa894; border-radius:6px; margin-bottom:8px;">
             <div class="subtitle-controls-row">
                 <button id="current-subtitle-button" class="btn" style="background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
                 <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;" onclick="cycleSubtitleStyleMode()">字幕：背景</button>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕比例</span><span id="subtitle-size-label" style="min-width:56px; text-align:right; color:#f9f9c5; font-weight:700;">120%</span>
+            <div class="subtitle-size-row">
+                <span>字幕比例</span><span id="subtitle-size-label" class="subtitle-size-value">120%</span>
             </div>
-            <div style="display:flex; gap:8px; margin-top:8px;">
-                <button id="subtitle-size-decrease" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(-10)">−</button>
-                <button id="subtitle-size-increase" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(10)">＋</button>
+            <div class="subtitle-size-controls">
+                <button id="subtitle-size-decrease" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(-10)">−</button>
+                <button id="subtitle-size-increase" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(10)">＋</button>
             </div>
         </div>
 
@@ -830,14 +835,12 @@
          */
         function renderCurrentSongControl() {
             const control = document.getElementById('current-song-control');
-            const name = document.getElementById('current-song-name');
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             const shouldShow = hasSong && hasSubtitle;
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
-            name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
             const subtitleLabel = subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
             button.textContent = `字幕：${subtitleLabel}`;
             renderSubtitleStyleButton();
