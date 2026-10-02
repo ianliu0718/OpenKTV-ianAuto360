@@ -400,7 +400,7 @@ if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 # ==========================================
 # Flask + SocketIO 伺服器
 # ==========================================
-app = Flask(__name__, template_folder=TEMPLATES_DIR)
+app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=os.path.join(BASE_DIR, 'static'))
 app.config['SECRET_KEY'] = 'ktv_secret'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
