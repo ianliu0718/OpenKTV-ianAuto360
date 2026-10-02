@@ -276,7 +276,7 @@ python main.py
 .\build_update.ps1
 ```
 
-只修改 `templates` 或 `static/sounds` 時可建立前端更新包：
+只修改 `templates` 或 `static` 內的檔案時可建立前端更新包；所有更新包都會完整包含 `static` 目錄及其子資料夾：
 
 ```powershell
 .\build_update.ps1 -FrontendOnly
