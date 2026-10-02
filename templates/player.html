@@ -39,6 +39,7 @@
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
         #ktv-subtitle.subtitle-mode-single .subtitle-line:not(:first-child) { display: none; }
         #ktv-subtitle.subtitle-mode-single .subtitle-line:first-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line { min-height: 1.2em; }
         #ktv-subtitle.subtitle-mode-double .subtitle-line,
         #ktv-subtitle.subtitle-mode-gradient .subtitle-line { width: 50%; max-width: 50%; min-height: 1.2em; flex: 0 0 50%; white-space: nowrap; font-family: "Arial Rounded MT Bold", "Microsoft JhengHei", sans-serif; font-weight: 900; letter-spacing: .02em; -webkit-text-stroke: 2px #101820; paint-order: stroke fill; text-shadow: 0 4px 8px rgba(0,0,0,.8); }
         #ktv-subtitle.subtitle-mode-double .subtitle-line:first-child,
@@ -422,18 +423,18 @@
             const size = Number(fontSize);
             if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
-            if (ktvSubtitle.classList.contains('plain-lyrics-mode') || currentSubtitleMode >= 2) renderKtvSubtitle();
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode') || currentSubtitleMode >= 3) renderKtvSubtitle();
         }
 
         /** Applies the shared hidden, single-line, double-line, or gradient mode. */
         function applySubtitleMode(mode) {
             const value = Number(mode);
-            if (!Number.isInteger(value) || value < 0 || value > 3) return;
+            if (!Number.isInteger(value) || value < 0 || value > 4) return;
             currentSubtitleMode = value;
-            const modeClasses = ['subtitle-mode-single', 'subtitle-mode-double', 'subtitle-mode-gradient'];
+            const modeClasses = ['subtitle-mode-general', 'subtitle-mode-single', 'subtitle-mode-double', 'subtitle-mode-gradient'];
             ktvSubtitle.classList.remove(...modeClasses);
             if (value > 0) ktvSubtitle.classList.add(modeClasses[value - 1]);
-            if (value === 3) requestSubtitleHighlightProgress();
+            if (value === 4) requestSubtitleHighlightProgress();
             else if (subtitleHighlightFrame) {
                 cancelAnimationFrame(subtitleHighlightFrame);
                 subtitleHighlightFrame = 0;
@@ -496,7 +497,7 @@
         function createSubtitleLineElement(text, progress = 0) {
             const lineElement = document.createElement('span');
             lineElement.className = 'subtitle-line';
-            if (currentSubtitleMode === 3) {
+            if (currentSubtitleMode === 4) {
                 lineElement.style.setProperty('--subtitle-progress', `${Math.round(progress * 100)}%`);
                 lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-base-layer'));
                 lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-highlight-layer'));
@@ -507,7 +508,7 @@
         }
 
         function fitSubtitleLineAnchors() {
-            if (currentSubtitleMode < 2 || ktvSubtitle.classList.contains('plain-lyrics-mode')) return;
+            if (currentSubtitleMode < 3 || ktvSubtitle.classList.contains('plain-lyrics-mode')) return;
             const containerWidth = ktvSubtitle.clientWidth;
             const halfWidth = containerWidth / 2;
             Array.from(ktvSubtitle.querySelectorAll('.subtitle-line')).slice(0, 2).forEach((lineElement) => {
@@ -546,7 +547,7 @@
         }
 
         function syncSubtitleSlotAtCurrentTime() {
-            if (currentSubtitleMode < 2 || ktvSubtitle.style.display === 'none') return;
+            if (currentSubtitleMode < 3 || ktvSubtitle.style.display === 'none') return;
             const activeCues = subtitleTrack.track.activeCues;
             const currentCue = activeCues && activeCues[0];
             const slots = getSubtitleSlots();
@@ -554,14 +555,15 @@
                 ? slots.find((slot) => slot.cue === currentCue)
                 : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
             if ((currentSlot?.index ?? -1) !== renderedSubtitleSlotIndex) renderKtvSubtitle();
-            if (currentSubtitleMode === 3) requestSubtitleHighlightProgress();
+            if (currentSubtitleMode === 4) requestSubtitleHighlightProgress();
         }
 
         function updateSubtitleHighlightProgress() {
             subtitleHighlightFrame = 0;
-            if (currentSubtitleMode !== 3 || ktvSubtitle.style.display === 'none') return;
+            if (currentSubtitleMode !== 4 || ktvSubtitle.style.display === 'none') return;
             const activeCues = subtitleTrack.track.activeCues;
             const currentCue = activeCues && activeCues[0];
+            if (!currentCue) return;
             const slots = getSubtitleSlots();
             const currentSlot = currentCue
                 ? slots.find((slot) => slot.cue === currentCue)
@@ -587,9 +589,12 @@
             const activeCues = subtitleTrack.track.activeCues;
             const slots = getSubtitleSlots();
             const currentCue = activeCues && activeCues[0];
-            const currentSlot = currentCue
+            let currentSlot = currentCue
                 ? slots.find((slot) => slot.cue === currentCue)
                 : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if (!currentSlot && currentSubtitleMode > 0 && slots.length) {
+                currentSlot = { cue: null, text: '', startTime: video.currentTime, endTime: video.currentTime, index: -1 };
+            }
             if (!currentSlot) {
                 renderedSubtitleSlotIndex = -1;
                 renderedSubtitleActiveLineIndex = 0;
@@ -602,10 +607,20 @@
             renderedSubtitleSlotIndex = currentSlot.index;
             const plainLyrics = Boolean(currentCue && currentCue.id.startsWith('PLAIN_LYRICS_'));
             const currentLines = getSubtitleTextLines(currentSlot.text);
-            let displayLines = currentSubtitleMode === 1 ? currentLines.slice(0, 1) : currentLines.slice();
+            if (currentSubtitleMode === 1) {
+                renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, plainLyrics && currentLines.length > 1);
+                return;
+            }
+            let displayLines = currentSubtitleMode === 2 ? currentLines.slice(0, 1) : currentLines.slice();
             let activeLineIndex = 0;
             let currentProgress = 0;
-            if (!plainLyrics && currentSubtitleMode >= 2) {
+            if (!currentCue || !currentLines.length) {
+                displayLines = currentSubtitleMode === 2 ? [''] : ['', ''];
+            } else if (plainLyrics && currentLines.length > 1 && currentSubtitleMode >= 3) {
+                displayLines = currentLines.slice(0, 2);
+                const duration = currentSlot.endTime - currentSlot.startTime;
+                currentProgress = duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
+            } else if (currentSubtitleMode >= 3) {
                 const nextSlot = slots[currentSlot.index + 1];
                 const nextText = nextSlot ? nextSlot.text : '';
                 const currentText = currentLines.join(' ');
@@ -627,28 +642,51 @@
                 currentProgress = currentSlot.cue && duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
             }
             renderedSubtitleActiveLineIndex = activeLineIndex;
-            if (!plainLyrics) displayLines.splice(2);
-            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
-            if (!plainLyrics) {
-                ktvSubtitle.replaceChildren(...displayLines.map((line, index) => createSubtitleLineElement(line, index === activeLineIndex ? currentProgress : 0)));
-                fitSubtitleLineAnchors();
-                ktvSubtitle._plainLyricsState = null;
-                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
-                return;
+            displayLines.splice(2);
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle.replaceChildren(...displayLines.map((line, index) => createSubtitleLineElement(line, index === activeLineIndex ? currentProgress : 0)));
+            fitSubtitleLineAnchors();
+            ktvSubtitle._plainLyricsState = null;
+            ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+        }
+
+        /** Builds the general-mode twelve-line window from per-line cues or legacy rolling cues. */
+        function renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, legacyWindow) {
+            let trackLines;
+            let hasNextLine = false;
+            let nextCueDuration = 0;
+            if (legacyWindow) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextLines = nextSlot && nextSlot.cue && String(nextSlot.cue.id || '').startsWith('PLAIN_LYRICS_')
+                    ? getSubtitleTextLines(nextSlot.text)
+                    : [];
+                hasNextLine = nextLines.length === currentLines.length && currentLines.length > 0
+                    && currentLines.slice(1).every((line, index) => line === nextLines[index]);
+                trackLines = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+                nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+            } else {
+                const lyricSlots = slots.slice();
+                if (!lyricSlots.includes(currentSlot)) {
+                    const insertionIndex = lyricSlots.findIndex((slot) => slot.startTime > currentSlot.startTime);
+                    lyricSlots.splice(insertionIndex < 0 ? lyricSlots.length : insertionIndex, 0, currentSlot);
+                }
+                const lyricLines = lyricSlots.flatMap((slot) => {
+                    const lines = slot.cue ? getSubtitleTextLines(slot.text) : [];
+                    return lines.length ? lines.map((text) => ({ slot, text })) : [{ slot, text: '' }];
+                });
+                const currentIndex = Math.max(0, lyricLines.findIndex((line) => line.slot === currentSlot));
+                const leadingRows = Math.max(0, 6 - currentIndex);
+                const windowStart = Math.max(0, currentIndex - 6);
+                const visibleLines = lyricLines.slice(windowStart, windowStart + 13 - leadingRows);
+                hasNextLine = currentIndex < lyricLines.length - 1;
+                trackLines = [...Array(leadingRows).fill(''), ...visibleLines.map((line) => line.text)];
+                const nextLineSlot = lyricLines[currentIndex + 1]?.slot;
+                nextCueDuration = nextLineSlot ? nextLineSlot.endTime - nextLineSlot.startTime : 0;
             }
-            const nextSlot = slots[currentSlot.index + 1];
-            const nextLines = nextSlot && nextSlot.cue
-                && String(nextSlot.cue.id || '').startsWith('PLAIN_LYRICS_')
-                ? getSubtitleTextLines(nextSlot.text)
-                : [];
-            const hasNextLine = nextLines.length === currentLines.length
-                && currentLines.length > 0
-                && currentLines.slice(1).every((line, index) => line === nextLines[index]);
-            const nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
             const scrollStartTime = currentSlot.startTime === 0 && hasNextLine
                 ? Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration)
                 : currentSlot.startTime;
-            const trackLines = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+            ktvSubtitle.classList.add('plain-lyrics-mode');
             const rowCount = Math.max(12, trackLines.length);
             const track = document.createElement('div');
             track.className = 'plain-lyrics-track';

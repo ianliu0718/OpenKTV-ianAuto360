@@ -302,8 +302,7 @@
         let guideVocalControlSupported = false;
         let currentVocalLevel = 50;
         let currentSubtitleMode = 0;
-        let currentSongUsesPlainLyrics = false;
-        const subtitleDisplayLabels = ['隱藏', '單行', '雙行', '雙行漸變'];
+        const subtitleDisplayLabels = ['隱藏', '一般', '單行', '雙行', '雙行漸變'];
         let currentSubtitleFontSize = 120;
         let currentSubtitleStyleMode = 0;
         const subtitleStyleLabels = ['背景', '陰影'];
@@ -839,9 +838,7 @@
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            const subtitleLabel = currentSongUsesPlainLyrics
-                ? (currentSubtitleMode > 0 ? '一般' : '隱藏')
-                : subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
+            const subtitleLabel = subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
             button.textContent = `字幕：${subtitleLabel}`;
             renderSubtitleStyleButton();
         }
@@ -881,14 +878,13 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
-            currentSongUsesPlainLyrics = Boolean(data.plain_lyrics);
             guideVocalControlSupported = Boolean(data.guide_vocal_control);
             if (!currentPlayingFilename) {
                 currentPlaylist = [];
                 renderQueue([]);
             }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            currentSubtitleMode = hasSubtitle ? Math.max(0, Math.min(3, Number(data.subtitle_mode) || 0)) : 0;
+            currentSubtitleMode = hasSubtitle ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
@@ -901,9 +897,7 @@
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                const nextMode = currentSongUsesPlainLyrics
-                    ? (currentSubtitleMode > 0 ? 0 : 1)
-                    : (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
                 socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }
@@ -1003,7 +997,7 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(3, Number(data.subtitle_mode) || 0)) : 0;
+                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
                 currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                 renderSubtitleFontSizeControl();
                 renderCurrentSongControl();

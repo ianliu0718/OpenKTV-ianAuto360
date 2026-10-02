@@ -728,11 +728,9 @@ def _song_uses_plain_lyrics(filename):
 
 
 def _effective_subtitle_mode(filename):
-    """Return the mode for this song without changing the saved dynamic-mode preference."""
+    """Return the shared subtitle mode when the song has a subtitle file."""
     if not _song_has_subtitle(filename):
         return 0
-    if _song_uses_plain_lyrics(filename):
-        return 1 if plain_lyrics_visible else 0
     return subtitle_mode
 
 
@@ -1019,11 +1017,16 @@ def get_manual_subtitle():
     if not song_filename.lower().endswith('.mp4') or not os.path.exists(song_path):
         return json.dumps({'success': False, 'error': '請選擇有效的歌曲'}), 400
     if not os.path.exists(subtitle_path):
-        return json.dumps({'success': True, 'exists': False, 'cues': []}, ensure_ascii=False)
+        return json.dumps({'success': True, 'exists': False, 'plain_lyrics': False, 'cues': []}, ensure_ascii=False)
     try:
         with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
             cues = parse_vtt_cues(subtitle_file.read())
-        return json.dumps({'success': True, 'exists': True, 'cues': cues}, ensure_ascii=False)
+        return json.dumps({
+            'success': True,
+            'exists': True,
+            'plain_lyrics': _song_uses_plain_lyrics(song_filename),
+            'cues': cues,
+        }, ensure_ascii=False)
     except (OSError, UnicodeDecodeError, ValueError) as error:
         return json.dumps({'success': False, 'error': f'既有歌詞讀取失敗：{error}'}, ensure_ascii=False), 400
 
@@ -1183,7 +1186,6 @@ def download_lyrics():
             record_id = int(record_id)
         except (TypeError, ValueError):
             return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
-    output_name = os.path.splitext(song_filename)[0] + '.vtt'
     output_path = os.path.join(SONGS_DIR, output_name)
     if os.path.exists(output_path) and not overwrite:
         return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
@@ -1884,33 +1886,32 @@ def lrc_to_webvtt(content):
     return '\n'.join(converted)
 
 def plain_lyrics_to_webvtt(content, duration):
-    """Create a twelve-line lyric window that advances one line at a time."""
+    """Create one automatically timed WebVTT cue for each plain lyric line."""
     if not duration or duration <= 0:
         raise ValueError('無法取得歌曲長度，無法自動安排普通歌詞時間')
     lines = [line.strip() for line in content.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip()]
     if not lines:
         raise ValueError('歌詞內容不可為空白')
-    lyric_duration = max(0.1, duration - 30)
+    lead_in = min(15, duration) if duration > 30 else 0
+    lyric_duration = max(0.1, duration - 30) if duration > 30 else duration
     converted = ['WEBVTT', '']
     line_duration = round(lyric_duration / len(lines), 3)
-    last_window_start = max(0, len(lines) - 12)
-    lead_in = min(15, duration)
-    first_window_duration = lead_in + line_duration * 6
-    for index, window_start in enumerate(range(last_window_start + 1)):
-        window = lines[window_start:window_start + 12]
+    first_cue_end = lead_in + line_duration
+    duration_ms = round(duration * 1000)
+    for index, line in enumerate(lines):
         if index == 0:
             start_ms = 0
-            end_ms = round(first_window_duration * 1000)
         else:
-            start_ms = round((first_window_duration + (index - 1) * line_duration) * 1000)
-            end_ms = round((first_window_duration + index * line_duration) * 1000)
-        if window_start == last_window_start:
-            end_ms = round(duration * 1000)
-        end_ms = min(end_ms, round(duration * 1000))
+            start_ms = round((first_cue_end + (index - 1) * line_duration) * 1000)
+        if index == len(lines) - 1:
+            end_ms = duration_ms
+        else:
+            end_ms = round((first_cue_end + index * line_duration) * 1000)
+        end_ms = min(end_ms, duration_ms)
         converted.extend([
-            f'PLAIN_LYRICS_{index}_{window_start}',
+            f'PLAIN_LYRICS_{index}_{index}',
             f'{format_vtt_time(start_ms)} --> {format_vtt_time(end_ms)}',
-            '\n'.join(window),
+            line,
             '',
         ])
     return '\n'.join(converted)
@@ -2002,7 +2003,6 @@ if _normalize_song_notes(song_notes):
     _save_song_notes()
 song_play_counts = _load_song_play_counts()
 subtitle_mode = 0
-plain_lyrics_visible = False
 subtitle_font_size = 100
 subtitle_style_mode = 0
 qr_visible = True
@@ -2210,7 +2210,7 @@ def handle_replay_current_song():
 @socketio.on('set_subtitle_mode')
 def handle_set_subtitle_mode(data):
     """Set the shared subtitle display mode for the song currently playing."""
-    global plain_lyrics_visible, subtitle_mode
+    global subtitle_mode
     filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
     if not playlist_queue or filename != playlist_queue[0]:
         return
@@ -2220,18 +2220,10 @@ def handle_set_subtitle_mode(data):
         requested_mode = int(data.get('mode')) if isinstance(data, dict) else -1
     except (TypeError, ValueError):
         return
-    plain_lyrics = _song_uses_plain_lyrics(filename)
-    if requested_mode not in ({0, 1} if plain_lyrics else range(4)):
+    if requested_mode not in range(5):
         return
-    if plain_lyrics:
-        plain_lyrics_visible = requested_mode > 0
-        if requested_mode == 0:
-            subtitle_mode = 0
-        elif subtitle_mode == 0:
-            subtitle_mode = 2
-    else:
-        subtitle_mode = requested_mode
-        plain_lyrics_visible = requested_mode > 0
+    subtitle_mode = requested_mode
+    plain_lyrics = _song_uses_plain_lyrics(filename)
     effective_mode = _effective_subtitle_mode(filename)
     emit('subtitle_state', {
         'filename': filename,
