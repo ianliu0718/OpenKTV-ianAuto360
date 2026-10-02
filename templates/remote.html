@@ -302,6 +302,7 @@
         let guideVocalControlSupported = false;
         let currentVocalLevel = 50;
         let currentSubtitleMode = 0;
+        let currentSongUsesPlainLyrics = false;
         const subtitleDisplayLabels = ['隱藏', '單行', '雙行', '雙行漸變'];
         let currentSubtitleFontSize = 120;
         let currentSubtitleStyleMode = 0;
@@ -838,7 +839,10 @@
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = `字幕：${subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0]}`;
+            const subtitleLabel = currentSongUsesPlainLyrics
+                ? (currentSubtitleMode > 0 ? '一般' : '隱藏')
+                : subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
+            button.textContent = `字幕：${subtitleLabel}`;
             renderSubtitleStyleButton();
         }
 
@@ -877,6 +881,7 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            currentSongUsesPlainLyrics = Boolean(data.plain_lyrics);
             guideVocalControlSupported = Boolean(data.guide_vocal_control);
             if (!currentPlayingFilename) {
                 currentPlaylist = [];
@@ -896,7 +901,9 @@
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                const nextMode = currentSongUsesPlainLyrics
+                    ? (currentSubtitleMode > 0 ? 0 : 1)
+                    : (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
                 socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }

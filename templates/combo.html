@@ -73,8 +73,12 @@
         #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-highlight-layer { top: .08em; right: auto; bottom: auto; left: .3em; margin: 0; }
         #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-line:first-child .subtitle-highlight-layer { right: .3em; left: auto; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
-        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: flex-start; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .plain-lyrics-track { display: flex; flex: 0 0 auto; flex-direction: column; width: 100%; }
         #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:not(:first-child) { display: flex; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:first-child { align-self: stretch; max-width: none; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-text-layer { white-space: nowrap; }
         /* Subtitle style classes are mutually exclusive; background covers lines or the plain-lyrics panel. */
         #ktv-subtitle.subtitle-style-background:not(.plain-lyrics-mode) .subtitle-line { box-decoration-break: clone; padding: .08em .3em; border-radius: 4px; background: rgba(0, 0, 0, .62); }
         #ktv-subtitle.subtitle-style-background.plain-lyrics-mode { background: rgba(0, 0, 0, .62); }
@@ -437,6 +441,7 @@ const socket = io();
         let currentFilename = '';
         let currentSubtitleFontSize = 120;
         let subtitleHighlightFrame = 0;
+        let plainLyricsScrollFrame = 0;
         let currentLoudness = null;
         let liveLoudness = null;
         let liveLoudnessTimer = null;
@@ -944,7 +949,8 @@ const socket = io();
             const slots = [];
             for (let index = 0; index < cues.length; index += 1) {
                 const cue = cues[index];
-                slots.push({ cue, text: getSubtitleTextLines(cue.text).join(' '), startTime: cue.startTime, endTime: cue.endTime });
+                const plainLyrics = String(cue.id || '').startsWith('PLAIN_LYRICS_');
+                slots.push({ cue, text: getSubtitleTextLines(cue.text).join(plainLyrics ? '\n' : ' '), startTime: cue.startTime, endTime: cue.endTime });
                 const nextCue = cues[index + 1];
                 if (nextCue && nextCue.startTime > cue.endTime + 0.05) {
                     slots.push({ cue: null, text: '', startTime: cue.endTime, endTime: nextCue.startTime });
@@ -990,6 +996,23 @@ const socket = io();
 
         function requestSubtitleHighlightProgress() {
             if (!subtitleHighlightFrame) subtitleHighlightFrame = requestAnimationFrame(updateSubtitleHighlightProgress);
+        }
+
+        function requestPlainLyricsScroll() {
+            if (!plainLyricsScrollFrame) plainLyricsScrollFrame = requestAnimationFrame(updatePlainLyricsScroll);
+        }
+
+        function updatePlainLyricsScroll() {
+            plainLyricsScrollFrame = 0;
+            const state = ktvSubtitle._plainLyricsState;
+            const track = ktvSubtitle.querySelector('.plain-lyrics-track');
+            if (!state || !track) return;
+            const duration = state.scrollEndTime - state.scrollStartTime;
+            const progress = state.hasNextLine && duration > 0
+                ? Math.max(0, Math.min(1, (video.currentTime - state.scrollStartTime) / duration))
+                : 0;
+            track.style.transform = `translate3d(0, ${-state.lineHeight * progress}px, 0)`;
+            if (!video.paused && !video.ended) requestPlainLyricsScroll();
         }
 
         function syncSubtitleSlotAtCurrentTime() {
@@ -1042,6 +1065,7 @@ const socket = io();
                 renderedSubtitleActiveLineIndex = 0;
                 ktvSubtitle.replaceChildren();
                 ktvSubtitle.classList.remove('plain-lyrics-mode');
+                ktvSubtitle._plainLyricsState = null;
                 ktvSubtitle.style.removeProperty('--plain-lyrics-width');
                 return;
             }
@@ -1082,18 +1106,66 @@ const socket = io();
                 ktvSubtitle.style.removeProperty('--plain-lyrics-width');
                 return;
             }
-            ktvSubtitle.replaceChildren(...displayLines.map(line => createSubtitleLineElement(line)));
+            const nextSlot = slots[currentSlot.index + 1];
+            const nextLines = nextSlot && nextSlot.cue
+                && String(nextSlot.cue.id || '').startsWith('PLAIN_LYRICS_')
+                ? getSubtitleTextLines(nextSlot.text)
+                : [];
+            const hasNextLine = nextLines.length === currentLines.length
+                && currentLines.length > 0
+                && currentLines.slice(1).every((line, index) => line === nextLines[index]);
+            const nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+            const scrollStartTime = currentSlot.startTime === 0 && hasNextLine
+                ? Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration)
+                : currentSlot.startTime;
+            const trackLines = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+            const rowCount = Math.max(12, trackLines.length);
+            const track = document.createElement('div');
+            track.className = 'plain-lyrics-track';
+            track.style.height = `${rowCount / 12 * 100}%`;
+            trackLines.forEach((line) => {
+                const lineElement = createSubtitleLineElement(line);
+                lineElement.style.flex = `0 0 ${100 / rowCount}%`;
+                track.appendChild(lineElement);
+            });
+            ktvSubtitle.replaceChildren(track);
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             context.font = getComputedStyle(ktvSubtitle).font;
-            const longestLine = Math.max(...displayLines.map((line) => context.measureText(line).width), 0);
+            const longestLine = Math.max(...trackLines.map((line) => context.measureText(line).width), 0);
             const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
             ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
+            const subtitleStyle = getComputedStyle(ktvSubtitle);
+            const horizontalPadding = parseFloat(subtitleStyle.paddingLeft) + parseFloat(subtitleStyle.paddingRight);
+            const availableWidth = Math.max(1, ktvSubtitle.clientWidth - horizontalPadding);
+            const rowHeight = track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0;
+            const fontSize = parseFloat(subtitleStyle.fontSize) || 1;
+            const lineHeight = parseFloat(subtitleStyle.lineHeight) || fontSize * 1.12;
+            trackLines.forEach((line, index) => {
+                const measuredWidth = context.measureText(line).width;
+                const widthScale = measuredWidth > availableWidth ? availableWidth / measuredWidth : 1;
+                const heightScale = rowHeight > 0 ? Math.min(1, rowHeight / lineHeight) : 1;
+                track.children[index].style.fontSize = `${Math.min(widthScale, heightScale)}em`;
+            });
+            ktvSubtitle._plainLyricsState = {
+                scrollStartTime,
+                scrollEndTime: currentSlot.endTime,
+                lineHeight: track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0,
+                hasNextLine,
+            };
+            requestPlainLyricsScroll();
+        }
+
+        function handleSubtitleResize() {
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+            else fitSubtitleLineAnchors();
         }
 
         subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
         video.addEventListener('timeupdate', syncSubtitleSlotAtCurrentTime);
-        window.addEventListener('resize', fitSubtitleLineAnchors);
+        video.addEventListener('play', requestPlainLyricsScroll);
+        video.addEventListener('seeked', requestPlainLyricsScroll);
+        window.addEventListener('resize', handleSubtitleResize);
 
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
@@ -1710,6 +1782,7 @@ const socket = io();
         let currentPlayingFilename = '';
         let currentSubtitleStyleMode = 0;
         let currentSubtitleMode = 0;
+        let currentSongUsesPlainLyrics = false;
         const subtitleDisplayLabels = ['隱藏', '單行', '雙行', '雙行漸變'];
         let renderedSubtitleSlotIndex = -1;
         let renderedSubtitleActiveLineIndex = 0;
@@ -1863,7 +1936,10 @@ const socket = io();
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
             name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = `字幕：${subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0]}`;
+            const subtitleLabel = currentSongUsesPlainLyrics
+                ? (currentSubtitleMode > 0 ? '一般' : '隱藏')
+                : subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
+            button.textContent = `字幕：${subtitleLabel}`;
             renderSubtitleStyleButton();
         }
 
@@ -1885,6 +1961,7 @@ const socket = io();
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            currentSongUsesPlainLyrics = Boolean(data.plain_lyrics);
             if (!currentPlayingFilename) {
                 currentQueueHistory = [];
                 renderQueue([]);
@@ -1902,7 +1979,9 @@ const socket = io();
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                const nextMode = currentSongUsesPlainLyrics
+                    ? (currentSubtitleMode > 0 ? 0 : 1)
+                    : (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
                 socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }

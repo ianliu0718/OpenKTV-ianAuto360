@@ -715,20 +715,42 @@ def _song_has_subtitle(filename):
     return os.path.exists(subtitle_path)
 
 
+def _song_uses_plain_lyrics(filename):
+    """Return whether a song's VTT contains the marker used for untimed lyrics."""
+    if not filename:
+        return False
+    subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    try:
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
+            return any(line.strip().startswith('PLAIN_LYRICS_') for line in subtitle_file)
+    except (OSError, UnicodeError):
+        return False
+
+
+def _effective_subtitle_mode(filename):
+    """Return the mode for this song without changing the saved dynamic-mode preference."""
+    if not _song_has_subtitle(filename):
+        return 0
+    if _song_uses_plain_lyrics(filename):
+        return 1 if plain_lyrics_visible else 0
+    return subtitle_mode
+
+
 def _play_video_payload(filename):
     """Build a playback event payload with server-confirmed audio metadata and per-song subtitle state."""
-    visible = subtitle_mode > 0 and _song_has_subtitle(filename)
+    effective_mode = _effective_subtitle_mode(filename)
     guide_audio_state = _guide_audio_control_state(filename)
     return {
         'filename': filename,
         'title': filename,
+        'plain_lyrics': _song_uses_plain_lyrics(filename),
         'audio_channels': get_audio_channel_count(filename),
         'audio_channel_layout': get_audio_channel_layout(filename),
         **guide_audio_state,
         'audio_loudness_lufs': get_audio_loudness(filename, 'original'),
         'track_mode': current_track_mode,
-        'visible': visible,
-        'subtitle_mode': subtitle_mode if visible else 0,
+        'visible': effective_mode > 0,
+        'subtitle_mode': effective_mode,
         'font_size': subtitle_font_size,
     }
 
@@ -1980,6 +2002,7 @@ if _normalize_song_notes(song_notes):
     _save_song_notes()
 song_play_counts = _load_song_play_counts()
 subtitle_mode = 0
+plain_lyrics_visible = False
 subtitle_font_size = 100
 subtitle_style_mode = 0
 qr_visible = True
@@ -2066,11 +2089,12 @@ def start_random_song():
 def broadcast_current_song():
     """Broadcast the current song and its per-song subtitle presentation state to all clients."""
     filename = playlist_queue[0] if playlist_queue else ''
-    visible = subtitle_mode > 0 and _song_has_subtitle(filename)
+    effective_mode = _effective_subtitle_mode(filename)
     socketio.emit('current_song', {
         'filename': filename,
-        'visible': visible,
-        'subtitle_mode': subtitle_mode if visible else 0,
+        'visible': effective_mode > 0,
+        'plain_lyrics': _song_uses_plain_lyrics(filename),
+        'subtitle_mode': effective_mode,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
         **_guide_audio_control_state(filename),
@@ -2084,10 +2108,12 @@ def handle_connect():
     # 新連線先同步目前所有歌曲備註，讓遙控器與播放端畫面一致。
     emit('song_notes', song_notes)
     emit('song_play_counts', song_play_counts)
+    effective_mode = _effective_subtitle_mode(current_filename)
     emit('current_song', {
         'filename': current_filename,
-        'visible': subtitle_mode > 0 and _song_has_subtitle(current_filename),
-        'subtitle_mode': subtitle_mode if _song_has_subtitle(current_filename) else 0,
+        'visible': effective_mode > 0,
+        'plain_lyrics': _song_uses_plain_lyrics(current_filename),
+        'subtitle_mode': effective_mode,
         'font_size': subtitle_font_size,
         'seek_offset': seek_offset,
         **_guide_audio_control_state(current_filename),
@@ -2184,7 +2210,7 @@ def handle_replay_current_song():
 @socketio.on('set_subtitle_mode')
 def handle_set_subtitle_mode(data):
     """Set the shared subtitle display mode for the song currently playing."""
-    global subtitle_mode
+    global plain_lyrics_visible, subtitle_mode
     filename = os.path.basename(data.get('filename', '')) if isinstance(data, dict) else ''
     if not playlist_queue or filename != playlist_queue[0]:
         return
@@ -2194,13 +2220,24 @@ def handle_set_subtitle_mode(data):
         requested_mode = int(data.get('mode')) if isinstance(data, dict) else -1
     except (TypeError, ValueError):
         return
-    if requested_mode not in range(4):
+    plain_lyrics = _song_uses_plain_lyrics(filename)
+    if requested_mode not in ({0, 1} if plain_lyrics else range(4)):
         return
-    subtitle_mode = requested_mode
+    if plain_lyrics:
+        plain_lyrics_visible = requested_mode > 0
+        if requested_mode == 0:
+            subtitle_mode = 0
+        elif subtitle_mode == 0:
+            subtitle_mode = 2
+    else:
+        subtitle_mode = requested_mode
+        plain_lyrics_visible = requested_mode > 0
+    effective_mode = _effective_subtitle_mode(filename)
     emit('subtitle_state', {
         'filename': filename,
-        'visible': subtitle_mode > 0,
-        'subtitle_mode': subtitle_mode,
+        'visible': effective_mode > 0,
+        'plain_lyrics': plain_lyrics,
+        'subtitle_mode': effective_mode,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
@@ -2217,11 +2254,11 @@ def handle_set_subtitle_font_size(data):
     subtitle_font_size = round(subtitle_font_size / 10) * 10
     subtitle_font_size = max(80, min(200, subtitle_font_size))
     current_filename = playlist_queue[0] if playlist_queue else ''
-    visible = subtitle_mode > 0 and _song_has_subtitle(current_filename)
+    effective_mode = _effective_subtitle_mode(current_filename)
     emit('subtitle_state', {
         'filename': current_filename,
-        'visible': visible,
-        'subtitle_mode': subtitle_mode if visible else 0,
+        'visible': effective_mode > 0,
+        'subtitle_mode': effective_mode,
         'font_size': subtitle_font_size,
     }, broadcast=True)
     broadcast_current_song()
