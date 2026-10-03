@@ -565,7 +565,7 @@
             } else if (manualLyricMode >= 2) {
                 const nextText = nextSlot ? nextSlot.text : '';
                 const currentText = currentLines.join(' ');
-                if (manualLyricPlainMode) {
+                if (manualLyricPlainMode && currentLines.length > 1) {
                     displayLines = currentLines.slice(0, 2);
                 } else if (previousSlot && !previousSlot.line) {
                     displayLines = nextText ? [currentText, nextText] : [currentText];
