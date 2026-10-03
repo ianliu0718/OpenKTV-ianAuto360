@@ -31,3 +31,6 @@ __pycache__/
 pretrained_models/
 temp_processing/
 ktv_songs/
+
+# Windows Server instance lock is generated at runtime and should not be committed.
+/.ianAutoKTV.instance.lock

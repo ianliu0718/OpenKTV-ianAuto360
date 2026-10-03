@@ -252,7 +252,7 @@ cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
 python main.py
 ```
 
-啟動批量製作前必須確認只存在一個 `main.py` 伺服器程序，且 `5000` 連接埠由專案 `.venv\Scripts\python.exe` 監聽；不可同時從系統 Python、舊版 EXE 或其他終端重複啟動，否則瀏覽器可能連到未更新的音訊處理流程。Spleeter 的 Windows worker 只執行分離工作，不得啟動 Flask 伺服器或佔用 `5000`。
+使用本專案的 `main.py`、`啟動OpenKTV.bat` 或打包 EXE 啟動時，程式會在 Flask 啟動前依專案目錄取得 Windows 單實例鎖；若同專案已有鎖定中的舊 Server，會先送出 GUI 正常關閉訊息並等待退出，逾時後才依鎖檔記錄的 PID 回收。若舊版沒有單實例鎖，啟動器會檢查 `5000` 埠 owner，並辨識 `ianAutoKTV_Server.exe` 或本專案 `.venv\Scripts\python.exe` 執行的 `main.py`，可跨不同安裝目錄取代舊 KTV Server；其他未辨識程序佔用 `5000` 時會停止啟動，不會終止該程序。Spleeter 的 Windows worker 不取得單實例鎖，只執行分離工作，不得啟動 Flask 伺服器或佔用 `5000`。
 
 啟動後使用 HTTPS 區域網路網址：
 

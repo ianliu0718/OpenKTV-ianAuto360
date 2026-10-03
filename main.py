@@ -505,6 +505,237 @@ def broadcast_log(msg):
     socketio.emit('admin_log', {'msg': msg})
 
 
+_server_instance_lock_file = None
+
+
+def _try_lock_server_instance(lock_file):
+    """Try to own the first byte of this project's Windows instance lock."""
+    import msvcrt
+
+    lock_file.seek(0)
+    try:
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        return True
+    except OSError:
+        return False
+
+
+def _wait_for_server_instance_lock(lock_file, timeout):
+    """Wait for the previous project instance to release its process lock."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _try_lock_server_instance(lock_file):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _request_server_window_close(process_id):
+    """Send WM_CLOSE to top-level windows owned by the previous KTV process."""
+    import ctypes
+
+    user32 = ctypes.WinDLL('user32', use_last_error=True)
+    enum_callback_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_ssize_t)
+
+    def close_window(window_handle, _):
+        window_process_id = ctypes.c_uint32()
+        user32.GetWindowThreadProcessId(window_handle, ctypes.byref(window_process_id))
+        if window_process_id.value == process_id:
+            user32.PostMessageW(window_handle, 0x0010, 0, 0)
+        return True
+
+    user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    user32.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+    user32.EnumWindows.argtypes = [enum_callback_type, ctypes.c_ssize_t]
+    callback = enum_callback_type(close_window)
+    user32.EnumWindows(callback, 0)
+
+
+def _run_taskkill(process_id, force=False):
+    """Stop only the process recorded in this project's instance lock."""
+    command = ['taskkill.exe', '/PID', str(process_id), '/T']
+    if force:
+        command.append('/F')
+    try:
+        subprocess.run(
+            command,
+            capture_output=True,
+            timeout=5,
+            check=False,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f'無法關閉舊 KTV Server（PID {process_id}）：{error}')
+
+
+def _get_server_port_process():
+    """Identify the process listening on the KTV port without stopping it."""
+    encoded_base_dir = base64.b64encode(os.path.abspath(BASE_DIR).encode('utf-8')).decode('ascii')
+    powershell_check = (
+        f"$basePath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_base_dir}')); "
+        f"$connection = Get-NetTCPConnection -State Listen -LocalPort {PORT} "
+        '-ErrorAction SilentlyContinue | Select-Object -First 1; '
+        'if ($connection) { '
+        '$process = Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)"; '
+        'if ($process) { '
+        '$name = [string]$process.Name; $commandLine = [string]$process.CommandLine; '
+        '$executablePath = [string]$process.ExecutablePath; '
+        "$pythonDirectory = [IO.Path]::GetFullPath((Join-Path $basePath '.venv\\Scripts')) + [IO.Path]::DirectorySeparatorChar; "
+        "$mainScript = Join-Path $basePath 'main.py'; "
+        "$isPythonMain = ($name -match '^(?i:pythonw?\\.exe)$') -and ($commandLine -match '(?i)main\\.py') "
+        "-and (($executablePath -and $executablePath.StartsWith($pythonDirectory, [StringComparison]::OrdinalIgnoreCase)) "
+        "-or ($commandLine.IndexOf($mainScript, [StringComparison]::OrdinalIgnoreCase) -ge 0)); "
+        "$isKtvServer = ($name -ieq 'ianAutoKTV_Server.exe') -or $isPythonMain; "
+        '[pscustomobject]@{ ProcessId = $process.ProcessId; Name = $name; IsKtvServer = $isKtvServer } '
+        '| ConvertTo-Json -Compress } }'
+    )
+    result = subprocess.run(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', powershell_check],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        timeout=8,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+    )
+    output = result.stdout.lstrip('\ufeff').strip()
+    if result.returncode != 0 or not output:
+        return None
+    try:
+        process_info = json.loads(output)
+        return process_info if isinstance(process_info, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _wait_for_windows_process_exit(process_id, timeout):
+    """Wait for a process handle to become signaled without polling process lists."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    process_handle = kernel32.OpenProcess(0x00100000, False, process_id)
+    if not process_handle:
+        return ctypes.get_last_error() == 87
+    try:
+        wait_result = kernel32.WaitForSingleObject(process_handle, max(0, int(timeout * 1000)))
+        return wait_result == 0
+    finally:
+        kernel32.CloseHandle(process_handle)
+
+
+def _close_legacy_server_process(process_info):
+    """Gracefully close a recognized older KTV process, then force it only on timeout."""
+    process_id = int(process_info['ProcessId'])
+    print(f'偵測到 5000 埠上的舊版 KTV Server（PID {process_id}），正在正常關閉。')
+    _request_server_window_close(process_id)
+    if _wait_for_windows_process_exit(process_id, 5):
+        return
+    _run_taskkill(process_id)
+    if _wait_for_windows_process_exit(process_id, 2):
+        return
+    _run_taskkill(process_id, force=True)
+    if not _wait_for_windows_process_exit(process_id, 5):
+        raise RuntimeError(f'無法關閉舊版 KTV Server（PID {process_id}），新的 Server 未啟動。')
+
+
+def ensure_single_server_instance():
+    """Replace a previous server from this project directory before startup."""
+    global _server_instance_lock_file
+    if os.name != 'nt':
+        return
+
+    import ctypes
+    import hashlib
+    from ctypes import wintypes
+
+    project_path = os.path.normcase(os.path.abspath(BASE_DIR))
+    project_key = hashlib.sha256(project_path.encode('utf-8')).hexdigest()[:16]
+    mutex_name = f'Local\\ianAutoKTV-startup-{project_key}'
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    startup_mutex = kernel32.CreateMutexW(None, False, mutex_name)
+    if not startup_mutex:
+        raise OSError(ctypes.get_last_error(), '無法建立 KTV Server 啟動鎖。')
+
+    mutex_acquired = False
+    lock_file = None
+    lock_acquired = False
+    try:
+        wait_result = kernel32.WaitForSingleObject(startup_mutex, 0xFFFFFFFF)
+        if wait_result not in (0, 0x80):
+            raise OSError(ctypes.get_last_error(), '無法取得 KTV Server 啟動鎖。')
+        mutex_acquired = True
+
+        lock_path = os.path.join(BASE_DIR, '.ianAutoKTV.instance.lock')
+        if not os.path.exists(lock_path):
+            with open(lock_path, 'wb') as new_lock_file:
+                new_lock_file.write(b'\0' + b'0\n')
+        lock_file = open(lock_path, 'r+b')
+        if os.fstat(lock_file.fileno()).st_size < 3:
+            lock_file.seek(0)
+            lock_file.write(b'\0' + b'0\n')
+            lock_file.flush()
+
+        lock_acquired = _try_lock_server_instance(lock_file)
+        if not lock_acquired:
+            # Byte 0 is exclusively locked; keep the readable owner PID after it.
+            lock_file.seek(1)
+            try:
+                previous_process_id = int(lock_file.readline().decode('ascii').strip())
+            except (UnicodeDecodeError, ValueError) as error:
+                raise RuntimeError('同專案鎖檔無法辨識舊 Server，為避免誤關其他程序，已停止啟動。') from error
+            if previous_process_id <= 0 or previous_process_id == os.getpid():
+                raise RuntimeError('同專案鎖檔中的舊 Server PID 無效，已停止啟動。')
+
+            print(f'偵測到同專案舊 KTV Server（PID {previous_process_id}），正在正常關閉。')
+            _request_server_window_close(previous_process_id)
+            lock_acquired = _wait_for_server_instance_lock(lock_file, 5)
+            if not lock_acquired:
+                _run_taskkill(previous_process_id)
+                lock_acquired = _wait_for_server_instance_lock(lock_file, 2)
+            if not lock_acquired:
+                _run_taskkill(previous_process_id, force=True)
+                lock_acquired = _wait_for_server_instance_lock(lock_file, 5)
+            if not lock_acquired:
+                raise RuntimeError('無法關閉同專案舊 KTV Server，新的 Server 未啟動。')
+
+        if _is_server_port_listening():
+            port_process = _get_server_port_process()
+            if not port_process:
+                raise RuntimeError(f'無法辨識佔用 TCP {PORT} 的程序，為避免誤關其他程式，新的 Server 未啟動。')
+            if not port_process.get('IsKtvServer'):
+                raise RuntimeError(
+                    f'TCP {PORT} 已由非本專案程序 {port_process.get("Name", "未知程序")} '
+                    f'(PID {port_process.get("ProcessId", "未知")}) 佔用；未關閉該程序。'
+                )
+            port_process_id = int(port_process['ProcessId'])
+            if port_process_id != os.getpid():
+                _close_legacy_server_process(port_process)
+
+        lock_file.seek(1)
+        lock_file.write(f'{os.getpid():<12}\n'.encode('ascii'))
+        lock_file.flush()
+        _server_instance_lock_file = lock_file
+        lock_file = None
+    finally:
+        if lock_file is not None:
+            lock_file.close()
+        if mutex_acquired:
+            kernel32.ReleaseMutex(startup_mutex)
+        kernel32.CloseHandle(startup_mutex)
+
+
 def _is_server_port_listening():
     """檢查本機 HTTPS 服務是否已在 5000 port 監聽。"""
     try:
@@ -3191,6 +3422,12 @@ class StartupWindow(tk.Tk):
 if __name__ == "__main__" and os.environ.get('IANAUTOKTV_WORKER') != '1':
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
+
+    try:
+        ensure_single_server_instance()
+    except Exception as error:
+        messagebox.showerror('啟動失敗', f'單一 Server 啟動保護失敗：{error}')
+        raise SystemExit(1)
 
     startup_window = StartupWindow()
     startup_window.update()

@@ -6,16 +6,16 @@
     <style>
         body { background: #1a1a1a; color: white; font-family: sans-serif; padding: 10px; margin: 0; }
         .btn { width: 100%; padding: 15px; margin: 5px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; }
-        .play { background: #009688; }
+        .play { background: #2196F3; }
         .pause { background: #2196F3; }
-        .stop { background: #F44336; }
-        .vocal { background: #FF9800; color: black; }
-        .inst { background: #FFC107; color: black; }
+        .stop { background: #2196F3; }
+        .vocal { background: #ff9800; }
+        .inst { background: #ff9800; }
         .admin-link { position: absolute; top: 50%; right: 0; display: grid; place-items: center; width: 36px; height: 36px; box-sizing: border-box; margin: 0; padding: 0; transform: translateY(-50%); border-radius: 6px; background: #607D8B; color: white; font-size: 18px; line-height: 1; text-decoration: none; }
         .admin-link:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
         .remote-header { position: relative; margin-bottom: 10px; text-align: center; }
         input[type=text] { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px;}
-        input[type=range] { width: 100%; margin: 10px 0; }
+        input[type=range] { width: 100%; }
         li { background: #333; padding: 10px; margin-bottom: 5px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
         ul { list-style: none; padding: 0; }
         .queue-box { background: #111; padding: 12px; border: 1px solid #444; border-radius: 8px; margin: 10px 0; max-height: 30vh; overflow: hidden; }
@@ -177,7 +177,7 @@
             </label>
         </div>
 
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
             <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
             <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
             <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
@@ -185,10 +185,6 @@
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
-        </div>
-
-        <!-- 歌曲位置調整與畫面延遲校正分開處理，避免改變同步偏移。 -->
-        <div id="song-seek-controls" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:8px;">
             <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)" disabled>&lt; 快退 10 秒</button>
             <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)" disabled>快進 10 秒 &gt;</button>
         </div>
@@ -198,14 +194,14 @@
             <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
         </div>
 
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
+        <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin: 10px 0;">
             <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
                 <span>🔊 主音量</span><span id="vol-val">100%</span>
             </div>
             <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量" oninput="updateEffect()">
         </div>
 
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+        <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
             </div>
