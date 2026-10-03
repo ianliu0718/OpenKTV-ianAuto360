@@ -34,6 +34,15 @@
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
         .category-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .category-multi-filter { position: relative; min-width: 0; }
+        .category-multi-filter summary { overflow: hidden; padding: 8px; border: 1px solid #555; border-radius: 5px; background: #333; color: white; cursor: pointer; list-style: none; text-overflow: ellipsis; white-space: nowrap; }
+        .category-multi-filter summary::-webkit-details-marker { display: none; }
+        .category-multi-filter summary::after { content: '▾'; float: right; margin-left: 6px; }
+        .category-multi-filter[open] summary::after { content: '▴'; }
+        .category-multi-options { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 40; display: grid; gap: 2px; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px; border: 1px solid #555; border-radius: 5px; background: #333; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
+        .category-multi-filter:not([open]) .category-multi-options { display: none; }
+        .category-multi-option { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 4px; color: #eee; overflow-wrap: anywhere; }
+        .category-multi-option input { flex: 0 0 auto; width: auto; margin: 0; }
         .search-row { display: flex; gap: 6px; align-items: stretch; }
         .search-row input[type=text] { flex: 1; min-width: 0; margin-bottom: 10px; }
         .sort-mode-button { flex: 0 0 auto; width: auto; margin: 0 0 10px; padding: 10px 9px; background: #4b5d58; border: 1px solid #72817d; color: #f1f4f3; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 2px 5px rgba(0,0,0,.2); }
@@ -129,7 +138,10 @@
                 <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()"><option value="">歌曲字數：全部</option></select>
                 <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()"><option value="">主唱者：全部</option></select>
                 <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()"><option value="">語言：全部</option></select>
-                <select id="affiliation-filter" aria-label="依歌曲歸屬分類" onchange="handleCategoryChange()"><option value="">歸屬：全部</option></select>
+                <details id="affiliation-filter" class="category-multi-filter">
+                    <summary aria-label="依歌曲歸屬分類">歸屬：全部</summary>
+                    <div id="affiliation-filter-options" class="category-multi-options" role="group" aria-label="選擇一個或多個歌曲歸屬"></div>
+                </details>
             </div>
         </div>
         <ul id="list"></ul>
@@ -805,13 +817,17 @@
             const singerFilter = document.getElementById('singer-filter');
             const languageFilter = document.getElementById('language-filter');
             const affiliationFilter = document.getElementById('affiliation-filter');
-            const filters = [lengthFilter, singerFilter, languageFilter, affiliationFilter];
+            const affiliationOptions = document.getElementById('affiliation-filter-options');
+            const affiliationSummary = affiliationFilter.querySelector('summary');
+            const selectedAffiliations = getSelectedAffiliations();
+            const filters = [lengthFilter, singerFilter, languageFilter];
             const previous = filters.map((filterElement) => filterElement.value);
             const fields = ['length', 'singer', 'language', 'affiliation'];
             const query = document.getElementById('search').value.toLowerCase();
             const matchingSongs = sortedSongMetadata.filter(({ filename }) => filename.toLowerCase().includes(query));
             const valuesForFilter = (filterIndex) => [...new Set(matchingSongs
-                .filter(({ metadata }) => previous.every((value, index) => index === filterIndex || !value || metadata[fields[index]] === value))
+                .filter(({ metadata }) => previous.every((value, index) => index === filterIndex || !value || metadata[fields[index]] === value)
+                    && (filterIndex === 3 || !selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation)))
                 .map(({ metadata }) => metadata[fields[filterIndex]]))];
             const lengths = valuesForFilter(0).sort((a, b) => Number(a) - Number(b));
             const singers = valuesForFilter(1).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
@@ -820,14 +836,40 @@
             if (sortLanguage && !languages.includes(sortLanguage)) languages.push(sortLanguage);
             languages.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
             const affiliations = valuesForFilter(3).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const availableAffiliations = new Set(affiliations);
+            const validSelections = new Set([...selectedAffiliations].filter(value => availableAffiliations.has(value)));
             lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
             singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
             languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
-            affiliationFilter.innerHTML = '<option value="">歸屬：全部</option>' + affiliations.map(value => `<option value="${value}">${value}</option>`).join('');
             filters.forEach((filterElement, index) => { filterElement.value = previous[index]; });
-            if (filters.some((filterElement, index) => filterElement.value !== previous[index])) {
+            affiliationOptions.replaceChildren();
+            affiliations.forEach((value) => {
+                const label = document.createElement('label');
+                label.className = 'category-multi-option';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = value;
+                checkbox.checked = validSelections.has(value);
+                checkbox.addEventListener('change', handleCategoryChange);
+                const text = document.createElement('span');
+                text.textContent = value;
+                label.append(checkbox, text);
+                affiliationOptions.appendChild(label);
+            });
+            affiliationSummary.textContent = validSelections.size ? `歸屬：${validSelections.size} 項` : '歸屬：全部';
+            if (filters.some((filterElement, index) => filterElement.value !== previous[index]) || validSelections.size !== selectedAffiliations.size) {
                 renderCategoryFilters();
             }
+        }
+
+        /** 取得目前勾選的歌曲歸屬分類。 */
+        function getSelectedAffiliations() {
+            return new Set([...document.querySelectorAll('#affiliation-filter-options input:checked')].map(input => input.value));
+        }
+
+        /** 清除已選歸屬，供搜尋與清除篩選時重設。 */
+        function clearSelectedAffiliations() {
+            document.querySelectorAll('#affiliation-filter-options input').forEach(input => { input.checked = false; });
         }
 
         /**
@@ -1010,9 +1052,10 @@
         /** Clears all four song filtering methods and restores the full list. */
         function clearFilters() {
             document.getElementById('search').value = '';
-            const filtersToClear = ['song-length-filter', 'singer-filter', 'affiliation-filter'];
+            const filtersToClear = ['song-length-filter', 'singer-filter'];
             if (!getSongSortLanguage()) filtersToClear.push('language-filter');
             filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+            clearSelectedAffiliations();
             renderCategoryFilters();
             filter();
         }
@@ -1020,9 +1063,10 @@
         /** Resets all category filters while a non-empty search query is entered. */
         function handleSearchInput() {
             if (document.getElementById('search').value) {
-                const filtersToClear = ['song-length-filter', 'singer-filter', 'affiliation-filter'];
+                const filtersToClear = ['song-length-filter', 'singer-filter'];
                 if (!getSongSortLanguage()) filtersToClear.push('language-filter');
                 filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+                clearSelectedAffiliations();
             }
             renderCategoryFilters();
             filter();
@@ -1052,14 +1096,14 @@
             const selectedLength = document.getElementById('song-length-filter').value;
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
-            const selectedAffiliation = document.getElementById('affiliation-filter').value;
+            const selectedAffiliations = getSelectedAffiliations();
             const list = document.getElementById('list');
             const matchingSongs = sortedSongMetadata.filter(({ filename, metadata }) => {
                 return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
                     && (!selectedLanguage || metadata.language === selectedLanguage)
-                    && (!selectedAffiliation || metadata.affiliation === selectedAffiliation);
+                    && (!selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation));
             });
             const rows = sortSongEntries(matchingSongs).map(({ filename: s }) => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
