@@ -1,119 +1,787 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>KTV 遙控器</title>
     <style>
-        body { background: #1a1a1a; color: white; font-family: sans-serif; padding: 10px; margin: 0; }
-        .btn { width: 100%; padding: 15px; margin: 5px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; }
-        .play { background: #2196F3; }
-        .pause { background: #2196F3; }
-        .stop { background: #2196F3; }
-        .vocal { background: #ff9800; }
-        .inst { background: #ff9800; }
-        .admin-link { position: absolute; top: 50%; right: 0; display: grid; place-items: center; width: 36px; height: 36px; box-sizing: border-box; margin: 0; padding: 0; transform: translateY(-50%); border-radius: 6px; background: #607D8B; color: white; font-size: 18px; line-height: 1; text-decoration: none; }
-        .admin-link:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
-        .remote-header { position: relative; margin-bottom: 10px; text-align: center; }
-        input[type=text] { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px;}
-        input[type=range] { width: 100%; }
-        li { background: #333; padding: 10px; margin-bottom: 5px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        ul { list-style: none; padding: 0; }
-        .queue-box { background: #111; padding: 12px; border: 1px solid #444; border-radius: 8px; margin: 10px 0; max-height: 30vh; overflow: hidden; }
-        .queue-title { color: #4CAF50; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
-        #queue-list { max-height: calc(30vh - 52px); margin: 0; padding-left: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-        #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
-        .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
-        .song-btn.added { background: #607d8b; cursor: wait; }
-        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
-        .song-audio-exception { color: #ffcc80; font-size: 12px; font-weight: bold; white-space: normal; overflow-wrap: anywhere; }
-        .song-main { display: flex; flex-direction: column; min-width: 0; max-width: 60%; }
-        .song-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        li.song-playing { background: #174d48; border: 1px solid #26a69a; }
-        li.song-row { cursor: pointer; }
-        li.song-row:hover { background: #34514e; }
-        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
-        .category-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
-        .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        .category-multi-filter { position: relative; min-width: 0; }
-        .category-multi-filter summary { overflow: hidden; padding: 8px; border: 1px solid #555; border-radius: 5px; background: #333; color: white; cursor: pointer; list-style: none; text-overflow: ellipsis; white-space: nowrap; }
-        .category-multi-filter summary::-webkit-details-marker { display: none; }
-        .category-multi-filter summary::after { content: '▾'; float: right; margin-left: 6px; }
-        .category-multi-filter[open] summary::after { content: '▴'; }
-        .category-multi-options { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 40; display: grid; gap: 2px; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px; border: 1px solid #555; border-radius: 5px; background: #333; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
-        .category-multi-filter:not([open]) .category-multi-options { display: none; }
-        .category-multi-option { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 4px; color: #eee; overflow-wrap: anywhere; }
-        .category-multi-option input { flex: 0 0 auto; width: auto; margin: 0; }
-        .search-row { display: flex; gap: 6px; align-items: stretch; }
-        .search-row input[type=text] { flex: 1; min-width: 0; margin-bottom: 10px; }
-        .sort-mode-button { flex: 0 0 auto; width: auto; margin: 0 0 10px; padding: 10px 9px; background: #4b5d58; border: 1px solid #72817d; color: #f1f4f3; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 2px 5px rgba(0,0,0,.2); }
-        .sort-mode-button:hover { background: #596b66; border-color: #8a9a95; }
-        .sort-mode-button:focus-visible { outline: 2px solid #a6b2ae; outline-offset: 2px; }
-        .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
-        .tab-bar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -10px -10px 10px; padding: 10px; background: #1a1a1a; }
-        .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
-        .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
-        .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
-        .setting-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .setting-button input { width: auto; flex: 0 0 auto; }
-        .tab-panel[hidden] { display: none; }
+        body {
+            background: #1a1a1a;
+            color: white;
+            font-family: sans-serif;
+            padding: 10px;
+            margin: 0;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+        }
+
+        .play {
+            background: #2196F3;
+        }
+
+        .pause {
+            background: #2196F3;
+        }
+
+        .stop {
+            background: #2196F3;
+        }
+
+        .vocal {
+            background: #ff9800;
+        }
+
+        .inst {
+            background: #ff9800;
+        }
+
+        .toggle-panel {
+            box-sizing: border-box;
+            padding: 8px;
+            border: 1px solid #2aa894;
+            border-radius: 6px;
+            background: #123c36;
+            margin-bottom: 8px;
+        }
+
+        .admin-link {
+            position: absolute;
+            top: 50%;
+            right: 0;
+            display: grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transform: translateY(-50%);
+            border-radius: 6px;
+            background: #607D8B;
+            color: white;
+            font-size: 18px;
+            line-height: 1;
+            text-decoration: none;
+        }
+
+        .admin-link:focus-visible {
+            outline: 2px solid #b8fff2;
+            outline-offset: 2px;
+        }
+
+        .remote-header {
+            position: relative;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        input[type=text] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        input[type=range] {
+            width: 100%;
+        }
+
+        li {
+            background: #333;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .queue-box {
+            background: #111;
+            padding: 12px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            margin: 10px 0;
+            max-height: 30vh;
+            overflow: hidden;
+        }
+
+        .queue-title {
+            color: #4CAF50;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        #queue-list {
+            max-height: calc(30vh - 52px);
+            margin: 0;
+            padding-left: 20px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        #queue-list li {
+            background: none;
+            padding: 4px 0;
+            margin: 0;
+            display: list-item;
+            list-style-type: decimal;
+            color: #aaa;
+            overflow-wrap: anywhere;
+        }
+
+        .song-btn {
+            background: #009688;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 20px;
+            color: white;
+        }
+
+        .song-btn.added {
+            background: #607d8b;
+            cursor: wait;
+        }
+
+        .song-status {
+            margin-right: 6px;
+            color: #80cbc4;
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .song-audio-exception {
+            color: #ffcc80;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .song-main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            max-width: 60%;
+        }
+
+        .song-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        li.song-playing {
+            background: #174d48;
+            border: 1px solid #26a69a;
+        }
+
+        li.song-row {
+            cursor: pointer;
+        }
+
+        li.song-row:hover {
+            background: #34514e;
+        }
+
+        li.song-added {
+            border: 1px solid #4caf50;
+            box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.25);
+        }
+
+        .category-filters {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .category-filters select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .category-multi-filter {
+            position: relative;
+            min-width: 0;
+        }
+
+        .category-multi-filter summary {
+            overflow: hidden;
+            padding: 8px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            list-style: none;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .category-multi-filter summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .category-multi-filter summary::after {
+            content: '▾';
+            float: right;
+            margin-left: 6px;
+        }
+
+        .category-multi-filter[open] summary::after {
+            content: '▴';
+        }
+
+        .category-multi-options {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            left: 0;
+            z-index: 40;
+            display: grid;
+            gap: 2px;
+            max-height: min(40vh, 280px);
+            overflow-y: auto;
+            padding: 6px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #333;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .45);
+        }
+
+        .category-multi-filter:not([open]) .category-multi-options {
+            display: none;
+        }
+
+        .category-multi-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+            padding: 3px 4px;
+            color: #eee;
+            overflow-wrap: anywhere;
+        }
+
+        .category-multi-option input {
+            flex: 0 0 auto;
+            width: auto;
+            margin: 0;
+        }
+
+        .search-row {
+            display: flex;
+            gap: 6px;
+            align-items: stretch;
+        }
+
+        .search-row input[type=text] {
+            flex: 1;
+            min-width: 0;
+            margin-bottom: 10px;
+        }
+
+        .sort-mode-button {
+            flex: 0 0 auto;
+            width: auto;
+            margin: 0 0 10px;
+            padding: 10px 9px;
+            background: #4b5d58;
+            border: 1px solid #72817d;
+            color: #f1f4f3;
+            white-space: nowrap;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 2px 5px rgba(0, 0, 0, .2);
+        }
+
+        .sort-mode-button:hover {
+            background: #596b66;
+            border-color: #8a9a95;
+        }
+
+        .sort-mode-button:focus-visible {
+            outline: 2px solid #a6b2ae;
+            outline-offset: 2px;
+        }
+
+        .clear-filter-button {
+            width: auto;
+            margin: 0 0 10px;
+            padding: 10px 14px;
+            background: #607D8B;
+            white-space: nowrap;
+        }
+
+        .tab-bar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin: -10px -10px 10px;
+            padding: 10px;
+            background: #1a1a1a;
+        }
+
+        .tab-button {
+            width: 100%;
+            padding: 12px 8px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: #333;
+            color: #bbb;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .tab-button.active {
+            background: #009688;
+            border-color: #34cdbd;
+            color: white;
+        }
+
+        .song-tools {
+            position: sticky;
+            top: 60px;
+            z-index: 9;
+            padding-top: 4px;
+            background: #1a1a1a;
+        }
+
+        .setting-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .setting-button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 46px;
+            box-sizing: border-box;
+            padding: 12px;
+            border-radius: 8px;
+            background: #333;
+            color: #ccc;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .setting-button input {
+            width: auto;
+            flex: 0 0 auto;
+        }
+
+        .tab-panel[hidden] {
+            display: none;
+        }
+
         /* 待播歌曲備註面板，採用固定面板避免推動遙控器內容。 */
-        #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 20; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
-        #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
-        #song-note-panel label { display: block; margin: 10px 0; color: #ddd; }
-        #song-note-panel textarea { width: 100%; box-sizing: border-box; padding: 9px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        #song-note-panel textarea { min-height: 80px; resize: vertical; }
-        .note-key-controls { display: flex; gap: 8px; }
-        .note-key-controls .btn { margin: 0; flex: 1; padding: 10px; }
-        .note-actions { display: flex; gap: 8px; margin-top: 12px; }
-        .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
-        .note-indicator { color: #ffd54f; margin-left: 6px; }
-        .danmaku-button { background: #e91e63; }
-        .sound-effect-button { background: #00897b; }
-        #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
-        #danmaku-panel h4 { margin: 0 0 12px; }
-        .emotion-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
-        .emotion-tab { min-width: 0; margin: 0; padding: 8px 3px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 12px; font-weight: normal; white-space: nowrap; box-shadow: none; }
-        .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
-        .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
-        .emotion-tab-panel[hidden] { display: none; }
-        .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
-        .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
-        .photo-picker-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .photo-picker-actions .btn { margin: 0; }
-        .photo-upload-button { background: #00695c; color: #fff; border: 1px solid #4db6ac; }
-        .photo-upload-button:hover { background: #00897b; }
-        .photo-camera-button { background: #1565c0; color: #fff; border: 1px solid #64b5f6; }
-        .photo-camera-button:hover { background: #1976d2; }
-        .photo-picker-actions .btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-        .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
-        .sticker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 8px 0; }
-        .sticker-option { aspect-ratio: 1; min-width: 0; margin: 0; padding: 5px; border: 1px solid #555; background-color: #333; background-image: radial-gradient(#555 0.7px, transparent 0.7px); background-size: 8px 8px; }
-        .sticker-option.selected { border: 2px solid #2aa894; background-color: #174d48; }
-        .sticker-option img { display: block; width: 100%; height: 100%; object-fit: contain; }
-        .sticker-preview { display: none; max-width: 100%; height: 90px; margin: 8px auto 0; object-fit: contain; }
-        .sticker-picker-status { margin: 4px 0 0; color: #ccc; text-align: center; font-size: 12px; overflow-wrap: anywhere; }
-        .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
-        .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
-        .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
-        .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
-        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-        .subtitle-controls-row .btn { min-height: 34px; margin: 0; padding: 6px 4px; font-size: 12px; }
-        .subtitle-size-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; color: #b8fff2; font-size: 12px; gap: 8px; }
-        .subtitle-size-value { min-width: 48px; text-align: right; color: #f9f9c5; font-weight: 700; }
-        .subtitle-size-controls { display: flex; gap: 6px; margin-top: 6px; }
-        .subtitle-size-btn { flex: 1; min-width: 44px; min-height: 34px; margin: 0; padding: 6px 8px; border-radius: 6px; background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%); color: white; font-size: 16px; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
-        .subtitle-size-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
-        .danmaku-actions .btn { flex: 1; margin: 0; }
-        .emotion-footer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; }
-        .emotion-footer .btn { flex: 1; margin: 0; min-height: 46px; }
+        #song-note-panel {
+            display: none;
+            position: fixed;
+            inset: 10% 5% auto;
+            z-index: 20;
+            background: #222;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .6);
+        }
+
+        #song-note-panel h4 {
+            margin: 0 0 12px;
+            overflow-wrap: anywhere;
+        }
+
+        #song-note-panel label {
+            display: block;
+            margin: 10px 0;
+            color: #ddd;
+        }
+
+        #song-note-panel textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        #song-note-panel textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .note-key-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .note-key-controls .btn {
+            margin: 0;
+            flex: 1;
+            padding: 10px;
+        }
+
+        .note-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .note-actions .btn {
+            margin: 0;
+            flex: 1;
+            padding: 10px;
+        }
+
+        .note-indicator {
+            color: #ffd54f;
+            margin-left: 6px;
+        }
+
+        .danmaku-button {
+            background: #e91e63;
+        }
+
+        .sound-effect-button {
+            background: #00897b;
+        }
+
+        #danmaku-panel {
+            display: none;
+            position: fixed;
+            top: max(12px, env(safe-area-inset-top));
+            right: 5%;
+            bottom: max(12px, env(safe-area-inset-bottom));
+            left: 5%;
+            box-sizing: border-box;
+            overflow: hidden;
+            z-index: 30;
+            background: #222;
+            border: 1px solid #777;
+            border-radius: 8px;
+            padding: 15px;
+            flex-direction: column;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .65);
+        }
+
+        #danmaku-panel h4 {
+            margin: 0 0 12px;
+        }
+
+        .emotion-tabs {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #555;
+        }
+
+        .emotion-tab {
+            min-width: 0;
+            margin: 0;
+            padding: 8px 3px;
+            border: 1px solid transparent;
+            border-bottom: 3px solid transparent;
+            border-radius: 6px 6px 0 0;
+            background: transparent;
+            color: #999;
+            font-size: 12px;
+            font-weight: normal;
+            white-space: nowrap;
+            box-shadow: none;
+        }
+
+        .emotion-tab.active {
+            background: #333;
+            border-color: #555;
+            border-bottom-color: #2aa894;
+            color: #b8fff2;
+            font-weight: bold;
+        }
+
+        .emotion-tab-panel {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .emotion-tab-panel[hidden] {
+            display: none;
+        }
+
+        .photo-picker {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: stretch;
+            padding: 10px 0;
+            color: #ccc;
+        }
+
+        .photo-picker input[type=file] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            background: #333;
+            color: #ddd;
+            border: 1px solid #555;
+            border-radius: 6px;
+        }
+
+        .photo-picker-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .photo-picker-actions .btn {
+            margin: 0;
+        }
+
+        .photo-upload-button {
+            background: #00695c;
+            color: #fff;
+            border: 1px solid #4db6ac;
+        }
+
+        .photo-upload-button:hover {
+            background: #00897b;
+        }
+
+        .photo-camera-button {
+            background: #1565c0;
+            color: #fff;
+            border: 1px solid #64b5f6;
+        }
+
+        .photo-camera-button:hover {
+            background: #1976d2;
+        }
+
+        .photo-picker-actions .btn:focus-visible {
+            outline: 3px solid #fff;
+            outline-offset: 2px;
+        }
+
+        .photo-preview {
+            display: none;
+            max-width: 100%;
+            max-height: 30vh;
+            margin: 0 auto;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+
+        .sticker-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            padding: 8px 0;
+        }
+
+        .sticker-option {
+            aspect-ratio: 1;
+            min-width: 0;
+            margin: 0;
+            padding: 5px;
+            border: 1px solid #555;
+            background-color: #333;
+            background-image: radial-gradient(#555 0.7px, transparent 0.7px);
+            background-size: 8px 8px;
+        }
+
+        .sticker-option.selected {
+            border: 2px solid #2aa894;
+            background-color: #174d48;
+        }
+
+        .sticker-option img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .sticker-preview {
+            display: none;
+            max-width: 100%;
+            height: 90px;
+            margin: 8px auto 0;
+            object-fit: contain;
+        }
+
+        .sticker-picker-status {
+            margin: 4px 0 0;
+            color: #ccc;
+            text-align: center;
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .danmaku-presets {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .danmaku-presets .btn {
+            margin: 0;
+            padding: 10px 6px;
+            background: #5c3b6f;
+        }
+
+        .effect-section {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: 0;
+        }
+
+        .effect-section-title {
+            margin-bottom: 8px;
+            color: #b8fff2;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .sound-effect-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .sound-effect-list .btn {
+            margin: 0;
+            padding: 10px 6px;
+        }
+
+        .subtitle-controls-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+        }
+
+        .subtitle-controls-row .btn {
+            min-height: 34px;
+            margin: 0;
+            padding: 6px 4px;
+            font-size: 12px;
+        }
+
+        .subtitle-size-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: #b8fff2;
+            font-size: 12px;
+            gap: 8px;
+        }
+
+        .subtitle-size-value {
+            min-width: 48px;
+            text-align: right;
+            color: #f9f9c5;
+            font-weight: 700;
+        }
+
+        .subtitle-size-controls {
+            display: flex;
+            gap: 6px;
+        }
+
+        .subtitle-size-btn {
+            flex: 1;
+            min-width: 44px;
+            min-height: 34px;
+            margin: 0;
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%);
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+        }
+
+        .subtitle-size-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #danmaku-custom-text {
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 12px;
+            padding: 10px;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .danmaku-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .danmaku-actions .btn {
+            flex: 1;
+            margin: 0;
+        }
+
+        .emotion-footer {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #555;
+        }
+
+        .emotion-footer .btn {
+            flex: 1;
+            margin: 0;
+            min-height: 46px;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
+
 <body>
     <div class="remote-header">
         <h3 style="margin:0;">📱 KTV 遙控器</h3>
@@ -122,25 +790,35 @@
     </div>
 
     <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
-        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel" onclick="switchTab('song')">🎶 點歌</button>
-        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel" onclick="switchTab('control')">🎛️ 實際遙控</button>
+        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel"
+            onclick="switchTab('song')">🎶 點歌</button>
+        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel"
+            onclick="switchTab('control')">🎛️ 實際遙控</button>
     </div>
 
     <section id="song-panel" class="tab-panel" role="tabpanel" aria-labelledby="song-tab">
         <div class="song-tools">
             <div class="search-row">
                 <!-- 點歌排序依代號、熱門、國語、台語循環。 -->
-                <button type="button" id="song-sort-mode" class="btn sort-mode-button" onclick="cycleSongSortMode()">代號</button>
+                <button type="button" id="song-sort-mode" class="btn sort-mode-button"
+                    onclick="cycleSongSortMode()">代號</button>
                 <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
                 <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
             </div>
             <div class="category-filters">
-                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()"><option value="">歌曲字數：全部</option></select>
-                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()"><option value="">主唱者：全部</option></select>
-                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()"><option value="">語言：全部</option></select>
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()">
+                    <option value="">歌曲字數：全部</option>
+                </select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()">
+                    <option value="">主唱者：全部</option>
+                </select>
+                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()">
+                    <option value="">語言：全部</option>
+                </select>
                 <details id="affiliation-filter" class="category-multi-filter">
                     <summary aria-label="依歌曲歸屬分類">歸屬：全部</summary>
-                    <div id="affiliation-filter-options" class="category-multi-options" role="group" aria-label="選擇一個或多個歌曲歸屬"></div>
+                    <div id="affiliation-filter-options" class="category-multi-options" role="group"
+                        aria-label="選擇一個或多個歌曲歸屬"></div>
                 </details>
             </div>
         </div>
@@ -148,20 +826,6 @@
     </section>
 
     <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
-        <div id="current-song-control" style="display:none; background:#123c36; padding:8px; border:1px solid #2aa894; border-radius:6px; margin-bottom:8px;">
-            <div class="subtitle-controls-row">
-                <button id="current-subtitle-button" class="btn" style="background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;" onclick="cycleSubtitleStyleMode()">字幕：背景</button>
-            </div>
-            <div class="subtitle-size-row">
-                <span>字幕比例</span><span id="subtitle-size-label" class="subtitle-size-value">120%</span>
-            </div>
-            <div class="subtitle-size-controls">
-                <button id="subtitle-size-decrease" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(-10)">−</button>
-                <button id="subtitle-size-increase" class="btn subtitle-size-btn" onclick="changeSubtitleFontSize(10)">＋</button>
-            </div>
-        </div>
-
         <div class="setting-grid" style="margin-bottom:10px;">
             <label class="setting-button">
                 <input type="checkbox" id="qr-visibility" checked style="width:auto;">
@@ -179,100 +843,148 @@
 
         <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
             <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
-            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
             <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
+            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
             <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
-            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)" disabled>&lt; 快退 10 秒</button>
-            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)" disabled>快進 10 秒 &gt;</button>
-        </div>
-
-        <div id="guide-vocal-control" class="control-group" style="display:none;">
-            <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span id="guide-vocal-level-label">50%</span></div>
-            <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)"
+                disabled>&lt; 快退 10 秒</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)"
+                disabled>快進 10 秒 &gt;</button>
         </div>
 
         <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin: 10px 0;">
             <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
                 <span>🔊 主音量</span><span id="vol-val">100%</span>
             </div>
-            <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量" oninput="updateEffect()">
+            <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量"
+                oninput="updateEffect()">
         </div>
 
         <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+            <div
+                style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
             </div>
             <div style="display: flex; gap: 8px;">
-                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
-                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
-                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;"
+                    onclick="changeKey(-1)">🔻 降</button>
+                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0
+                    (原)</button>
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺
+                    升</button>
+            </div>
+        </div>
+        
+        <div id="current-song-control"
+            class="toggle-panel" style="display:none;">
+            <div class="subtitle-size-row">
+                <span>字幕比例</span><span id="subtitle-size-label" class="subtitle-size-value">100%</span>
+            </div>
+            <div class="subtitle-controls-row">
+                <button id="current-subtitle-button" class="btn" style="background:#2aa894;"
+                    onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;"
+                    onclick="cycleSubtitleStyleMode()">字幕：背景</button>
+                <div class="subtitle-size-controls">
+                    <button id="subtitle-size-decrease" class="btn subtitle-size-btn"
+                        onclick="changeSubtitleFontSize(-10)">−</button>
+                    <button id="subtitle-size-increase" class="btn subtitle-size-btn"
+                        onclick="changeSubtitleFontSize(10)">＋</button>
+                </div>
             </div>
         </div>
 
-        <div id="seek-correction-control" style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+        <div id="guide-vocal-control" class="control-group toggle-panel" style="display:none;">
+            <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span
+                    id="guide-vocal-level-label">50%</span></div>
+            <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量"
+                oninput="updateGuideVocalLevel(this.value)">
+        </div>
+
+        <div id="seek-correction-control"
+            style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div
+                style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
                 <span>⏱ 畫面進度</span><span id="seek-val">0 秒</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">&lt;0.1</button>
-                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(-0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
             </div>
         </div>
 
         <div class="queue-box">
             <div class="queue-title">📋 待播清單</div>
-            <ul id="queue-list"><li>(無)</li></ul>
+            <ul id="queue-list">
+                <li>(無)</li>
+            </ul>
         </div>
     </section>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
         <h4 id="danmaku-title">情緒價值</h4>
         <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
-            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
-            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
-            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
-            <button id="emotion-tab-sticker" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sticker')">✨ 貼圖</button>
+            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab"
+                aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
+            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('sound')">🔊 音效</button>
+            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('photo')">📷 照片</button>
+            <button id="emotion-tab-sticker" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('sticker')">✨ 貼圖</button>
         </div>
         <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
             <div class="effect-section">
-            <div class="danmaku-presets">
-                <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
-                <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
-            </div>
-            <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+                <div class="danmaku-presets">
+                    <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+                    <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+                </div>
+                <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
             </div>
         </div>
-        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
+        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound"
+            hidden>
             <div class="effect-section">
-            <div class="sound-effect-list">
-                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 歡呼拍手</button>
-            </div>
+                <div class="sound-effect-list">
+                    <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏
+                        歡呼拍手</button>
+                </div>
             </div>
         </div>
-        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
+        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo"
+            hidden>
             <div class="photo-picker">
                 <div class="photo-picker-actions">
-                    <button class="btn photo-upload-button" type="button" onclick="chooseEmotionPhotoUpload()">🖼️ 上傳照片</button>
+                    <button class="btn photo-upload-button" type="button" onclick="chooseEmotionPhotoUpload()">🖼️
+                        上傳照片</button>
                     <button class="btn photo-camera-button" type="button" onclick="openEmotionCamera()">📷 開啟相機</button>
                 </div>
-                <input id="emotion-photo-upload-input" type="file" accept="image/*" hidden onchange="prepareEmotionPhoto(event)">
-                <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden onchange="prepareEmotionPhoto(event)">
+                <input id="emotion-photo-upload-input" type="file" accept="image/*" hidden
+                    onchange="prepareEmotionPhoto(event)">
+                <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden
+                    onchange="prepareEmotionPhoto(event)">
                 <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
         </div>
-        <div id="emotion-panel-sticker" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sticker" hidden>
+        <div id="emotion-panel-sticker" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sticker"
+            hidden>
             <div id="emotion-sticker-grid" class="sticker-grid" aria-label="選擇貼圖"></div>
             <img id="emotion-sticker-preview" class="sticker-preview" alt="貼圖預覽">
             <p id="emotion-sticker-status" class="sticker-picker-status">載入貼圖中...</p>
@@ -289,7 +1001,8 @@
         <label>適合的 KEY</label>
         <div class="note-key-controls">
             <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(-1)">−</button>
-            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原 KEY</button>
+            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原
+                KEY</button>
             <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(1)">＋</button>
         </div>
         <label>自填文字
@@ -1133,7 +1846,7 @@
             button.classList.add('added');
             button.textContent = '已加入';
             button.closest('li').classList.add('song-added');
-            socket.emit('add_to_queue', {filename: filename});
+            socket.emit('add_to_queue', { filename: filename });
             setTimeout(() => {
                 pendingSongs.delete(filename);
                 filter();
@@ -1177,7 +1890,7 @@
                 }).catch(() => { songAudioExceptions = {}; });
             });
         }
-        
+
         loadList();
         loadSubtitleList();
         // 監聽後台更新完畢事件，自動重整歌單
@@ -1196,11 +1909,11 @@
             } else {
                 currentKey += step;
             }
-            
+
             // 限制最多升降 12 個半音 (一個八度)
-            if(currentKey > 12) currentKey = 12;
-            if(currentKey < -12) currentKey = -12;
-            
+            if (currentKey > 12) currentKey = 12;
+            if (currentKey < -12) currentKey = -12;
+
             socket.emit('control_effect', { pitch: currentKey });
         }
 
@@ -1267,4 +1980,5 @@
         });
     </script>
 </body>
+
 </html>
