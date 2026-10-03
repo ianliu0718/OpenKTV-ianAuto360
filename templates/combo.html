@@ -330,8 +330,8 @@
         </div>
 
         <div class="search-row">
-            <!-- 點歌排序依代號、熱門、國語、台語循環。 -->
-            <button type="button" id="song-sort-mode" class="btn sort-mode-button" onclick="cycleSongSortMode()">代號</button>
+            <!-- 點歌排序依新歌、熱門、國語、台語循環。 -->
+            <button type="button" id="song-sort-mode" class="btn sort-mode-button" onclick="cycleSongSortMode()">新歌</button>
             <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
             <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
         </div>
@@ -1930,7 +1930,7 @@ const socket = io();
             }
             const nextLanguage = getSongSortLanguage();
             if (nextLanguage) setSongSortLanguage(nextLanguage);
-            document.getElementById('song-sort-mode').textContent = ['代號', '熱門', '國語', '台語'][songSortModeIndex];
+            document.getElementById('song-sort-mode').textContent = ['新歌', '熱門', '國語', '台語'][songSortModeIndex];
             renderCategoryFilters();
             filter();
         }
