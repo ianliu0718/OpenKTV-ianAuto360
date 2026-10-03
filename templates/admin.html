@@ -129,7 +129,7 @@
             <label for="lyrics_provider">歌詞伺服器：</label>
             <select id="lyrics_provider"><option value="">載入歌詞伺服器中...</option></select>
             <label for="lyrics_song">選擇本地歌曲：</label>
-            <input type="text" id="lyrics_query" placeholder="搜尋歌名、歌手、歌曲代號...">
+            <input type="text" id="lyrics_query" placeholder="篩選本地歌曲歌名、歌手或歌曲代號...">
             <select id="lyrics_song"><option value="">載入歌曲中...</option></select>
             <button id="btn_lyrics_search" class="btn-update" onclick="searchOnlineLyrics()">搜尋歌詞</button>
             <ul id="lyrics_search_results"><li>請選擇歌曲後搜尋</li></ul>
@@ -863,7 +863,7 @@
             editorDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        /** Searches the selected lyrics provider using filename-derived or custom keywords. */
+        /** Searches the selected lyrics provider using the selected local song's title and artist. */
         async function searchOnlineLyrics() {
             if (!lyricsSong.value) {
                 lyricsDownloadStatus.innerText = '請先選擇本地歌曲。';
@@ -876,7 +876,6 @@
             lyricsSearchResults.innerHTML = '<li>搜尋中，請稍候...</li>';
             try {
                 const params = new URLSearchParams({ provider: lyricsProvider.value, song: lyricsSong.value });
-                if (lyricsQuery.value.trim()) params.set('query', lyricsQuery.value.trim());
                 const response = await fetch(`/api/lyrics/search?${params}`);
                 const data = await response.json();
                 if (!response.ok || !data.success) throw new Error(data.error || `搜尋失敗（HTTP ${response.status}）`);
