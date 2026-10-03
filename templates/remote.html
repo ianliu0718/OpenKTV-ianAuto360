@@ -54,7 +54,7 @@
             margin-bottom: 8px;
         }
 
-        .admin-link {
+        .settings-trigger {
             position: absolute;
             top: 50%;
             right: 0;
@@ -68,15 +68,56 @@
             transform: translateY(-50%);
             border-radius: 6px;
             background: #607D8B;
-            color: white;
             font-size: 18px;
             line-height: 1;
-            text-decoration: none;
         }
 
-        .admin-link:focus-visible {
-            outline: 2px solid #b8fff2;
-            outline-offset: 2px;
+        .settings-trigger:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
+
+        .settings-panel {
+            width: min(420px, calc(100vw - 32px));
+            max-height: calc(100dvh - 32px);
+            margin: auto;
+            padding: 14px;
+            overflow-y: auto;
+            color: white;
+        }
+
+        .settings-panel::backdrop {
+            background: rgba(0, 0, 0, .65);
+        }
+
+        .settings-panel-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .settings-panel-heading h3 {
+            margin: 0;
+            color: #b8fff2;
+        }
+
+        .settings-close-button {
+            width: 36px;
+            height: 36px;
+            margin: 0;
+            padding: 0;
+            background: #455a64;
+            font-size: 20px;
+        }
+
+        .settings-options {
+            display: grid;
+            gap: 8px;
+        }
+
+        .settings-options .setting-button {
+            min-height: 42px;
+            margin: 0;
+            padding: 10px 12px;
         }
 
         .remote-header {
@@ -786,7 +827,8 @@
     <div class="remote-header">
         <h3 style="margin:0;">📱 KTV 遙控器</h3>
         <small style="color:#aaa;">已連線至主機</small>
-        <a href="/admin" class="admin-link" aria-label="進入後台（下載新歌／管理系統）" title="進入後台（下載新歌／管理系統）">⚙️</a>
+        <button class="btn settings-trigger" type="button" aria-label="開啟設定" title="設定"
+            onclick="openRemoteSettings()">⚙️</button>
     </div>
 
     <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
@@ -826,21 +868,6 @@
     </section>
 
     <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
-        <div class="setting-grid" style="margin-bottom:10px;">
-            <label class="setting-button">
-                <input type="checkbox" id="qr-visibility" checked style="width:auto;">
-                顯示播放端 QR Code
-            </label>
-            <label class="setting-button">
-                <input type="checkbox" id="random-play" style="width:auto;">
-                無點歌時隨機播歌
-            </label>
-            <label class="setting-button">
-                <input type="checkbox" id="screen-wake-lock" checked style="width:auto;">
-                螢幕保持常亮
-            </label>
-        </div>
-
         <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
             <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
             <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
@@ -931,6 +958,28 @@
             </ul>
         </div>
     </section>
+
+    <dialog id="remote-settings-panel" class="toggle-panel settings-panel" aria-labelledby="remote-settings-title">
+        <div class="settings-panel-heading">
+            <h3 id="remote-settings-title">設定</h3>
+            <button class="btn settings-close-button" type="button" aria-label="關閉設定"
+                onclick="closeRemoteSettings()">×</button>
+        </div>
+        <div class="settings-options">
+            <label class="setting-button">
+                <input type="checkbox" id="qr-visibility" checked style="width:auto;">
+                顯示播放端 QR Code
+            </label>
+            <label class="setting-button">
+                <input type="checkbox" id="random-play" style="width:auto;">
+                無點歌時隨機播歌
+            </label>
+            <label class="setting-button">
+                <input type="checkbox" id="screen-wake-lock" checked style="width:auto;">
+                螢幕保持常亮
+            </label>
+        </div>
+    </dialog>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
         <h4 id="danmaku-title">情緒價值</h4>
@@ -1114,6 +1163,18 @@
             if (isSongTab) {
                 requestAnimationFrame(() => window.scrollTo(0, songScrollTop));
             }
+        }
+
+        /** Opens the remote-only settings panel. */
+        function openRemoteSettings() {
+            const settingsPanel = document.getElementById('remote-settings-panel');
+            if (!settingsPanel.open) settingsPanel.showModal();
+        }
+
+        /** Closes the remote-only settings panel. */
+        function closeRemoteSettings() {
+            const settingsPanel = document.getElementById('remote-settings-panel');
+            if (settingsPanel.open) settingsPanel.close();
         }
 
         /**
