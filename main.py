@@ -66,7 +66,7 @@ multiprocessing.set_executable(sys.executable)
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.1.1.3"
+APP_VERSION = "v1.1.1.4"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -1417,6 +1417,7 @@ def download_lyrics():
             record_id = int(record_id)
         except (TypeError, ValueError):
             return json.dumps({'success': False, 'error': '請選擇有效的歌詞搜尋結果'}), 400
+    output_name = os.path.splitext(song_filename)[0] + '.vtt'
     output_path = os.path.join(SONGS_DIR, output_name)
     if os.path.exists(output_path) and not overwrite:
         return json.dumps({'success': False, 'requires_overwrite': True, 'filename': output_name, 'error': '此歌曲已有歌詞，是否覆蓋？'}), 409
@@ -3419,10 +3420,10 @@ class StartupWindow(tk.Tk):
         self.status_label.config(text=text)
         self.update_idletasks()
 
-if __name__ == "__main__" and os.environ.get('IANAUTOKTV_WORKER') != '1':
-    # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
+if __name__ == "__main__":
     multiprocessing.freeze_support()
 
+if __name__ == "__main__" and os.environ.get('IANAUTOKTV_WORKER') != '1':
     startup_window = StartupWindow()
     startup_window.set_status("正在檢查是否已有其他 KTV Server...")
     # 先顯示等待畫面，再執行可能需要等待舊程序退出的防重檢查。

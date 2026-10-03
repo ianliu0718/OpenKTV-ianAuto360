@@ -260,7 +260,7 @@ cd "D:\Buff\Cursor資料夾\OpenKTV-ianAuto360"
 python main.py
 ```
 
-使用本專案的 `main.py`、`啟動OpenKTV.bat` 或打包 EXE 啟動時，會先顯示啟動畫面與目前檢查狀態，再執行 Server 防重檢查。程式會依專案目錄取得 Windows 單實例鎖；若同專案已有鎖定中的舊 Server，會先送出 GUI 正常關閉訊息並等待退出，逾時後才依鎖檔記錄的 PID 回收。若舊版沒有單實例鎖，啟動器會檢查 `5000` 埠 owner，並辨識 `ianAutoKTV_Server.exe` 或本專案 `.venv\Scripts\python.exe` 執行的 `main.py`，可跨不同安裝目錄取代舊 KTV Server；其他未辨識程序佔用 `5000` 時會停止啟動，不會終止該程序。Spleeter 的 Windows worker 不取得單實例鎖，只執行分離工作，不得啟動 Flask 伺服器或佔用 `5000`。
+使用本專案的 `main.py`、`啟動OpenKTV.bat` 或打包 EXE 啟動時，會先顯示啟動畫面與目前檢查狀態，再執行 Server 防重檢查。程式會依專案目錄取得 Windows 單實例鎖；若同專案已有鎖定中的舊 Server，會先送出 GUI 正常關閉訊息並等待退出，逾時後才依鎖檔記錄的 PID 回收。若舊版沒有單實例鎖，啟動器會檢查 `5000` 埠 owner，並辨識 `ianAutoKTV_Server.exe` 或本專案 `.venv\Scripts\python.exe` 執行的 `main.py`，可跨不同安裝目錄取代舊 KTV Server；其他未辨識程序佔用 `5000` 時會停止啟動，不會終止該程序。Spleeter 的 Windows worker 不取得單實例鎖，只執行分離工作，不得啟動 Flask 伺服器或佔用 `5000`；打包版啟動時會先呼叫 multiprocessing 的 `freeze_support()`，再略過 Server 啟動流程，確保 worker 能執行分離工作。
 
 啟動後使用 HTTPS 區域網路網址：
 
