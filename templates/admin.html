@@ -21,7 +21,20 @@
         .manual-video-preview { position: sticky; top: 10px; z-index: 5; width: 100%; max-height: 35vh; background: #000; border: 6px solid #fff; border-radius: 5px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
         .lyric-editor video { display: block; width: 100%; max-height: calc(35vh - 12px); object-fit: contain; background: #000; }
         .manual-lyric-overlay { position: absolute; top: 3%; right: 2%; bottom: 3%; z-index: 2; width: max-content; max-width: none; box-sizing: border-box; overflow: visible; padding: 2% 3%; color: #fff; background: rgba(0,0,0,.68); font-size: var(--manual-lyric-font-size, 12px); font-weight: bold; line-height: 1.12; text-align: right; text-shadow: 1px 1px 3px #000; pointer-events: none; white-space: pre; }
+        .manual-lyric-overlay.manual-mode-general { right: 2%; bottom: 3%; left: auto; display: flex; flex-direction: column; justify-content: flex-start; width: min(48%, 70%); max-width: 70%; height: 94%; overflow: hidden; padding: 2.5% 1.5%; border-radius: 6px; background: rgba(0,0,0,.68); white-space: normal; }
+        .manual-plain-track { display: flex; flex: 0 0 auto; flex-direction: column; width: 100%; }
+        .manual-plain-line { display: flex; flex: 1 1 0; align-items: center; justify-content: flex-end; min-height: 0; overflow: hidden; text-align: right; white-space: nowrap; }
+        .manual-lyric-overlay.manual-mode-dynamic { top: auto; right: 2%; bottom: 8%; left: 2%; display: flex; flex-direction: column; align-items: center; width: auto; max-width: none; overflow: visible; padding: 0; background: transparent; white-space: normal; }
+        .manual-dynamic-line { position: relative; display: block; width: 50%; max-width: 50%; min-height: 1.2em; color: #fff; font-family: "Arial Rounded MT Bold", "Microsoft JhengHei", sans-serif; font-weight: 900; line-height: 1.2; text-align: right; -webkit-text-stroke: 1px #101820; paint-order: stroke fill; text-shadow: 0 3px 6px rgba(0,0,0,.8); white-space: nowrap; }
+        .manual-dynamic-line:first-child { align-self: flex-start; text-align: right; }
+        .manual-dynamic-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        .manual-dynamic-line:only-child { align-self: center; width: 90%; max-width: 90%; text-align: center; }
+        .manual-dynamic-base, .manual-dynamic-highlight { display: block; white-space: nowrap; }
+        .manual-dynamic-highlight { position: absolute; inset: 0; overflow: hidden; color: #ffe66d; clip-path: inset(0 calc(100% - var(--manual-subtitle-progress, 0%)) 0 0); }
         .lyric-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .lyric-actions > button { margin-bottom: 0; }
+        .manual-lyric-mode-controls { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 5px; }
+        .manual-lyric-mode-controls button { margin: 0; padding: 10px 4px; }
         .lyric-time { font-family: monospace; color: #607D8B; }
         #manual_lyrics_list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
         #manual_lyrics_list li { display: grid; grid-template-columns: 155px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
@@ -138,7 +151,11 @@
                 <div class="lyric-time">目前時間：<span id="manual_lyric_time">00:00.000</span></div>
                 <textarea id="manual_lyric_text" class="subtitle-input" placeholder="沒有既有歌詞時，請在這裡貼上完整歌詞，每行一句"></textarea>
                 <div class="lyric-actions">
-                    <button class="btn-update" onclick="toggleManualLyricPlayback()">播放 / 暫停</button>
+                    <div class="manual-lyric-mode-controls">
+                        <button class="btn-update" type="button" onclick="adjustManualLyricSize(-1)" aria-label="縮小歌詞" title="縮小歌詞">−</button>
+                        <button id="manual-lyric-mode-button" class="btn-update" type="button" onclick="cycleManualLyricMode()">歌詞模式：一般</button>
+                        <button class="btn-update" type="button" onclick="adjustManualLyricSize(1)" aria-label="放大歌詞" title="放大歌詞">＋</button>
+                    </div>
                     <button class="btn-update" onclick="buildManualLyricLines()">建立歌詞行</button>
                 </div>
                 <div class="lyric-shift-actions">
@@ -172,6 +189,13 @@
             <button id="btn_normalize_audio" class="btn-update" onclick="normalizeExistingAudio()">平衡音量（-14 LUFS）</button>
             <p id="normalize_audio_status"></p>
         </details>
+        <details class="batch-song-renamer">
+            <summary>進階：批次修改歌名</summary>
+            <label for="batch_song_renames">每行格式：舊歌名 | 新歌名（不需輸入 .mp4）</label>
+            <textarea id="batch_song_renames" class="batch-input" placeholder="捨不得的時刻-陳華-國-0512 | 捨不得的時刻-陳華-國-0512-ian&#10;運轉人生-邱軍-台-0513 | 運轉人生-邱軍-台-0513-ian&#10;軌跡-周杰倫-國-0514 | 軌跡-周杰倫-國-0514-ian"></textarea>
+            <button type="button" id="btn_batch_song_rename" class="btn-update" onclick="batchRenameSongs()">執行批次改名</button>
+            <p id="batch_song_rename_status"></p>
+        </details>
         <details class="channel-inspector">
             <summary>進階：六聲道逐聲道播放檢查</summary>
             <label for="channel_inspector_song">選擇要檢查的歌曲:</label>
@@ -200,6 +224,8 @@
 
     <script>
         const socket = io();
+        let songAudioExceptions = {};
+        let songAudioExceptionsPromise = null;
         const logArea = document.getElementById('log');
         const btnDl = document.getElementById('btn_dl');
         const btnUpdate = document.getElementById('btn_update');
@@ -216,6 +242,9 @@
         const normalizeAudioFile = document.getElementById('normalize_audio_file');
         const normalizeAudioButton = document.getElementById('btn_normalize_audio');
         const normalizeAudioStatus = document.getElementById('normalize_audio_status');
+        const batchSongRenames = document.getElementById('batch_song_renames');
+        const batchSongRenameButton = document.getElementById('btn_batch_song_rename');
+        const batchSongRenameStatus = document.getElementById('batch_song_rename_status');
         const channelInspectorSong = document.getElementById('channel_inspector_song');
         const channelInspectorChannel = document.getElementById('channel_inspector_channel');
         const channelInspectorVideo = document.getElementById('channel_inspector_video');
@@ -229,6 +258,7 @@
         const manualLyricVideo = document.getElementById('manual_lyric_video');
         const manualLyricTrack = document.getElementById('manual_lyric_track');
         const manualLyricOverlay = document.getElementById('manual_lyric_overlay');
+        const manualLyricModeButton = document.getElementById('manual-lyric-mode-button');
         const manualLyricText = document.getElementById('manual_lyric_text');
         const manualLyricTime = document.getElementById('manual_lyric_time');
         const manualLyricsList = document.getElementById('manual_lyrics_list');
@@ -242,6 +272,14 @@
         const lyricsDownloadButton = document.getElementById('btn_lyrics_download');
         const lyricsDownloadStatus = document.getElementById('lyrics_download_status');
         let manualLyricLines = [];
+        // 保存目前預覽模式、空白 cue slot 與動畫狀態，避免播放期間重複重建字幕 DOM。
+        let manualLyricMode = 0;
+        let manualLyricSizeScale = 1;
+        let manualLyricPlainMode = false;
+        let manualLyricAnimationFrame = 0;
+        let renderedManualLyricSlotIndex = -1;
+        let renderedManualLyricMode = -1;
+        let manualLyricScrollState = null;
         let onlineLyricsResults = [];
         let selectedOnlineLyrics = null;
         let manualLyricSongs = [];
@@ -292,8 +330,12 @@
         /** 載入管理端可用歌曲，供六聲道逐聲道檢查使用。 */
         function loadChannelInspectorSongs() {
             fetch('/api/list').then((response) => response.json()).then((songs) => {
+                const renderOptions = () => {
                 channelInspectorSong.innerHTML = '<option value="">請選擇歌曲</option>'
-                    + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+                    + songs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
+                };
+                renderOptions();
+                loadSongAudioExceptions().then(renderOptions);
             }).catch(() => {
                 channelInspectorStatus.innerText = '歌曲清單載入失敗。';
             });
@@ -337,9 +379,15 @@
                 .sort((first, second) => first.start - second.start)
                 .map((line, index, timedLines) => {
                     const nextStart = timedLines[index + 1]?.start;
+                    const nextBoundary = manualLyricLines
+                        .map((candidate) => candidate.start)
+                        .filter((start) => Number.isFinite(start) && start > line.start)
+                        .sort((first, second) => first - second)[0];
+                    const fallbackEnd = nextBoundary ?? nextStart
+                        ?? (Number.isFinite(videoDuration) && videoDuration > line.start ? videoDuration : null);
                     const end = line.end !== null && line.end > line.start
-                        ? line.end
-                        : (nextStart ?? (Number.isFinite(videoDuration) && videoDuration > line.start ? videoDuration : null));
+                        ? Math.min(line.end, nextBoundary ?? line.end)
+                        : fallbackEnd;
                     if (end === null) return null;
                     return `${index + 1}\n${formatManualVttTime(line.start)} --> ${formatManualVttTime(end)}\n${line.text}`;
                 })
@@ -347,36 +395,296 @@
             if (!cues.length) {
                 manualLyricTrack.removeAttribute('src');
                 manualLyricTrack.track.mode = 'disabled';
-                manualLyricOverlay.textContent = '';
+                clearManualLyricOverlay();
                 return;
             }
             const blob = new Blob([`WEBVTT\n\n${cues.join('\n\n')}\n`], { type: 'text/vtt' });
             manualLyricPreviewUrl = URL.createObjectURL(blob);
             manualLyricTrack.src = manualLyricPreviewUrl;
-            // 預覽只使用自製 overlay，避免瀏覽器原生字幕與其重複顯示。
-            //manualLyricTrack.track.mode = 'hidden';
-            manualLyricTrack.track.mode = 'showing';
+            // 預覽沿用主播放端自繪字幕，避免瀏覽器原生字幕重複顯示。
+            manualLyricTrack.track.mode = 'hidden';
             renderManualLyricOverlay();
         }
 
-        /** Displays the lyric line matching the current preview playback time. */
-        function renderManualLyricOverlay() {
-            const currentTime = manualLyricVideo.currentTime;
+        /** Builds cue and silence slots using the same timing boundaries as the player. */
+        function getManualLyricSlots() {
+            const videoDuration = Number(manualLyricVideo.duration);
             const timedLines = manualLyricLines
-                .filter((line) => line.start !== null && Number.isFinite(line.start))
+                .map((line, lyricIndex) => ({ ...line, lyricIndex }))
+                .filter((line) => line.text && Number.isFinite(line.start))
                 .sort((first, second) => first.start - second.start);
-            const activeLine = timedLines
-                .map((line, index) => {
-                    const nextTimestamp = timedLines[index + 1]?.start;
-                    const end = nextTimestamp ?? (Number.isFinite(line.end) ? line.end : Number(manualLyricVideo.duration));
-                    return { line, end };
-                })
-                .find(({ line, end }) => line.text && currentTime >= line.start && Number.isFinite(end) && currentTime < end)?.line;
-            manualLyricOverlay.textContent = activeLine ? activeLine.text : '';
+            const slots = [];
+            timedLines.forEach((line, index) => {
+                const nextLine = timedLines[index + 1];
+                const nextBoundary = manualLyricLines
+                    .map((candidate) => candidate.start)
+                    .filter((start) => Number.isFinite(start) && start > line.start)
+                    .sort((first, second) => first - second)[0];
+                const fallbackEnd = nextBoundary ?? nextLine?.start ?? (videoDuration > line.start ? videoDuration : null);
+                const endTime = line.end !== null && Number.isFinite(line.end) && line.end > line.start
+                    ? Math.min(line.end, nextBoundary ?? line.end)
+                    : fallbackEnd;
+                if (endTime === null) return;
+                slots.push({ line, lyricIndex: line.lyricIndex, text: line.text, startTime: line.start, endTime });
+                if (nextLine && nextLine.start > endTime + 0.05) {
+                    slots.push({ line: null, lyricIndex: -1, text: '', startTime: endTime, endTime: nextLine.start });
+                }
+            });
+            return slots.map((slot, index) => ({ ...slot, index }));
+        }
+
+        /** Returns visible text lines without empty rows, matching the player renderer. */
+        function getManualLyricTextLines(text) {
+            return String(text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
+        }
+
+        /** Creates the base and karaoke-highlight layers for one dynamic subtitle line. */
+        function createManualDynamicLine(text, progress = 0) {
+            const line = document.createElement('span');
+            line.className = 'manual-dynamic-line';
+            if (manualLyricMode === 3) {
+                line.style.setProperty('--manual-subtitle-progress', `${Math.round(progress * 100)}%`);
+                const base = document.createElement('span');
+                base.className = 'manual-dynamic-base';
+                base.textContent = text;
+                const highlight = document.createElement('span');
+                highlight.className = 'manual-dynamic-highlight';
+                highlight.textContent = text;
+                line.append(base, highlight);
+            } else {
+                line.textContent = text;
+            }
+            return line;
+        }
+
+        /** Clears rendered lyrics and timing state when no cue is active. */
+        function clearManualLyricOverlay() {
+            manualLyricOverlay.className = 'manual-lyric-overlay';
+            manualLyricOverlay.replaceChildren();
+            manualLyricOverlay._manualPlainState = null;
+            manualLyricOverlay.style.removeProperty('--manual-lyric-font-size');
+            renderedManualLyricSlotIndex = -1;
+            renderedManualLyricMode = -1;
+            manualLyricScrollState = null;
+        }
+
+        /** Renders plain lyrics as a twelve-line panel or timed lyrics as KTV cue slots. */
+        function renderManualLyricOverlay() {
+            const slots = getManualLyricSlots();
+            const currentTime = manualLyricVideo.currentTime;
+            let currentSlot = slots.find((slot) => currentTime >= slot.startTime && currentTime < slot.endTime);
+            if (!currentSlot && slots.length) {
+                currentSlot = { line: null, text: '', startTime: currentTime, endTime: currentTime, index: -1 };
+            }
+            if (!currentSlot) {
+                clearManualLyricOverlay();
+                return;
+            }
+            const shouldRender = currentSlot.index !== renderedManualLyricSlotIndex || manualLyricMode !== renderedManualLyricMode;
+            if (shouldRender) {
+                manualLyricOverlay.replaceChildren();
+                manualLyricScrollState = null;
+                manualLyricOverlay.className = `manual-lyric-overlay ${manualLyricMode === 0 ? 'manual-mode-general' : 'manual-mode-dynamic'}`;
+                renderedManualLyricSlotIndex = currentSlot.index;
+                renderedManualLyricMode = manualLyricMode;
+                if (manualLyricMode === 0) {
+                    renderManualGeneralLyrics(currentSlot, slots);
+                } else {
+                    renderManualDynamicLyrics(currentSlot, slots);
+                }
+            }
+            updateManualLyricAnimation(currentSlot);
+            if (!manualLyricVideo.paused && (manualLyricMode === 0 || manualLyricMode === 3)) requestManualLyricAnimation();
+            else stopManualLyricAnimation();
+        }
+
+        /** Renders a twelve-line rolling panel, matching the main screen's plain lyric layout. */
+        function renderManualGeneralLyrics(currentSlot, slots) {
+            let lyricRows;
+            let scrollStartTime = currentSlot.startTime;
+            let scrollEndTime = currentSlot.endTime;
+            let hasNextLine = false;
+            const currentLines = getManualLyricTextLines(currentSlot.text);
+            if (manualLyricPlainMode && currentLines.length > 1) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextLines = nextSlot && nextSlot.line ? getManualLyricTextLines(nextSlot.text) : [];
+                hasNextLine = nextLines.length === currentLines.length && currentLines.length > 0
+                    && currentLines.slice(1).every((line, index) => line === nextLines[index]);
+                lyricRows = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+                const nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+                if (currentSlot.startTime === 0 && hasNextLine) {
+                    scrollStartTime = Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration);
+                }
+            } else {
+                const lyricSlots = slots.slice();
+                if (!lyricSlots.includes(currentSlot)) {
+                    const insertionIndex = lyricSlots.findIndex((slot) => slot.startTime > currentSlot.startTime);
+                    lyricSlots.splice(insertionIndex < 0 ? lyricSlots.length : insertionIndex, 0, currentSlot);
+                }
+                const timedLines = lyricSlots.flatMap((slot) => slot.line
+                    ? getManualLyricTextLines(slot.text).map((text) => ({ slot, text }))
+                    : [{ slot, text: '' }]);
+                const currentIndex = Math.max(0, timedLines.findIndex((line) => line.slot === currentSlot));
+                const leadingRows = Math.max(0, 6 - currentIndex);
+                const windowStart = Math.max(0, currentIndex - 6);
+                const visibleLines = timedLines.slice(windowStart, windowStart + 13 - leadingRows);
+                hasNextLine = currentIndex < timedLines.length - 1;
+                lyricRows = [...Array(leadingRows).fill(''), ...visibleLines.map((line) => line.text)];
+                const nextSlot = timedLines[currentIndex + 1]?.slot;
+                const nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+                if (currentSlot.startTime === 0 && hasNextLine) {
+                    scrollStartTime = Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration);
+                }
+            }
+            const rowCount = Math.max(12, lyricRows.length);
+            const track = document.createElement('div');
+            track.className = 'manual-plain-track';
+            track.style.height = `${rowCount / 12 * 100}%`;
+            lyricRows.forEach((text) => {
+                const row = document.createElement('span');
+                row.className = 'manual-plain-line';
+                row.style.flex = `0 0 ${100 / rowCount}%`;
+                row.textContent = text;
+                track.appendChild(row);
+            });
+            manualLyricOverlay.appendChild(track);
+            manualLyricScrollState = { scrollStartTime, scrollEndTime, hasNextLine };
+            updateManualLyricOverlayFontSize();
+            fitManualGeneralLyricLines();
+        }
+
+        /** Applies the player's alternating two-line layout and per-cue gradient progress. */
+        function renderManualDynamicLyrics(currentSlot, slots) {
+            const currentLines = getManualLyricTextLines(currentSlot.text);
+            let displayLines = currentLines.slice();
+            let activeLineIndex = 0;
+            const previousSlot = slots[currentSlot.index - 1];
+            const nextSlot = slots[currentSlot.index + 1];
+            if (!currentSlot.line) {
+                displayLines = manualLyricMode >= 2 ? ['', ''] : [''];
+            } else if (manualLyricMode >= 2) {
+                const nextText = nextSlot ? nextSlot.text : '';
+                const currentText = currentLines.join(' ');
+                if (manualLyricPlainMode && currentLines.length > 1) {
+                    displayLines = currentLines.slice(0, 2);
+                } else if (previousSlot && !previousSlot.line) {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                } else if (nextSlot && !nextSlot.line) {
+                    displayLines = [currentText, ''];
+                } else if (currentSlot.index % 2 === 1) {
+                    displayLines = nextText ? [nextText, currentText] : [currentText];
+                    activeLineIndex = nextText ? 1 : 0;
+                } else {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                }
+            } else {
+                displayLines = currentLines.slice(0, 1);
+            }
+            renderedManualLyricActiveLineIndex = activeLineIndex;
+            displayLines = displayLines.slice(0, 2);
+            displayLines.forEach((text, index) => {
+                manualLyricOverlay.appendChild(createManualDynamicLine(text, index === activeLineIndex ? getManualCueProgress(currentSlot) : 0));
+            });
+            if (manualLyricMode >= 2) fitManualDynamicLineAnchors();
+        }
+
+        /** Fits dynamic preview lines to the available video width like the main player. */
+        function fitManualDynamicLineAnchors() {
+            if (manualLyricMode < 2 || manualLyricMode === 0) return;
+            const containerWidth = manualLyricOverlay.clientWidth;
+            if (!containerWidth) return;
+            const halfWidth = containerWidth / 2;
+            Array.from(manualLyricOverlay.querySelectorAll('.manual-dynamic-line')).slice(0, 2).forEach((line) => {
+                line.style.fontSize = '1em';
+                const textLayer = line.querySelector('.manual-dynamic-base, .manual-dynamic-line');
+                const textWidth = textLayer ? textLayer.scrollWidth : line.scrollWidth;
+                const availableWidth = Math.max(1, containerWidth - 12);
+                const fontScale = textWidth > availableWidth ? availableWidth / textWidth : 1;
+                line.style.fontSize = `${fontScale}em`;
+                const fittedTextWidth = textWidth * fontScale;
+                line.style.width = `${Math.min(containerWidth, Math.max(halfWidth, fittedTextWidth))}px`;
+                line.style.maxWidth = 'none';
+                line.style.flex = '0 0 auto';
+            });
+        }
+
+        /** Fits each general lyric row after applying the user's preview text size. */
+        function fitManualGeneralLyricLines() {
+            if (manualLyricMode !== 0) return;
+            manualLyricOverlay.querySelectorAll('.manual-plain-line').forEach((line) => {
+                line.style.fontSize = '1em';
+                const textWidth = line.scrollWidth;
+                const availableWidth = Math.max(1, line.clientWidth);
+                if (textWidth > availableWidth) line.style.fontSize = `${availableWidth / textWidth}em`;
+            });
+        }
+
+        /** Calculates the active cue's normalized karaoke progress. */
+        function getManualCueProgress(currentSlot) {
+            const duration = currentSlot.endTime - currentSlot.startTime;
+            return duration > 0 ? Math.max(0, Math.min(1, (manualLyricVideo.currentTime - currentSlot.startTime) / duration)) : 0;
+        }
+
+        /** Updates smooth scrolling and highlighting while the preview video is playing. */
+        function updateManualLyricAnimation(currentSlot) {
+            if (manualLyricMode === 0) {
+                const track = manualLyricOverlay.querySelector('.manual-plain-track');
+                const row = track?.querySelector('.manual-plain-line');
+                const state = manualLyricScrollState;
+                if (track && row && state) {
+                    const duration = state.scrollEndTime - state.scrollStartTime;
+                    const progress = state.hasNextLine && duration > 0
+                        ? Math.max(0, Math.min(1, (manualLyricVideo.currentTime - state.scrollStartTime) / duration))
+                        : 0;
+                    const rowHeight = row.getBoundingClientRect().height;
+                    track.style.transform = `translate3d(0, ${-rowHeight * progress}px, 0)`;
+                }
+                return;
+            }
+            if (manualLyricMode === 3) {
+                const activeLine = manualLyricOverlay.querySelectorAll('.manual-dynamic-line')[renderedManualLyricActiveLineIndex];
+                if (activeLine) activeLine.style.setProperty('--manual-subtitle-progress', `${getManualCueProgress(currentSlot) * 100}%`);
+            }
+        }
+
+        /** Keeps the gradient and general lyric scroll synchronized to the video clock. */
+        function requestManualLyricAnimation() {
+            if (!manualLyricAnimationFrame && !manualLyricVideo.paused) {
+                manualLyricAnimationFrame = requestAnimationFrame(() => {
+                    manualLyricAnimationFrame = 0;
+                    renderManualLyricOverlay();
+                });
+            }
+        }
+
+        /** Stops the preview animation loop while the video is paused. */
+        function stopManualLyricAnimation() {
+            if (manualLyricAnimationFrame) cancelAnimationFrame(manualLyricAnimationFrame);
+            manualLyricAnimationFrame = 0;
+        }
+
+        /** Cycles the preview through general, single-line, double-line, and gradient modes. */
+        function cycleManualLyricMode() {
+            manualLyricMode = (manualLyricMode + 1) % 4;
+            manualLyricModeButton.textContent = `歌詞模式：${['一般', '單行', '雙行', '雙行漸變'][manualLyricMode]}`;
+            renderedManualLyricMode = -1;
+            renderManualLyricOverlay();
+        }
+
+        /** Adjusts preview text size in 10% steps, bounded to 60%-200%. */
+        function adjustManualLyricSize(direction) {
+            manualLyricSizeScale = Math.max(0.6, Math.min(2, Math.round((manualLyricSizeScale + direction * 0.1) * 10) / 10));
+            updateManualLyricOverlayFontSize();
+            fitManualGeneralLyricLines();
+            fitManualDynamicLineAnchors();
         }
 
         /** Keeps the plain lyric preview small enough to display a twelve-line window. */
         function updateManualLyricOverlayFontSize() {
+            if (!manualLyricOverlay.classList.contains('manual-mode-general')) {
+                manualLyricOverlay.style.setProperty('--manual-lyric-font-size', `${(12 * manualLyricSizeScale).toFixed(2)}px`);
+                return;
+            }
             const styles = getComputedStyle(manualLyricOverlay);
             const currentFontSize = parseFloat(styles.fontSize);
             const lineHeight = parseFloat(styles.lineHeight);
@@ -387,17 +695,33 @@
                 - parseFloat(styles.paddingTop)
                 - parseFloat(styles.paddingBottom);
             if (!Number.isFinite(availableHeight) || availableHeight <= 0) return;
-            const fontSize = Math.max(8, Math.min(22, availableHeight / (12 * lineHeightRatio)));
+            const fontSize = Math.max(8, Math.min(22, availableHeight / (12 * lineHeightRatio))) * manualLyricSizeScale;
             manualLyricOverlay.style.setProperty('--manual-lyric-font-size', `${fontSize.toFixed(2)}px`);
         }
 
+        let renderedManualLyricActiveLineIndex = 0;
+
         if (typeof ResizeObserver !== 'undefined') {
-            new ResizeObserver(updateManualLyricOverlayFontSize).observe(manualLyricOverlay);
+            new ResizeObserver(() => {
+                updateManualLyricOverlayFontSize();
+                fitManualGeneralLyricLines();
+                fitManualDynamicLineAnchors();
+            }).observe(manualLyricOverlay);
         } else {
-            window.addEventListener('resize', updateManualLyricOverlayFontSize);
+            window.addEventListener('resize', () => {
+                updateManualLyricOverlayFontSize();
+                fitManualGeneralLyricLines();
+                fitManualDynamicLineAnchors();
+            });
         }
         updateManualLyricOverlayFontSize();
         loadChannelInspectorSongs();
+        socket.on('refresh_list', () => {
+            songAudioExceptionsPromise = null;
+            loadChannelInspectorSongs();
+            loadLyricsSongs();
+            loadManualLyricSongs();
+        });
 
         /** 將有待補歌詞或待修改歌詞備註的歌曲排到選單最前面。 */
         function prioritizeSongNotes(songs) {
@@ -428,6 +752,27 @@
             return String(text).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
         }
 
+        /** Return a warning suffix without changing the filename used as the option value. */
+        function songPickerLabel(song) {
+            const exception = songAudioExceptions[song];
+            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
+            if (!exception || !Number.isFinite(measuredPeak)) return song;
+            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
+            return `${song} | ⚠ c4 TP ${peakText}`;
+        }
+
+        function loadSongAudioExceptions(forceRefresh = false) {
+            if (forceRefresh || !songAudioExceptionsPromise) {
+                songAudioExceptionsPromise = fetch('/api/song-audio-exceptions')
+                    .then((response) => response.json())
+                    .then((exceptions) => {
+                        songAudioExceptions = exceptions && typeof exceptions === 'object' ? exceptions : {};
+                    })
+                    .catch(() => { songAudioExceptions = {}; });
+            }
+            return songAudioExceptionsPromise;
+        }
+
         /** Loads the registered online lyrics providers. */
         function loadLyricsProviders() {
             fetch('/api/lyrics/providers').then((response) => response.json()).then((providers) => {
@@ -440,6 +785,7 @@
             fetch('/api/list').then((response) => response.json()).then((songs) => {
                 lyricsSongs = prioritizeSongNotes(songs);
                 renderLyricsSongOptions();
+                return loadSongAudioExceptions().then(renderLyricsSongOptions);
             });
         }
 
@@ -448,7 +794,7 @@
             const keyword = lyricsQuery.value.trim().toLocaleLowerCase();
             const selectedSong = lyricsSong.value;
             const filteredSongs = lyricsSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
-            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            lyricsSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
             if (filteredSongs.includes(selectedSong)) {
                 lyricsSong.value = selectedSong;
             }
@@ -574,6 +920,7 @@
             fetch('/api/list').then((response) => response.json()).then((songs) => {
                 manualLyricSongs = prioritizeSongNotes(songs);
                 renderManualLyricSongOptions();
+                return loadSongAudioExceptions().then(renderManualLyricSongOptions);
             });
         }
 
@@ -582,7 +929,7 @@
             const keyword = manualLyricSongSearch.value.trim().toLocaleLowerCase();
             const selectedSong = manualLyricSong.value;
             const filteredSongs = manualLyricSongs.filter((song) => song.toLocaleLowerCase().includes(keyword));
-            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(song)}</option>`).join('');
+            manualLyricSong.innerHTML = '<option value="">請選擇歌曲</option>' + filteredSongs.map((song) => `<option value="${escapeManualLyricHtml(song)}">${escapeManualLyricHtml(songPickerLabel(song))}</option>`).join('');
             if (filteredSongs.includes(selectedSong)) {
                 manualLyricSong.value = selectedSong;
             }
@@ -601,6 +948,7 @@
         /** Clears the complete lyric text and timing rows when the selected song changes. */
         function resetManualLyricEditor() {
             manualLyricLines = [];
+            manualLyricPlainMode = false;
             manualLyricText.value = '';
             manualLyricStatus.innerText = '';
             manualLyricsList.innerHTML = '<li>請先貼上完整歌詞並建立歌詞行</li>';
@@ -623,6 +971,7 @@
                     manualLyricStatus.innerText = '此歌曲尚無歌詞，請貼上歌詞後建立歌詞行。';
                     return;
                 }
+                manualLyricPlainMode = Boolean(data.plain_lyrics);
                 manualLyricLines = [];
                 data.cues.forEach((cue, index) => {
                     const currentLine = {
@@ -673,7 +1022,7 @@
 
         /** Renders lyric rows with their current timestamp state and controls. */
         function renderManualLyricLines() {
-            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><button type="button" class="lyric-line-remove" title="移除這行歌詞" aria-label="移除第 ${index + 1} 行歌詞" onclick="removeManualLyricLine(${index})">×</button><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li>${index < manualLyricLines.length - 1 ? `<li class="lyric-line-insert"><button type="button" title="在兩行之間插入歌詞" aria-label="在第 ${index + 1} 行與第 ${index + 2} 行之間插入歌詞" onclick="insertManualLyricLine(${index})">＋</button></li>` : ''}`).join('') : '<li>尚未建立歌詞行</li>';
+            manualLyricsList.innerHTML = manualLyricLines.length ? manualLyricLines.map((line, index) => `<li data-lyric-index="${index}"><button type="button" class="lyric-line-remove" title="移除這行歌詞" aria-label="移除第 ${index + 1} 行歌詞" onclick="removeManualLyricLine(${index})">×</button><span class="lyric-line-time-controls"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, -1)">−</button><input class="lyric-line-time" type="text" value="${line.start === null ? '' : formatManualLyricTime(line.start)}" placeholder="--:--.---" aria-label="第 ${index + 1} 行時間碼" onchange="updateManualLyricTimestamp(${index}, this.value)"><button type="button" class="lyric-line-time-button" onclick="adjustManualLyricTimestamp(${index}, 1)">＋</button></span><input class="lyric-line-text" type="text" value="${escapeManualLyricHtml(line.text)}" aria-label="第 ${index + 1} 行歌詞"><span class="lyric-line-actions"><button type="button" onclick="toggleManualLyricTimestamp(${index})">${line.start === null ? '加入時間碼' : '移除時間碼'}</button></span></li><li class="lyric-line-insert"><button type="button" title="在第 ${index + 1} 行後新增歌詞" aria-label="在第 ${index + 1} 行後新增歌詞" onclick="insertManualLyricLine(${index})">＋</button></li>`).join('') : '<li>尚未建立歌詞行</li>';
             manualLyricsList.querySelectorAll('.lyric-line-text').forEach((input, index) => {
                 input.addEventListener('input', () => { manualLyricLines[index].text = input.value; refreshManualLyricPreview(); });
             });
@@ -888,6 +1237,10 @@
             highlightManualLyricLine();
             renderManualLyricOverlay();
         });
+        // 影片播放、暫停與跳轉事件同步驅動歌詞預覽與逐字高亮。
+        manualLyricVideo.addEventListener('play', requestManualLyricAnimation);
+        manualLyricVideo.addEventListener('pause', stopManualLyricAnimation);
+        manualLyricVideo.addEventListener('seeked', renderManualLyricOverlay);
         loadLyricsProviders();
         loadSongNotes().then(() => {
             loadManualLyricSongs();
@@ -1083,6 +1436,44 @@
                 jobs,
                 ai_engine: document.getElementById('ai_engine').value,
             });
+        }
+
+        /** Validate and submit song-title mappings for an atomic batch rename. */
+        async function batchRenameSongs() {
+            const mappings = batchSongRenames.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const fields = line.split('|').map((field) => field.trim());
+                return fields.length === 2 ? { old: fields[0], new: fields[1] } : null;
+            });
+            if (!mappings.length || mappings.some((mapping) => !mapping || !mapping.old || !mapping.new)) {
+                batchSongRenameStatus.innerText = '請確認每行格式都是：舊歌名 | 新歌名';
+                return;
+            }
+            batchSongRenameButton.disabled = true;
+            batchSongRenameStatus.innerText = `正在預檢並修改 ${mappings.length} 首歌曲...`;
+            try {
+                const response = await fetch('/api/songs/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mappings }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    batchSongRenameStatus.innerText = `批次改名失敗：${data.error || `HTTP ${response.status}`}`;
+                    return;
+                }
+                const renamed = Array.isArray(data.renamed) ? data.renamed : [];
+                const failures = Array.isArray(data.failures) ? data.failures : [];
+                const lyricsCount = renamed.reduce((total, song) => total + song.lyrics.length, 0);
+                const summary = `批次完成：成功 ${renamed.length} 首，失敗 ${failures.length} 首；同步歌詞檔 ${lyricsCount} 份。`;
+                const failureDetails = failures.map((failure) => `第 ${failure.line} 行「${failure.old} | ${failure.new}」：${failure.error}`);
+                batchSongRenameStatus.style.whiteSpace = 'pre-wrap';
+                batchSongRenameStatus.innerText = [summary, ...failureDetails].join('\n');
+                if (!failures.length) batchSongRenames.value = '';
+            } catch (error) {
+                batchSongRenameStatus.innerText = `批次改名失敗：${error.message}`;
+            } finally {
+                batchSongRenameButton.disabled = false;
+            }
         }
 
         function updateYtDlp() {

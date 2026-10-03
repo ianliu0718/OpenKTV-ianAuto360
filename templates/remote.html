@@ -1,124 +1,971 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>KTV 遙控器</title>
     <style>
-        body { background: #1a1a1a; color: white; font-family: sans-serif; padding: 10px; margin: 0; }
-        .btn { width: 100%; padding: 15px; margin: 5px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; }
-        .play { background: #009688; }
-        .pause { background: #2196F3; }
-        .stop { background: #F44336; }
-        .vocal { background: #FF9800; color: black; }
-        .inst { background: #FFC107; color: black; }
-        .admin-link { background: #607D8B; color: white; text-align: center; display: block; padding: 10px; text-decoration: none; border-radius: 5px; margin-bottom: 10px; }
-        input[type=text] { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px;}
-        input[type=range] { width: 100%; margin: 10px 0; }
-        li { background: #333; padding: 10px; margin-bottom: 5px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
-        ul { list-style: none; padding: 0; }
-        .queue-box { background: #111; padding: 12px; border: 1px solid #444; border-radius: 8px; margin: 10px 0; max-height: 30vh; overflow: hidden; }
-        .queue-title { color: #4CAF50; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
-        #queue-list { max-height: calc(30vh - 52px); margin: 0; padding-left: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-        #queue-list li { background: none; padding: 4px 0; margin: 0; display: list-item; list-style-type: decimal; color: #aaa; overflow-wrap: anywhere; }
-        .song-btn { background: #009688; border: none; padding: 5px 15px; border-radius: 20px; color: white; }
-        .song-btn.added { background: #607d8b; cursor: wait; }
-        .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
-        li.song-playing { background: #174d48; border: 1px solid #26a69a; }
-        li.song-row { cursor: pointer; }
-        li.song-row:hover { background: #34514e; }
-        li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
-        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
-        .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        .search-row { display: flex; gap: 6px; align-items: stretch; }
-        .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
-        .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
-        .tab-bar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: -10px -10px 10px; padding: 10px; background: #1a1a1a; }
-        .tab-button { width: 100%; padding: 12px 8px; border: 1px solid #555; border-radius: 6px; background: #333; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
-        .tab-button.active { background: #009688; border-color: #34cdbd; color: white; }
-        .song-tools { position: sticky; top: 60px; z-index: 9; padding-top: 4px; background: #1a1a1a; }
-        .setting-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        .setting-button { display: flex; align-items: center; gap: 8px; min-height: 46px; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #333; color: #ccc; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .setting-button input { width: auto; flex: 0 0 auto; }
-        .tab-panel[hidden] { display: none; }
+        body {
+            background: #1a1a1a;
+            color: white;
+            font-family: sans-serif;
+            padding: 10px;
+            margin: 0;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+        }
+
+        .play {
+            background: #2196F3;
+        }
+
+        .pause {
+            background: #2196F3;
+        }
+
+        .stop {
+            background: #2196F3;
+        }
+
+        .vocal {
+            background: #ff9800;
+        }
+
+        .inst {
+            background: #ff9800;
+        }
+
+        .toggle-panel {
+            box-sizing: border-box;
+            padding: 8px;
+            border: 1px solid #2aa894;
+            border-radius: 6px;
+            background: #123c36;
+            margin-bottom: 8px;
+        }
+
+        .settings-trigger {
+            position: absolute;
+            top: 50%;
+            right: 0;
+            display: grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transform: translateY(-50%);
+            border-radius: 6px;
+            background: #607D8B;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .settings-trigger:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
+
+        .settings-panel {
+            width: min(420px, calc(100vw - 32px));
+            max-height: calc(100dvh - 32px);
+            margin: auto;
+            padding: 14px;
+            overflow-y: auto;
+            color: white;
+        }
+
+        .settings-panel::backdrop {
+            background: rgba(0, 0, 0, .65);
+        }
+
+        .settings-panel-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .settings-panel-heading h3 {
+            margin: 0;
+            color: #b8fff2;
+        }
+
+        .settings-close-button {
+            width: 36px;
+            height: 36px;
+            margin: 0;
+            padding: 0;
+            background: #455a64;
+            font-size: 20px;
+        }
+
+        .settings-options {
+            display: grid;
+            gap: 8px;
+        }
+
+        .settings-options .setting-button {
+            min-height: 42px;
+            margin: 0;
+            padding: 10px 12px;
+        }
+
+        .remote-header {
+            position: relative;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        input[type=text] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        input[type=range] {
+            width: 100%;
+        }
+
+        li {
+            background: #333;
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .queue-box {
+            background: #111;
+            padding: 12px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            margin: 10px 0;
+            max-height: 30vh;
+            overflow: hidden;
+        }
+
+        .queue-title {
+            color: #4CAF50;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        #queue-list {
+            max-height: calc(30vh - 52px);
+            margin: 0;
+            padding-left: 20px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        #queue-list li {
+            background: none;
+            padding: 4px 0;
+            margin: 0;
+            display: list-item;
+            list-style-type: decimal;
+            color: #aaa;
+            overflow-wrap: anywhere;
+        }
+
+        .song-btn {
+            background: #009688;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 20px;
+            color: white;
+        }
+
+        .song-btn.added {
+            background: #607d8b;
+            cursor: wait;
+        }
+
+        .song-status {
+            margin-right: 6px;
+            color: #80cbc4;
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .song-audio-exception {
+            color: #ffcc80;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .song-main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            max-width: 60%;
+        }
+
+        .song-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        li.song-playing {
+            background: #174d48;
+            border: 1px solid #26a69a;
+        }
+
+        li.song-row {
+            cursor: pointer;
+        }
+
+        li.song-row:hover {
+            background: #34514e;
+        }
+
+        li.song-added {
+            border: 1px solid #4caf50;
+            box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.25);
+        }
+
+        .category-filters {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .category-filters select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .category-multi-filter {
+            position: relative;
+            min-width: 0;
+        }
+
+        .category-multi-filter summary {
+            overflow: hidden;
+            padding: 8px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #333;
+            color: white;
+            cursor: pointer;
+            list-style: none;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .category-multi-filter summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .category-multi-filter summary::after {
+            content: '▾';
+            float: right;
+            margin-left: 6px;
+        }
+
+        .category-multi-filter[open] summary::after {
+            content: '▴';
+        }
+
+        .category-multi-options {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            left: 0;
+            z-index: 40;
+            display: grid;
+            gap: 2px;
+            max-height: min(40vh, 280px);
+            overflow-y: auto;
+            padding: 6px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #333;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .45);
+        }
+
+        .category-multi-filter:not([open]) .category-multi-options {
+            display: none;
+        }
+
+        .category-multi-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+            padding: 3px 4px;
+            color: #eee;
+            overflow-wrap: anywhere;
+        }
+
+        .category-multi-option input {
+            flex: 0 0 auto;
+            width: auto;
+            margin: 0;
+        }
+
+        .search-row {
+            display: flex;
+            gap: 6px;
+            align-items: stretch;
+        }
+
+        .search-row input[type=text] {
+            flex: 1;
+            min-width: 0;
+            margin-bottom: 10px;
+        }
+
+        .sort-mode-button {
+            flex: 0 0 auto;
+            width: auto;
+            margin: 0 0 10px;
+            padding: 10px 9px;
+            background: #4b5d58;
+            border: 1px solid #72817d;
+            color: #f1f4f3;
+            white-space: nowrap;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 2px 5px rgba(0, 0, 0, .2);
+        }
+
+        .sort-mode-button:hover {
+            background: #596b66;
+            border-color: #8a9a95;
+        }
+
+        .sort-mode-button:focus-visible {
+            outline: 2px solid #a6b2ae;
+            outline-offset: 2px;
+        }
+
+        .clear-filter-button {
+            width: auto;
+            margin: 0 0 10px;
+            padding: 10px 14px;
+            background: #607D8B;
+            white-space: nowrap;
+        }
+
+        .tab-bar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin: -10px -10px 10px;
+            padding: 10px;
+            background: #1a1a1a;
+        }
+
+        .tab-button {
+            width: 100%;
+            padding: 12px 8px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: #333;
+            color: #bbb;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .tab-button.active {
+            background: #009688;
+            border-color: #34cdbd;
+            color: white;
+        }
+
+        .song-tools {
+            position: sticky;
+            top: 60px;
+            z-index: 9;
+            padding-top: 4px;
+            background: #1a1a1a;
+        }
+
+        .setting-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .setting-button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 46px;
+            box-sizing: border-box;
+            padding: 12px;
+            border-radius: 8px;
+            background: #333;
+            color: #ccc;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .setting-button input {
+            width: auto;
+            flex: 0 0 auto;
+        }
+
+        .tab-panel[hidden] {
+            display: none;
+        }
+
         /* 待播歌曲備註面板，採用固定面板避免推動遙控器內容。 */
-        #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 20; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
-        #song-note-panel h4 { margin: 0 0 12px; overflow-wrap: anywhere; }
-        #song-note-panel label { display: block; margin: 10px 0; color: #ddd; }
-        #song-note-panel textarea { width: 100%; box-sizing: border-box; padding: 9px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        #song-note-panel textarea { min-height: 80px; resize: vertical; }
-        .note-key-controls { display: flex; gap: 8px; }
-        .note-key-controls .btn { margin: 0; flex: 1; padding: 10px; }
-        .note-actions { display: flex; gap: 8px; margin-top: 12px; }
-        .note-actions .btn { margin: 0; flex: 1; padding: 10px; }
-        .note-indicator { color: #ffd54f; margin-left: 6px; }
-        .danmaku-button { background: #e91e63; }
-        .sound-effect-button { background: #00897b; }
-        #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 30; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.65); }
-        #danmaku-panel h4 { margin: 0 0 12px; }
-        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
-        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
-        .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
-        .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
-        .emotion-tab-panel[hidden] { display: none; }
-        .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
-        .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
-        .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
-        .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
-        .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
-        .effect-section-title { margin-bottom: 8px; color: #b8fff2; font-size: 14px; font-weight: bold; }
-        .sound-effect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .sound-effect-list .btn { margin: 0; padding: 10px 6px; }
-        #danmaku-custom-text { width: 100%; box-sizing: border-box; margin-top: 12px; padding: 10px; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
-        .danmaku-actions { display: flex; gap: 8px; margin-top: 10px; }
-        .danmaku-actions .btn { flex: 1; margin: 0; }
-        .emotion-footer { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #555; }
-        .emotion-footer .btn { flex: 1; margin: 0; min-height: 46px; }
+        #song-note-panel {
+            display: none;
+            position: fixed;
+            inset: 10% 5% auto;
+            z-index: 20;
+            background: #222;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .6);
+        }
+
+        #song-note-panel h4 {
+            margin: 0 0 12px;
+            overflow-wrap: anywhere;
+        }
+
+        #song-note-panel label {
+            display: block;
+            margin: 10px 0;
+            color: #ddd;
+        }
+
+        #song-note-panel textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        #song-note-panel textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .note-key-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .note-key-controls .btn {
+            margin: 0;
+            flex: 1;
+            padding: 10px;
+        }
+
+        .note-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .note-actions .btn {
+            margin: 0;
+            flex: 1;
+            padding: 10px;
+        }
+
+        .note-indicator {
+            color: #ffd54f;
+            margin-left: 6px;
+        }
+
+        .danmaku-button {
+            background: #e91e63;
+        }
+
+        .sound-effect-button {
+            background: #00897b;
+        }
+
+        #danmaku-panel {
+            display: none;
+            position: fixed;
+            top: max(12px, env(safe-area-inset-top));
+            right: 5%;
+            bottom: max(12px, env(safe-area-inset-bottom));
+            left: 5%;
+            box-sizing: border-box;
+            overflow: hidden;
+            z-index: 30;
+            background: #222;
+            border: 1px solid #777;
+            border-radius: 8px;
+            padding: 15px;
+            flex-direction: column;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .65);
+        }
+
+        #danmaku-panel h4 {
+            margin: 0 0 12px;
+        }
+
+        .emotion-tabs {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #555;
+        }
+
+        .emotion-tab {
+            min-width: 0;
+            margin: 0;
+            padding: 8px 3px;
+            border: 1px solid transparent;
+            border-bottom: 3px solid transparent;
+            border-radius: 6px 6px 0 0;
+            background: transparent;
+            color: #999;
+            font-size: 12px;
+            font-weight: normal;
+            white-space: nowrap;
+            box-shadow: none;
+        }
+
+        .emotion-tab.active {
+            background: #333;
+            border-color: #555;
+            border-bottom-color: #2aa894;
+            color: #b8fff2;
+            font-weight: bold;
+        }
+
+        .emotion-tab-panel {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .emotion-tab-panel[hidden] {
+            display: none;
+        }
+
+        .photo-picker {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: stretch;
+            padding: 10px 0;
+            color: #ccc;
+        }
+
+        .photo-picker input[type=file] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            background: #333;
+            color: #ddd;
+            border: 1px solid #555;
+            border-radius: 6px;
+        }
+
+        .photo-picker-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .photo-picker-actions .btn {
+            margin: 0;
+        }
+
+        .photo-upload-button {
+            background: #00695c;
+            color: #fff;
+            border: 1px solid #4db6ac;
+        }
+
+        .photo-upload-button:hover {
+            background: #00897b;
+        }
+
+        .photo-camera-button {
+            background: #1565c0;
+            color: #fff;
+            border: 1px solid #64b5f6;
+        }
+
+        .photo-camera-button:hover {
+            background: #1976d2;
+        }
+
+        .photo-picker-actions .btn:focus-visible {
+            outline: 3px solid #fff;
+            outline-offset: 2px;
+        }
+
+        .photo-preview {
+            display: none;
+            max-width: 100%;
+            max-height: 30vh;
+            margin: 0 auto;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+
+        .sticker-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            padding: 8px 0;
+        }
+
+        .sticker-option {
+            aspect-ratio: 1;
+            min-width: 0;
+            margin: 0;
+            padding: 5px;
+            border: 1px solid #555;
+            background-color: #333;
+            background-image: radial-gradient(#555 0.7px, transparent 0.7px);
+            background-size: 8px 8px;
+        }
+
+        .sticker-option.selected {
+            border: 2px solid #2aa894;
+            background-color: #174d48;
+        }
+
+        .sticker-option img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .sticker-preview {
+            display: none;
+            max-width: 100%;
+            height: 90px;
+            margin: 8px auto 0;
+            object-fit: contain;
+        }
+
+        .sticker-picker-status {
+            margin: 4px 0 0;
+            color: #ccc;
+            text-align: center;
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .danmaku-presets {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .danmaku-presets .btn {
+            margin: 0;
+            padding: 10px 6px;
+            background: #5c3b6f;
+        }
+
+        .effect-section {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: 0;
+        }
+
+        .effect-section-title {
+            margin-bottom: 8px;
+            color: #b8fff2;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .sound-effect-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .sound-effect-list .btn {
+            margin: 0;
+            padding: 10px 6px;
+        }
+
+        .subtitle-controls-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+        }
+
+        .subtitle-controls-row .btn {
+            min-height: 34px;
+            margin: 0;
+            padding: 6px 4px;
+            font-size: 12px;
+        }
+
+        .subtitle-size-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: #b8fff2;
+            font-size: 12px;
+            gap: 8px;
+        }
+
+        .subtitle-size-value {
+            min-width: 48px;
+            text-align: right;
+            color: #f9f9c5;
+            font-weight: 700;
+        }
+
+        .subtitle-size-controls {
+            display: flex;
+            gap: 6px;
+        }
+
+        .subtitle-size-btn {
+            flex: 1;
+            min-width: 44px;
+            min-height: 34px;
+            margin: 0;
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%);
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+        }
+
+        .subtitle-size-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #danmaku-custom-text {
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 12px;
+            padding: 10px;
+            background: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .danmaku-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .danmaku-actions .btn {
+            flex: 1;
+            margin: 0;
+        }
+
+        .emotion-footer {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #555;
+        }
+
+        .emotion-footer .btn {
+            flex: 1;
+            margin: 0;
+            min-height: 46px;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
+
 <body>
-    <div style="text-align:center; margin-bottom:10px;">
+    <div class="remote-header">
         <h3 style="margin:0;">📱 KTV 遙控器</h3>
         <small style="color:#aaa;">已連線至主機</small>
+        <button class="btn settings-trigger" type="button" aria-label="開啟設定" title="設定"
+            onclick="openRemoteSettings()">⚙️</button>
     </div>
 
-    <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌/管理系統)</a>
-
     <div class="tab-bar" role="tablist" aria-label="遙控器功能分頁">
-        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel" onclick="switchTab('song')">🎶 點歌</button>
-        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel" onclick="switchTab('control')">🎛️ 實際遙控</button>
+        <button id="song-tab" class="tab-button active" role="tab" aria-selected="true" aria-controls="song-panel"
+            onclick="switchTab('song')">🎶 點歌</button>
+        <button id="control-tab" class="tab-button" role="tab" aria-selected="false" aria-controls="control-panel"
+            onclick="switchTab('control')">🎛️ 實際遙控</button>
     </div>
 
     <section id="song-panel" class="tab-panel" role="tabpanel" aria-labelledby="song-tab">
         <div class="song-tools">
             <div class="search-row">
+                <!-- 點歌排序依新歌、熱門、國語、台語循環。 -->
+                <button type="button" id="song-sort-mode" class="btn sort-mode-button"
+                    onclick="cycleSongSortMode()">新歌</button>
                 <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
                 <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
             </div>
             <div class="category-filters">
-                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange('song-length-filter')"><option value="">歌曲字數：全部</option></select>
-                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange('singer-filter')"><option value="">主唱者：全部</option></select>
-                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
+                <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()">
+                    <option value="">歌曲字數：全部</option>
+                </select>
+                <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()">
+                    <option value="">主唱者：全部</option>
+                </select>
+                <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()">
+                    <option value="">語言：全部</option>
+                </select>
+                <details id="affiliation-filter" class="category-multi-filter">
+                    <summary aria-label="依歌曲歸屬分類">歸屬：全部</summary>
+                    <div id="affiliation-filter-options" class="category-multi-options" role="group"
+                        aria-label="選擇一個或多個歌曲歸屬"></div>
+                </details>
             </div>
         </div>
         <ul id="list"></ul>
     </section>
 
     <section id="control-panel" class="tab-panel" role="tabpanel" aria-labelledby="control-tab" hidden>
-        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:10px;">
-            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; color:#b8fff2; font-size:13px;">
-                <span>字幕比例</span><span id="subtitle-size-label" style="min-width:56px; text-align:right; color:#f9f9c5; font-weight:700;">120%</span>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
+            <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
+            <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
+            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
+            <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
+            <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
+            <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
+            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)"
+                disabled>&lt; 快退 10 秒</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)"
+                disabled>快進 10 秒 &gt;</button>
+        </div>
+
+        <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin: 10px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
+                <span>🔊 主音量</span><span id="vol-val">100%</span>
             </div>
-            <div style="display:flex; gap:8px; margin-top:8px;">
-                <button id="subtitle-size-decrease" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(-10)">−</button>
-                <button id="subtitle-size-increase" class="btn" style="margin:0; flex:1; padding:10px 12px; background:linear-gradient(180deg, #607d8b 0%, #4f6775 100%); border-radius:10px; min-width:52px; font-size:18px; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);" onclick="changeSubtitleFontSize(10)">＋</button>
+            <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量"
+                oninput="updateEffect()">
+        </div>
+
+        <div style="background: #2a2a2a; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
+            <div
+                style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;"
+                    onclick="changeKey(-1)">🔻 降</button>
+                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0
+                    (原)</button>
+                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺
+                    升</button>
+            </div>
+        </div>
+        
+        <div id="current-song-control"
+            class="toggle-panel" style="display:none;">
+            <div class="subtitle-size-row">
+                <span>字幕比例</span><span id="subtitle-size-label" class="subtitle-size-value">100%</span>
+            </div>
+            <div class="subtitle-controls-row">
+                <button id="current-subtitle-button" class="btn" style="background:#2aa894;"
+                    onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;"
+                    onclick="cycleSubtitleStyleMode()">字幕：背景</button>
+                <div class="subtitle-size-controls">
+                    <button id="subtitle-size-decrease" class="btn subtitle-size-btn"
+                        onclick="changeSubtitleFontSize(-10)">−</button>
+                    <button id="subtitle-size-increase" class="btn subtitle-size-btn"
+                        onclick="changeSubtitleFontSize(10)">＋</button>
+                </div>
             </div>
         </div>
 
-        <div class="setting-grid" style="margin-bottom:10px;">
+        <div id="guide-vocal-control" class="control-group toggle-panel" style="display:none;">
+            <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span
+                    id="guide-vocal-level-label">50%</span></div>
+            <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量"
+                oninput="updateGuideVocalLevel(this.value)">
+        </div>
+
+        <div id="seek-correction-control"
+            style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
+            <div
+                style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
+                <span>⏱ 畫面進度</span><span id="seek-val">0 秒</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(-0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;"
+                    onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
+            </div>
+        </div>
+
+        <div class="queue-box">
+            <div class="queue-title">📋 待播清單</div>
+            <ul id="queue-list">
+                <li>(無)</li>
+            </ul>
+        </div>
+    </section>
+
+    <dialog id="remote-settings-panel" class="toggle-panel settings-panel" aria-labelledby="remote-settings-title">
+        <div class="settings-panel-heading">
+            <h3 id="remote-settings-title">設定</h3>
+            <button class="btn settings-close-button" type="button" aria-label="關閉設定"
+                onclick="closeRemoteSettings()">×</button>
+        </div>
+        <div class="settings-options">
             <label class="setting-button">
                 <input type="checkbox" id="qr-visibility" checked style="width:auto;">
                 顯示播放端 QR Code
@@ -132,89 +979,64 @@
                 螢幕保持常亮
             </label>
         </div>
-
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px;">
-            <button class="btn pause" onclick="cmd('pause')">⏯ 暫停/繼續</button>
-            <button class="btn stop" onclick="cmd('cut')">⏹ 切歌</button>
-            <button class="btn play" onclick="replayCurrentSong()">🔁 重唱</button>
-            <button class="btn vocal" onclick="track('original')">🎤 原聲</button>
-            <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
-            <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
-            <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
-        </div>
-
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin: 10px 0;">
-            <div style="display:flex; justify-content:space-between; align-items:center; color:#ccc; font-size:14px;">
-                <span>🔊 主音量</span><span id="vol-val">100%</span>
-            </div>
-            <input type="range" id="vol" min="0" max="2" step="0.01" value="1" aria-label="主音量" oninput="updateEffect()">
-        </div>
-
-        <div style="background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
-                <span>🎵 升降 KEY</span><span id="key-val">原 KEY (0)</span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(-1)">🔻 降</button>
-                <button class="btn" style="background:#777; flex:1; padding: 12px; margin: 0;" onclick="changeKey(0)">0 (原)</button>
-                <button class="btn" style="background:#555; flex:1; padding: 12px; margin: 0;" onclick="changeKey(1)">🔺 升</button>
-            </div>
-        </div>
-
-        <div id="seek-correction-control" style="display: none; background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #ccc; font-size: 14px;">
-                <span>⏱ 畫面延遲（聲音提前）</span><span id="seek-val">0 秒</span>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.5)">&lt;&lt;0.5</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(-0.1)">&lt;0.1</button>
-                <button class="btn seek-control" style="background:#777; padding: 12px 4px; margin: 0;" onclick="seekVideo(0)">同步</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.1)">0.1&gt;</button>
-                <button class="btn seek-control" style="background:#555; padding: 12px 4px; margin: 0;" onclick="seekVideo(0.5)">0.5&gt;&gt;</button>
-            </div>
-        </div>
-
-        <div class="queue-box">
-            <div class="queue-title">📋 待播清單</div>
-            <ul id="queue-list"><li>(無)</li></ul>
-        </div>
-    </section>
+    </dialog>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
         <h4 id="danmaku-title">情緒價值</h4>
         <div class="emotion-tabs" role="tablist" aria-label="情緒價值分類">
-            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
-            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
-            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
+            <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab"
+                aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
+            <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('sound')">🔊 音效</button>
+            <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('photo')">📷 照片</button>
+            <button id="emotion-tab-sticker" class="btn emotion-tab" type="button" role="tab" aria-selected="false"
+                onclick="switchEmotionTab('sticker')">✨ 貼圖</button>
         </div>
         <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
             <div class="effect-section">
-            <div class="danmaku-presets">
-                <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
-                <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
-                <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
-            </div>
-            <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
+                <div class="danmaku-presets">
+                    <button class="btn" type="button" onclick="sendDanmaku('🎤 大家一起唱！')">🎤 大家一起唱！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('👏 掌聲鼓勵！')">👏 掌聲鼓勵！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🎶 再一首！')">🎶 再一首！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🔥 麥霸出場！')">🔥 麥霸出場！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('💖 這對好有默契！')">💖 好有默契！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('✨ 氣氛到最高點！')">✨ 氣氛到最高點！</button>
+                    <button class="btn" type="button" onclick="sendDanmaku('🕺💃 全場一起搖！')">🕺💃 全場一起搖！</button>
+                    <button class="btn" type="button" onclick="sendRandomCompliment()">🎲 隨機誇獎</button>
+                </div>
+                <input id="danmaku-custom-text" type="text" maxlength="100" placeholder="輸入自訂彈幕">
             </div>
         </div>
-        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound" hidden>
+        <div id="emotion-panel-sound" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sound"
+            hidden>
             <div class="effect-section">
-            <div class="sound-effect-list">
-                <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏 歡呼拍手</button>
-            </div>
+                <div class="sound-effect-list">
+                    <button class="btn sound-effect-button" type="button" onclick="sendSoundEffect('clap')">👏
+                        歡呼拍手</button>
+                </div>
             </div>
         </div>
-        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
+        <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo"
+            hidden>
             <div class="photo-picker">
-                <label for="emotion-photo-input">拍照或選擇手機照片</label>
-                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <div class="photo-picker-actions">
+                    <button class="btn photo-upload-button" type="button" onclick="chooseEmotionPhotoUpload()">🖼️
+                        上傳照片</button>
+                    <button class="btn photo-camera-button" type="button" onclick="openEmotionCamera()">📷 開啟相機</button>
+                </div>
+                <input id="emotion-photo-upload-input" type="file" accept="image/*" hidden
+                    onchange="prepareEmotionPhoto(event)">
+                <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden
+                    onchange="prepareEmotionPhoto(event)">
                 <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
+        </div>
+        <div id="emotion-panel-sticker" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sticker"
+            hidden>
+            <div id="emotion-sticker-grid" class="sticker-grid" aria-label="選擇貼圖"></div>
+            <img id="emotion-sticker-preview" class="sticker-preview" alt="貼圖預覽">
+            <p id="emotion-sticker-status" class="sticker-picker-status">載入貼圖中...</p>
         </div>
         <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
@@ -228,7 +1050,8 @@
         <label>適合的 KEY</label>
         <div class="note-key-controls">
             <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(-1)">−</button>
-            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原 KEY</button>
+            <button class="btn" id="note-key-value" style="background:#777;" type="button" onclick="resetNoteKey()">原
+                KEY</button>
             <button class="btn" style="background:#555;" type="button" onclick="adjustNoteKey(1)">＋</button>
         </div>
         <label>自填文字
@@ -243,11 +1066,21 @@
     <script>
         const socket = io();
         let allSongs = [];
+        let sortedSongMetadata = [];
+        let songPlayCounts = {};
+        let songSortModeIndex = 0;
+        let songAudioExceptions = {};
         let subtitleSongs = new Set();
         let currentKey = 0;
         let currentPlayingFilename = '';
-        let currentSubtitleVisible = false;
+        let currentTrackMode = 'original';
+        let guideVocalControlSupported = false;
+        let currentVocalLevel = 50;
+        let currentSubtitleMode = 0;
+        const subtitleDisplayLabels = ['隱藏', '一般', '單行', '雙行', '雙行漸變'];
         let currentSubtitleFontSize = 120;
+        let currentSubtitleStyleMode = 0;
+        const subtitleStyleLabels = ['背景', '陰影'];
         let songScrollTop = 0;
         let seekOffset = 0;
         let seekCorrectionEnabled = false;
@@ -330,6 +1163,18 @@
             if (isSongTab) {
                 requestAnimationFrame(() => window.scrollTo(0, songScrollTop));
             }
+        }
+
+        /** Opens the remote-only settings panel. */
+        function openRemoteSettings() {
+            const settingsPanel = document.getElementById('remote-settings-panel');
+            if (!settingsPanel.open) settingsPanel.showModal();
+        }
+
+        /** Closes the remote-only settings panel. */
+        function closeRemoteSettings() {
+            const settingsPanel = document.getElementById('remote-settings-panel');
+            if (settingsPanel.open) settingsPanel.close();
         }
 
         /**
@@ -428,25 +1273,92 @@
         function openDanmakuPanel() {
             switchEmotionTab('danmaku');
             document.getElementById('danmaku-panel').style.display = 'flex';
-            document.getElementById('danmaku-custom-text').focus();
         }
 
         function switchEmotionTab(tabName) {
-            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
-            ['danmaku', 'sound', 'photo'].forEach((name) => {
+            activeEmotionTab = ['danmaku', 'sound', 'photo', 'sticker'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo', 'sticker'].forEach((name) => {
                 const active = activeEmotionTab === name;
                 document.getElementById(`emotion-panel-${name}`).hidden = !active;
                 document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
                 document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
             });
+            if (activeEmotionTab === 'sticker') loadEmotionStickers();
         }
 
         let activeEmotionTab = 'danmaku';
         let pendingEmotionPhoto = '';
+        let emotionStickerListPromise = null;
+        let pendingEmotionSticker = '';
 
         function sendEmotionAction() {
             if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'sticker') sendEmotionSticker();
             else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function loadEmotionStickers() {
+            if (emotionStickerListPromise) return;
+            const grid = document.getElementById('emotion-sticker-grid');
+            const status = document.getElementById('emotion-sticker-status');
+            emotionStickerListPromise = fetch('/api/stickers')
+                .then((response) => response.ok ? response.json() : Promise.reject(new Error('貼圖清單載入失敗')))
+                .then((stickers) => {
+                    grid.replaceChildren();
+                    stickers.forEach((filename) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'btn sticker-option';
+                        button.setAttribute('aria-label', `選擇貼圖 ${filename}`);
+                        button.setAttribute('aria-pressed', 'false');
+                        const image = document.createElement('img');
+                        image.src = `/static/stickers/${encodeURIComponent(filename)}`;
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        button.appendChild(image);
+                        button.addEventListener('click', () => selectEmotionSticker(filename, button));
+                        grid.appendChild(button);
+                    });
+                    status.textContent = stickers.length ? `選擇一張貼圖（${stickers.length} 張）` : '目前沒有可用貼圖。';
+                })
+                .catch((error) => {
+                    emotionStickerListPromise = null;
+                    status.textContent = error.message;
+                });
+        }
+
+        function selectEmotionSticker(filename, selectedButton) {
+            pendingEmotionSticker = filename;
+            document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                const selected = button === selectedButton;
+                button.classList.toggle('selected', selected);
+                button.setAttribute('aria-pressed', String(selected));
+            });
+            const preview = document.getElementById('emotion-sticker-preview');
+            preview.src = `/static/stickers/${encodeURIComponent(filename)}`;
+            preview.style.display = 'block';
+            document.getElementById('emotion-sticker-status').textContent = filename;
+        }
+
+        function sendEmotionSticker() {
+            if (!pendingEmotionSticker) {
+                document.getElementById('emotion-sticker-status').textContent = '請先選擇貼圖。';
+                return;
+            }
+            socket.emit('sticker_submit', { filename: pendingEmotionSticker }, (result) => {
+                const status = document.getElementById('emotion-sticker-status');
+                if (!result || !result.success) {
+                    status.textContent = result && result.error ? result.error : '貼圖發送失敗。';
+                    return;
+                }
+                status.textContent = `已送出：${pendingEmotionSticker}`;
+                pendingEmotionSticker = '';
+                document.getElementById('emotion-sticker-preview').style.display = 'none';
+                document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                    button.classList.remove('selected');
+                    button.setAttribute('aria-pressed', 'false');
+                });
+            });
         }
 
         function prepareEmotionPhoto(event) {
@@ -467,6 +1379,10 @@
             image.src = URL.createObjectURL(file);
         }
 
+        /** Opens either the photo library or the rear camera from its dedicated file input. */
+        function chooseEmotionPhotoUpload() { document.getElementById('emotion-photo-upload-input').click(); }
+        function openEmotionCamera() { document.getElementById('emotion-photo-camera-input').click(); }
+
         function sendEmotionPhoto() {
             if (!pendingEmotionPhoto) return;
             socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
@@ -481,9 +1397,11 @@
 
         function clearEmotionPhoto() {
             pendingEmotionPhoto = '';
-            const input = document.getElementById('emotion-photo-input');
+            const uploadInput = document.getElementById('emotion-photo-upload-input');
+            const cameraInput = document.getElementById('emotion-photo-camera-input');
             const preview = document.getElementById('emotion-photo-preview');
-            input.value = '';
+            uploadInput.value = '';
+            cameraInput.value = '';
             preview.removeAttribute('src');
             preview.style.display = 'none';
         }
@@ -550,8 +1468,12 @@
 
         // --- 歌單與基本控制 ---
         socket.on('update_list', (songs) => {
-            allSongs = songs;
+            setSongList(songs);
             renderCategoryFilters();
+            filter();
+        });
+        socket.on('song_play_counts', (counts) => {
+            songPlayCounts = counts && typeof counts === 'object' ? counts : {};
             filter();
         });
 
@@ -574,9 +1496,18 @@
         function parseSongMetadata(filename) {
             const name = filename.replace(/\.mp4$/i, '');
             const parts = name.split('-');
-            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識', code: null, affiliation: '未標記' };
             const title = parts[0];
-            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+            const code = /^\d+$/.test(parts[3] || '') ? Number(parts[3]) : null;
+            const affiliation = parts.length > 4 ? parts.slice(4).join('-') : '未標記';
+            return {
+                title,
+                singer: parts[1] || '未辨識',
+                language: parts[2] || '未辨識',
+                length: String(Array.from(title).length),
+                code,
+                affiliation,
+            };
         }
 
         /**
@@ -585,8 +1516,7 @@
          * @returns {number|null} Numeric song code, or null when unavailable.
          */
         function getSongCode(filename) {
-            const match = filename.match(/(\d+)(?:\.mp4)?$/i);
-            return match ? Number(match[1]) : null;
+            return parseSongMetadata(filename).code;
         }
 
         /**
@@ -604,22 +1534,115 @@
             return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
         }
 
-        /**
-         * Rebuilds category selectors from the currently loaded song list.
-         */
+        /** Returns the language filter required by the active language sort mode. */
+        function getSongSortLanguage() {
+            return songSortModeIndex === 3 ? '國' : songSortModeIndex === 4 ? '台' : '';
+        }
+
+        /** Keeps the visible language selector aligned with the active sort mode. */
+        function setSongSortLanguage(language) {
+            const languageFilter = document.getElementById('language-filter');
+            if (language && ![...languageFilter.options].some((option) => option.value === language)) {
+                const option = document.createElement('option');
+                option.value = language;
+                option.textContent = language;
+                languageFilter.appendChild(option);
+            }
+            languageFilter.value = language;
+        }
+
+        /** Sorts visible songs by playback starts or by the existing reverse song-code rule. */
+        function sortSongEntries(songs) {
+            return [...songs].sort((firstSong, secondSong) => {
+                if (songSortModeIndex === 0) return compareSongCodeDescending(firstSong.filename, secondSong.filename);
+                const firstPlayCount = Number(songPlayCounts[firstSong.filename]) || 0;
+                const secondPlayCount = Number(songPlayCounts[secondSong.filename]) || 0;
+                const playCountDifference = songSortModeIndex === 2
+                    ? firstPlayCount - secondPlayCount
+                    : secondPlayCount - firstPlayCount;
+                return playCountDifference || compareSongCodeDescending(firstSong.filename, secondSong.filename);
+            });
+        }
+
+        /** Cycles five sort modes and applies the language selector when needed. */
+        function cycleSongSortMode() {
+            const previousLanguage = getSongSortLanguage();
+            songSortModeIndex = (songSortModeIndex + 1) % 5;
+            if (previousLanguage && document.getElementById('language-filter').value === previousLanguage) {
+                setSongSortLanguage('');
+            }
+            const nextLanguage = getSongSortLanguage();
+            if (nextLanguage) setSongSortLanguage(nextLanguage);
+            document.getElementById('song-sort-mode').textContent = ['新歌', '熱門', '冷門', '國語', '台語'][songSortModeIndex];
+            renderCategoryFilters();
+            filter();
+        }
+
+        function setSongList(songs) {
+            allSongs = Array.isArray(songs) ? songs : [];
+            sortedSongMetadata = allSongs.map((filename) => ({ filename, metadata: parseSongMetadata(filename) }))
+                .sort((firstSong, secondSong) => compareSongCodeDescending(firstSong.filename, secondSong.filename));
+        }
+
+        /** Rebuilds each category from search results matching every other selected category. */
         function renderCategoryFilters() {
             const lengthFilter = document.getElementById('song-length-filter');
             const singerFilter = document.getElementById('singer-filter');
             const languageFilter = document.getElementById('language-filter');
-            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
-            const metadata = allSongs.map(parseSongMetadata);
-            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
-            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliationFilter = document.getElementById('affiliation-filter');
+            const affiliationOptions = document.getElementById('affiliation-filter-options');
+            const affiliationSummary = affiliationFilter.querySelector('summary');
+            const selectedAffiliations = getSelectedAffiliations();
+            const filters = [lengthFilter, singerFilter, languageFilter];
+            const previous = filters.map((filterElement) => filterElement.value);
+            const fields = ['length', 'singer', 'language', 'affiliation'];
+            const query = document.getElementById('search').value.toLowerCase();
+            const matchingSongs = sortedSongMetadata.filter(({ filename }) => filename.toLowerCase().includes(query));
+            const valuesForFilter = (filterIndex) => [...new Set(matchingSongs
+                .filter(({ metadata }) => previous.every((value, index) => index === filterIndex || !value || metadata[fields[index]] === value)
+                    && (filterIndex === 3 || !selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation)))
+                .map(({ metadata }) => metadata[fields[filterIndex]]))];
+            const lengths = valuesForFilter(0).sort((a, b) => Number(a) - Number(b));
+            const singers = valuesForFilter(1).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = valuesForFilter(2);
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && !languages.includes(sortLanguage)) languages.push(sortLanguage);
+            languages.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliations = valuesForFilter(3).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const availableAffiliations = new Set(affiliations);
+            const validSelections = new Set([...selectedAffiliations].filter(value => availableAffiliations.has(value)));
             lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
             singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
             languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
-            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            filters.forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            affiliationOptions.replaceChildren();
+            affiliations.forEach((value) => {
+                const label = document.createElement('label');
+                label.className = 'category-multi-option';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = value;
+                checkbox.checked = validSelections.has(value);
+                checkbox.addEventListener('change', handleCategoryChange);
+                const text = document.createElement('span');
+                text.textContent = value;
+                label.append(checkbox, text);
+                affiliationOptions.appendChild(label);
+            });
+            affiliationSummary.textContent = validSelections.size ? `歸屬：${validSelections.size} 項` : '歸屬：全部';
+            if (filters.some((filterElement, index) => filterElement.value !== previous[index]) || validSelections.size !== selectedAffiliations.size) {
+                renderCategoryFilters();
+            }
+        }
+
+        /** 取得目前勾選的歌曲歸屬分類。 */
+        function getSelectedAffiliations() {
+            return new Set([...document.querySelectorAll('#affiliation-filter-options input:checked')].map(input => input.value));
+        }
+
+        /** 清除已選歸屬，供搜尋與清除篩選時重設。 */
+        function clearSelectedAffiliations() {
+            document.querySelectorAll('#affiliation-filter-options input').forEach(input => { input.checked = false; });
         }
 
         /**
@@ -627,15 +1650,44 @@
          */
         function renderCurrentSongControl() {
             const control = document.getElementById('current-song-control');
-            const name = document.getElementById('current-song-name');
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             const shouldShow = hasSong && hasSubtitle;
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
-            name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
+            const subtitleLabel = subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
+            button.textContent = `字幕：${subtitleLabel}`;
+            renderSubtitleStyleButton();
+        }
+
+        /** Show the active background or shadow mode and cycle between them. */
+        function renderSubtitleStyleButton() {
+            const button = document.getElementById('subtitle-style-button');
+            const label = subtitleStyleLabels[currentSubtitleStyleMode] || subtitleStyleLabels[0];
+            button.textContent = `${label}`;
+            button.setAttribute('aria-label', `字幕：${label}，按一下切換`);
+        }
+
+        /** Cycle through the four exclusive modes and let the server synchronize playback clients. */
+        function cycleSubtitleStyleMode() {
+            socket.emit('set_subtitle_style_mode', { mode: (currentSubtitleStyleMode + 1) % subtitleStyleLabels.length });
+        }
+
+        /** Show the vocal slider only for a marked vocal-stem song in guide mode. */
+        function renderGuideVocalControl() {
+            const control = document.getElementById('guide-vocal-control');
+            const slider = document.getElementById('guide-vocal-level');
+            document.getElementById('guide-vocal-level-label').textContent = `${currentVocalLevel}%`;
+            slider.value = String(currentVocalLevel);
+            control.style.display = currentTrackMode === 'guide' && guideVocalControlSupported ? 'block' : 'none';
+        }
+
+        /** Send the bounded vocal-only percentage to the server for synchronized playback. */
+        function updateGuideVocalLevel(value) {
+            currentVocalLevel = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+            renderGuideVocalControl();
+            socket.emit('change_vocal_level', { level: currentVocalLevel });
         }
 
         /**
@@ -644,16 +1696,18 @@
          */
         function updateCurrentSong(data) {
             currentPlayingFilename = data.filename || '';
+            guideVocalControlSupported = Boolean(data.guide_vocal_control);
             if (!currentPlayingFilename) {
                 currentPlaylist = [];
                 renderQueue([]);
             }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
+            currentSubtitleMode = hasSubtitle ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             updateSeekOffset(Number(data.seek_offset) || 0);
             renderCurrentSongControl();
             renderSubtitleFontSizeControl();
+            renderGuideVocalControl();
         }
 
         /**
@@ -661,7 +1715,8 @@
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                toggleSubtitle(currentPlayingFilename);
+                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }
 
@@ -693,11 +1748,33 @@
 
         socket.on('current_song', updateCurrentSong);
 
+        socket.on('subtitle_style_mode', (data) => {
+            const mode = Number(data && data.mode);
+            if (!Number.isInteger(mode) || mode < 0 || mode >= subtitleStyleLabels.length) return;
+            currentSubtitleStyleMode = mode;
+            renderSubtitleStyleButton();
+        });
+
+        socket.on('set_audio', (data) => {
+            if (!data || typeof data !== 'object') return;
+            currentTrackMode = data.mode || currentTrackMode;
+            if (typeof data.guide_vocal_control === 'boolean') guideVocalControlSupported = data.guide_vocal_control;
+            if (Number.isFinite(Number(data.vocal_level))) currentVocalLevel = Number(data.vocal_level);
+            renderGuideVocalControl();
+        });
+
+        socket.on('set_vocal_level', (data) => {
+            if (Number.isFinite(Number(data && data.level))) currentVocalLevel = Number(data.level);
+            renderGuideVocalControl();
+        });
+
         socket.on('stop_video', () => {
             currentPlayingFilename = '';
+            guideVocalControlSupported = false;
             currentPlaylist = [];
             renderQueue([]);
             renderCurrentSongControl();
+            renderGuideVocalControl();
         });
 
         /**
@@ -738,7 +1815,7 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
+                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
                 currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                 renderSubtitleFontSizeControl();
                 renderCurrentSongControl();
@@ -748,21 +1825,43 @@
         /** Clears all four song filtering methods and restores the full list. */
         function clearFilters() {
             document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            const filtersToClear = ['song-length-filter', 'singer-filter'];
+            if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+            filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+            clearSelectedAffiliations();
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears category filters when the free-text search is used. */
+        /** Resets all category filters while a non-empty search query is entered. */
         function handleSearchInput() {
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            if (document.getElementById('search').value) {
+                const filtersToClear = ['song-length-filter', 'singer-filter'];
+                if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+                filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+                clearSelectedAffiliations();
+            }
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears search and other categories when one category is selected. @param {string} selectedId Selected filter id. */
-        function handleCategoryChange(selectedId) {
-            document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { if (id !== selectedId) document.getElementById(id).value = ''; });
+        /** Applies category changes without clearing other categories or the search query. */
+        function handleCategoryChange() {
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && document.getElementById('language-filter').value !== sortLanguage) {
+                songSortModeIndex = 1;
+                document.getElementById('song-sort-mode').textContent = '熱門';
+            }
+            renderCategoryFilters();
             filter();
+        }
+
+        function songAudioExceptionLabel(filename) {
+            const exception = songAudioExceptions[filename];
+            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
+            if (!exception || !Number.isFinite(measuredPeak)) return '';
+            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
+            return `<span class="song-audio-exception">⚠ c4 TP ${peakText}</span>`;
         }
 
         function filter() {
@@ -770,31 +1869,33 @@
             const selectedLength = document.getElementById('song-length-filter').value;
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
+            const selectedAffiliations = getSelectedAffiliations();
             const list = document.getElementById('list');
-            list.innerHTML = "";
-            
-            allSongs.slice().sort(compareSongCodeDescending).filter(s => {
-                const metadata = parseSongMetadata(s);
-                return s.toLowerCase().includes(key)
+            const matchingSongs = sortedSongMetadata.filter(({ filename, metadata }) => {
+                return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
-                    && (!selectedLanguage || metadata.language === selectedLanguage);
-            }).forEach(s => {
+                    && (!selectedLanguage || metadata.language === selectedLanguage)
+                    && (!selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation));
+            });
+            const rows = sortSongEntries(matchingSongs).map(({ filename: s }) => {
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
                 const queueIndex = currentPlaylist.indexOf(s);
                 const isQueued = queueIndex !== -1;
                 const isPlaying = queueIndex === 0;
                 const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
+                const exceptionLabel = songAudioExceptionLabel(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
-                list.innerHTML += `
+                return `
                     <li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;">${statusLabel}${s}</span>
+                        <span class="song-main"><span class="song-name">${statusLabel}${s}</span>${exceptionLabel}</span>
                         <span>${subtitleButton}${playButton}</span>
                     </li>`;
             });
+            list.innerHTML = rows.join('');
         }
 
         /**
@@ -809,7 +1910,7 @@
             button.classList.add('added');
             button.textContent = '已加入';
             button.closest('li').classList.add('song-added');
-            socket.emit('add_to_queue', {filename: filename});
+            socket.emit('add_to_queue', { filename: filename });
             setTimeout(() => {
                 pendingSongs.delete(filename);
                 filter();
@@ -831,25 +1932,29 @@
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
+        /** 向目前播放歌曲送出 10 秒跳轉，不修改畫面延遲校正值。 */
+        function seekSong(seconds) {
+            if (seekCorrectionEnabled || (seconds !== -10 && seconds !== 10)) return;
+            socket.emit('seek_song', { seconds });
+        }
+
         /**
          * Inserts the currently playing song as the next queued song.
          */
         function replayCurrentSong() { socket.emit('replay_current_song'); }
 
-        /**
-         * Requests the player to toggle subtitles for a song with an attached file.
-         * @param {string} filename Song filename used by the player.
-         */
-        function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
-
         function loadList() {
-            fetch('/api/list').then(r => r.json()).then(data => {
-                allSongs = data;
+            fetch('/api/list').then(r => r.json()).then((songs) => {
+                setSongList(songs);
                 renderCategoryFilters();
                 filter();
+                fetch('/api/song-audio-exceptions').then(r => r.json()).then((exceptions) => {
+                    songAudioExceptions = exceptions && typeof exceptions === 'object' ? exceptions : {};
+                    filter();
+                }).catch(() => { songAudioExceptions = {}; });
             });
         }
-        
+
         loadList();
         loadSubtitleList();
         // 監聽後台更新完畢事件，自動重整歌單
@@ -868,11 +1973,11 @@
             } else {
                 currentKey += step;
             }
-            
+
             // 限制最多升降 12 個半音 (一個八度)
-            if(currentKey > 12) currentKey = 12;
-            if(currentKey < -12) currentKey = -12;
-            
+            if (currentKey > 12) currentKey = 12;
+            if (currentKey < -12) currentKey = -12;
+
             socket.emit('control_effect', { pitch: currentKey });
         }
 
@@ -896,9 +2001,14 @@
             seekCorrectionEnabled = Boolean(enabled);
             // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
             document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
+            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
+            });
+            document.querySelectorAll('.song-seek-control').forEach((button) => {
+                button.disabled = seekCorrectionEnabled;
+                button.style.opacity = seekCorrectionEnabled ? '0.45' : '1';
             });
             document.getElementById('seek-val').innerText = seekCorrectionEnabled
                 ? (seekOffset === 0 ? '0 秒' : `${seekOffset.toFixed(1)} 秒`)
@@ -934,4 +2044,5 @@
         });
     </script>
 </body>
+
 </html>

@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
-$ReleaseVersion = "v1.1.0.2"
+$ReleaseVersion = "v1.1.1.3"
 $AppName = "ianAutoKTV_Server"
 $DistRoot = Join-Path $ProjectDir "dist"
 $BuildDir = Join-Path $DistRoot "ianAutoKTV_Server"
@@ -14,10 +14,16 @@ $TempDistRoot = Join-Path $DistRoot "_update_build"
 $TempBuildDir = Join-Path $TempDistRoot "ianAutoKTV_Server"
 $UpdateDir = Join-Path $DistRoot "ianAutoKTV_Update_$ReleaseVersion"
 $YtDlp = Join-Path $ProjectDir "yt-dlp.exe"
+$StaticDir = Join-Path $ProjectDir "static"
+
+if (-not (Test-Path $StaticDir)) {
+    throw "Static directory not found: $StaticDir"
+}
 
 Remove-Item $UpdateDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $UpdateDir -ItemType Directory -Force | Out-Null
 Copy-Item (Join-Path $ProjectDir "templates") $UpdateDir -Recurse -Force
+Copy-Item $StaticDir $UpdateDir -Recurse -Force
 Copy-Item (Join-Path $ProjectDir "optimize_existing_video.ps1") $UpdateDir -Force
 
 if (-not $FrontendOnly) {
@@ -53,7 +59,7 @@ Remove-Item $TempDistRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Update package ready: $UpdateDir" -ForegroundColor Green
 if ($FrontendOnly) {
-    Write-Host "Frontend-only update: copy templates and VERSION.txt over the existing installation." -ForegroundColor Green
+    Write-Host "Frontend-only update: copy templates, the complete static folder, and VERSION.txt over the existing installation." -ForegroundColor Green
 } else {
     Write-Host "Full update: copy all files over an existing installation after closing the server." -ForegroundColor Green
 }

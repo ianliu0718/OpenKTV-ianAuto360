@@ -28,16 +28,45 @@
         @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
         #photo-overlay { position: absolute; inset: 0; z-index: 17; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
         #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
+        #photo-overlay .sticker-item { max-width: min(42vw, 360px); max-height: 45%; object-fit: contain; animation: photo-pop 5s ease-in-out forwards; }
         @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
-        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line:not(:first-child) { display: none; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line:first-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line { min-height: 1.2em; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line { width: 50%; max-width: 50%; min-height: 1.2em; flex: 0 0 50%; white-space: nowrap; font-family: "Arial Rounded MT Bold", "Microsoft JhengHei", sans-serif; font-weight: 900; letter-spacing: .02em; -webkit-text-stroke: 2px #101820; paint-order: stroke fill; text-shadow: 0 4px 8px rgba(0,0,0,.8); }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:first-child,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:first-child { align-self: flex-start; text-align: right; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:nth-child(2),
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line .subtitle-text-layer { width: max-content; white-space: nowrap; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:first-child .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:first-child .subtitle-text-layer { margin-left: auto; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:nth-child(2) .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:nth-child(2) .subtitle-text-layer { margin-right: auto; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line { color: #fff; }
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-base-layer { color: #fff; }
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-highlight-layer { position: absolute; inset: 0; overflow: hidden; color: #ffe66d; clip-path: inset(0 calc(100% - var(--subtitle-progress, 0%)) 0 0); }
+        #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-highlight-layer { top: .08em; right: auto; bottom: auto; left: .3em; margin: 0; }
+        #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-line:first-child .subtitle-highlight-layer { right: .3em; left: auto; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: flex-start; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .plain-lyrics-track { display: flex; flex: 0 0 auto; flex-direction: column; width: 100%; }
         #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:not(:first-child) { display: flex; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:first-child { align-self: stretch; max-width: none; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-text-layer { white-space: nowrap; }
+        /* Subtitle style classes are mutually exclusive; background covers lines or the plain-lyrics panel. */
+        #ktv-subtitle.subtitle-style-background:not(.plain-lyrics-mode) .subtitle-line { box-decoration-break: clone; padding: .08em .3em; border-radius: 4px; background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-background.plain-lyrics-mode { background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-shadow { text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -97,7 +126,7 @@
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
+        let audioCtx, source, splitter, audioGains, legacyStereoGains, merger, guideMixGain, legacyGuideGain, instrumentalModeGain, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -108,12 +137,20 @@
         let currentVolume = 1;
         let currentKey = 0;
         let currentFilename = '';
+        let currentSubtitleMode = 0;
+        let subtitleHighlightFrame = 0;
+        let plainLyricsScrollFrame = 0;
+        let renderedSubtitleSlotIndex = -1;
+        let renderedSubtitleActiveLineIndex = 0;
+        let currentSubtitleStyleMode = 0;
         let currentLoudness = null;
         let liveLoudness = null;
         let liveLoudnessTimer = null;
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let guideVocalControlSupported = false;
+        let currentVocalLevel = 50;
         let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -226,6 +263,17 @@
             photo.alt = '現場照片';
             photo.addEventListener('animationend', () => photo.remove(), { once: true });
             photoOverlay.appendChild(photo);
+        }
+
+        function showSticker(data) {
+            const filename = String(data && data.filename || '');
+            if (!filename || filename !== filename.split(/[\\/]/).pop() || !/\.(gif|webp|png)$/i.test(filename)) return;
+            const sticker = document.createElement('img');
+            sticker.className = 'sticker-item';
+            sticker.src = `/static/stickers/${encodeURIComponent(filename)}`;
+            sticker.alt = '情緒貼圖';
+            sticker.addEventListener('animationend', () => sticker.remove(), { once: true });
+            photoOverlay.appendChild(sticker);
         }
 
         async function playSoundEffect(effect) {
@@ -344,13 +392,14 @@
          * @param {string} filename Current MP4 filename.
          * @param {boolean} visible Whether subtitles should be visible.
          */
-        function setSubtitle(filename, visible) {
+        function setSubtitle(filename, mode) {
             const nextTrack = subtitleTrack.cloneNode(false);
             subtitleTrack.replaceWith(nextTrack);
             subtitleTrack = nextTrack;
             subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
             currentFilename = filename;
-            if (!filename || !visible) {
+            applySubtitleMode(mode);
+            if (!filename || !mode) {
                 subtitleTrack.src = '';
                 subtitleTrack.track.mode = 'disabled';
                 ktvSubtitle.style.display = 'none';
@@ -374,7 +423,33 @@
             const size = Number(fontSize);
             if (!Number.isFinite(size) || size < 80 || size > 200) return;
             ktvSubtitle.style.setProperty('--subtitle-scale', String(size / 100));
-            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode') || currentSubtitleMode >= 3) renderKtvSubtitle();
+        }
+
+        /** Applies the shared hidden, single-line, double-line, or gradient mode. */
+        function applySubtitleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 4) return;
+            currentSubtitleMode = value;
+            const modeClasses = ['subtitle-mode-general', 'subtitle-mode-single', 'subtitle-mode-double', 'subtitle-mode-gradient'];
+            ktvSubtitle.classList.remove(...modeClasses);
+            if (value > 0) ktvSubtitle.classList.add(modeClasses[value - 1]);
+            if (value === 4) requestSubtitleHighlightProgress();
+            else if (subtitleHighlightFrame) {
+                cancelAnimationFrame(subtitleHighlightFrame);
+                subtitleHighlightFrame = 0;
+            }
+            if (ktvSubtitle.style.display !== 'none') renderKtvSubtitle();
+        }
+
+        /** Applies the selected background or shadow mode to the subtitle root. */
+        function applySubtitleStyleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 1) return;
+            currentSubtitleStyleMode = value;
+            const styleClasses = ['subtitle-style-background', 'subtitle-style-shadow'];
+            ktvSubtitle.classList.remove(...styleClasses);
+            ktvSubtitle.classList.add(styleClasses[value]);
         }
 
         /**
@@ -382,9 +457,9 @@
          * @param {string} text Subtitle line text.
          * @returns {HTMLSpanElement} Rendered subtitle text layer.
          */
-        function createSubtitleTextLayer(text) {
+        function createSubtitleTextLayer(text, layerClass = '') {
             const layer = document.createElement('span');
-            layer.className = 'subtitle-text-layer';
+            layer.className = ['subtitle-text-layer', layerClass].filter(Boolean).join(' ');
             Array.from(text).forEach((character, index) => {
                 const characterElement = document.createElement('span');
                 characterElement.className = 'subtitle-char';
@@ -395,50 +470,273 @@
             return layer;
         }
 
+        function getSubtitleTextLines(text) {
+            return String(text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
+        }
+
+        function getSubtitleSlots() {
+            const cues = subtitleTrack.track.cues;
+            if (!cues) return [];
+            const slots = [];
+            for (let index = 0; index < cues.length; index += 1) {
+                const cue = cues[index];
+                const plainLyrics = String(cue.id || '').startsWith('PLAIN_LYRICS_');
+                slots.push({ cue, text: getSubtitleTextLines(cue.text).join(plainLyrics ? '\n' : ' '), startTime: cue.startTime, endTime: cue.endTime });
+                const nextCue = cues[index + 1];
+                if (nextCue && nextCue.startTime > cue.endTime + 0.05) {
+                    slots.push({ cue: null, text: '', startTime: cue.endTime, endTime: nextCue.startTime });
+                }
+            }
+            return slots.map((slot, index) => ({ ...slot, index }));
+        }
+
+        function getSubtitleCueIndex(currentCue) {
+            return getSubtitleSlots().find((slot) => slot.cue === currentCue)?.index ?? -1;
+        }
+
+        function createSubtitleLineElement(text, progress = 0) {
+            const lineElement = document.createElement('span');
+            lineElement.className = 'subtitle-line';
+            if (currentSubtitleMode === 4) {
+                lineElement.style.setProperty('--subtitle-progress', `${Math.round(progress * 100)}%`);
+                lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-base-layer'));
+                lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-highlight-layer'));
+            } else {
+                lineElement.appendChild(createSubtitleTextLayer(text));
+            }
+            return lineElement;
+        }
+
+        function fitSubtitleLineAnchors() {
+            if (currentSubtitleMode < 3 || ktvSubtitle.classList.contains('plain-lyrics-mode')) return;
+            const containerWidth = ktvSubtitle.clientWidth;
+            const halfWidth = containerWidth / 2;
+            Array.from(ktvSubtitle.querySelectorAll('.subtitle-line')).slice(0, 2).forEach((lineElement) => {
+                const textLayer = lineElement.querySelector('.subtitle-base-layer, .subtitle-text-layer');
+                const textWidth = textLayer ? textLayer.scrollWidth : lineElement.scrollWidth;
+                const availableWidth = Math.max(1, containerWidth - 12);
+                const fontScale = textWidth > availableWidth ? availableWidth / textWidth : 1;
+                lineElement.style.fontSize = `${fontScale}em`;
+                const fittedTextWidth = textWidth * fontScale;
+                const lineWidth = Math.min(containerWidth, Math.max(halfWidth, fittedTextWidth));
+                lineElement.style.width = `${lineWidth}px`;
+                lineElement.style.maxWidth = 'none';
+                lineElement.style.flex = '0 0 auto';
+            });
+        }
+
+        function requestSubtitleHighlightProgress() {
+            if (!subtitleHighlightFrame) subtitleHighlightFrame = requestAnimationFrame(updateSubtitleHighlightProgress);
+        }
+
+        function requestPlainLyricsScroll() {
+            if (!plainLyricsScrollFrame) plainLyricsScrollFrame = requestAnimationFrame(updatePlainLyricsScroll);
+        }
+
+        function updatePlainLyricsScroll() {
+            plainLyricsScrollFrame = 0;
+            const state = ktvSubtitle._plainLyricsState;
+            const track = ktvSubtitle.querySelector('.plain-lyrics-track');
+            if (!state || !track) return;
+            const duration = state.scrollEndTime - state.scrollStartTime;
+            const progress = state.hasNextLine && duration > 0
+                ? Math.max(0, Math.min(1, (video.currentTime - state.scrollStartTime) / duration))
+                : 0;
+            track.style.transform = `translate3d(0, ${-state.lineHeight * progress}px, 0)`;
+            if (!video.paused && !video.ended) requestPlainLyricsScroll();
+        }
+
+        function syncSubtitleSlotAtCurrentTime() {
+            if (currentSubtitleMode < 3 || ktvSubtitle.style.display === 'none') return;
+            const activeCues = subtitleTrack.track.activeCues;
+            const currentCue = activeCues && activeCues[0];
+            const slots = getSubtitleSlots();
+            const currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if ((currentSlot?.index ?? -1) !== renderedSubtitleSlotIndex) renderKtvSubtitle();
+            if (currentSubtitleMode === 4) requestSubtitleHighlightProgress();
+        }
+
+        function updateSubtitleHighlightProgress() {
+            subtitleHighlightFrame = 0;
+            if (currentSubtitleMode !== 4 || ktvSubtitle.style.display === 'none') return;
+            const activeCues = subtitleTrack.track.activeCues;
+            const currentCue = activeCues && activeCues[0];
+            if (!currentCue) return;
+            const slots = getSubtitleSlots();
+            const currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if ((currentSlot?.index ?? -1) !== renderedSubtitleSlotIndex) {
+                renderKtvSubtitle();
+                return;
+            }
+            const cueIndex = currentCue ? getSubtitleCueIndex(currentCue) : -1;
+            const activeLine = ktvSubtitle.querySelectorAll('.subtitle-line')[renderedSubtitleActiveLineIndex];
+            if (currentCue && activeLine) {
+                const duration = currentCue.endTime - currentCue.startTime;
+                const progress = duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentCue.startTime) / duration)) : 0;
+                activeLine.style.setProperty('--subtitle-progress', `${progress * 100}%`);
+            }
+            requestSubtitleHighlightProgress();
+        }
+
         /**
          * Renders the active VTT cue as either a sliding plain-lyrics window or two KTV lines.
          */
         function renderKtvSubtitle() {
             const activeCues = subtitleTrack.track.activeCues;
-            if (!activeCues || !activeCues.length) {
+            const slots = getSubtitleSlots();
+            const currentCue = activeCues && activeCues[0];
+            let currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if (!currentSlot && currentSubtitleMode > 0 && slots.length) {
+                currentSlot = { cue: null, text: '', startTime: video.currentTime, endTime: video.currentTime, index: -1 };
+            }
+            if (!currentSlot) {
+                renderedSubtitleSlotIndex = -1;
+                renderedSubtitleActiveLineIndex = 0;
                 ktvSubtitle.replaceChildren();
                 ktvSubtitle.classList.remove('plain-lyrics-mode');
-                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
-                return;
-            }
-            const plainLyrics = activeCues[0].id.startsWith('PLAIN_LYRICS_');
-            const lines = String(activeCues[0].text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
-            if (!plainLyrics) lines.splice(2);
-            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
-            if (!plainLyrics) {
-                ktvSubtitle.replaceChildren(...lines.map(line => {
-                    const lineElement = document.createElement('span');
-                    lineElement.className = 'subtitle-line';
-                    lineElement.appendChild(createSubtitleTextLayer(line));
-                    return lineElement;
-                }));
                 ktvSubtitle._plainLyricsState = null;
                 ktvSubtitle.style.removeProperty('--plain-lyrics-width');
                 return;
             }
-            ktvSubtitle.replaceChildren(...lines.map(line => {
-                const lineElement = document.createElement('span');
-                lineElement.className = 'subtitle-line';
-                lineElement.appendChild(createSubtitleTextLayer(line));
-                return lineElement;
-            }));
+            renderedSubtitleSlotIndex = currentSlot.index;
+            const plainLyrics = Boolean(currentCue && currentCue.id.startsWith('PLAIN_LYRICS_'));
+            const currentLines = getSubtitleTextLines(currentSlot.text);
+            if (currentSubtitleMode === 1) {
+                renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, plainLyrics && currentLines.length > 1);
+                return;
+            }
+            let displayLines = currentSubtitleMode === 2 ? currentLines.slice(0, 1) : currentLines.slice();
+            let activeLineIndex = 0;
+            let currentProgress = 0;
+            if (!currentCue || !currentLines.length) {
+                displayLines = currentSubtitleMode === 2 ? [''] : ['', ''];
+            } else if (plainLyrics && currentLines.length > 1 && currentSubtitleMode >= 3) {
+                displayLines = currentLines.slice(0, 2);
+                const duration = currentSlot.endTime - currentSlot.startTime;
+                currentProgress = duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
+            } else if (currentSubtitleMode >= 3) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextText = nextSlot ? nextSlot.text : '';
+                const currentText = currentLines.join(' ');
+                const previousSlot = slots[currentSlot.index - 1];
+                if (previousSlot && !previousSlot.cue) {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                    activeLineIndex = 0;
+                } else if (nextSlot && !nextSlot.cue) {
+                    displayLines = [currentText, ''];
+                    activeLineIndex = 0;
+                } else if (currentSlot.index % 2 === 1) {
+                    displayLines = nextText ? [nextText, currentText] : [currentText];
+                    activeLineIndex = nextText ? 1 : 0;
+                } else {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                    activeLineIndex = 0;
+                }
+                const duration = currentSlot.endTime - currentSlot.startTime;
+                currentProgress = currentSlot.cue && duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
+            }
+            renderedSubtitleActiveLineIndex = activeLineIndex;
+            displayLines.splice(2);
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle.replaceChildren(...displayLines.map((line, index) => createSubtitleLineElement(line, index === activeLineIndex ? currentProgress : 0)));
+            fitSubtitleLineAnchors();
+            ktvSubtitle._plainLyricsState = null;
+            ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+        }
+
+        /** Builds the general-mode twelve-line window from per-line cues or legacy rolling cues. */
+        function renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, legacyWindow) {
+            let trackLines;
+            let hasNextLine = false;
+            let nextCueDuration = 0;
+            if (legacyWindow) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextLines = nextSlot && nextSlot.cue && String(nextSlot.cue.id || '').startsWith('PLAIN_LYRICS_')
+                    ? getSubtitleTextLines(nextSlot.text)
+                    : [];
+                hasNextLine = nextLines.length === currentLines.length && currentLines.length > 0
+                    && currentLines.slice(1).every((line, index) => line === nextLines[index]);
+                trackLines = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+                nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+            } else {
+                const lyricSlots = slots.slice();
+                if (!lyricSlots.includes(currentSlot)) {
+                    const insertionIndex = lyricSlots.findIndex((slot) => slot.startTime > currentSlot.startTime);
+                    lyricSlots.splice(insertionIndex < 0 ? lyricSlots.length : insertionIndex, 0, currentSlot);
+                }
+                const lyricLines = lyricSlots.flatMap((slot) => {
+                    const lines = slot.cue ? getSubtitleTextLines(slot.text) : [];
+                    return lines.length ? lines.map((text) => ({ slot, text })) : [{ slot, text: '' }];
+                });
+                const currentIndex = Math.max(0, lyricLines.findIndex((line) => line.slot === currentSlot));
+                const leadingRows = Math.max(0, 6 - currentIndex);
+                const windowStart = Math.max(0, currentIndex - 6);
+                const visibleLines = lyricLines.slice(windowStart, windowStart + 13 - leadingRows);
+                hasNextLine = currentIndex < lyricLines.length - 1;
+                trackLines = [...Array(leadingRows).fill(''), ...visibleLines.map((line) => line.text)];
+                const nextLineSlot = lyricLines[currentIndex + 1]?.slot;
+                nextCueDuration = nextLineSlot ? nextLineSlot.endTime - nextLineSlot.startTime : 0;
+            }
+            const scrollStartTime = currentSlot.startTime === 0 && hasNextLine
+                ? Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration)
+                : currentSlot.startTime;
+            ktvSubtitle.classList.add('plain-lyrics-mode');
+            const rowCount = Math.max(12, trackLines.length);
+            const track = document.createElement('div');
+            track.className = 'plain-lyrics-track';
+            track.style.height = `${rowCount / 12 * 100}%`;
+            trackLines.forEach((line) => {
+                const lineElement = createSubtitleLineElement(line);
+                lineElement.style.flex = `0 0 ${100 / rowCount}%`;
+                track.appendChild(lineElement);
+            });
+            ktvSubtitle.replaceChildren(track);
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             context.font = getComputedStyle(ktvSubtitle).font;
-            const longestLine = Math.max(...lines.map(line => context.measureText(line).width), 0);
+            const longestLine = Math.max(...trackLines.map((line) => context.measureText(line).width), 0);
             const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
             ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
+            const subtitleStyle = getComputedStyle(ktvSubtitle);
+            const horizontalPadding = parseFloat(subtitleStyle.paddingLeft) + parseFloat(subtitleStyle.paddingRight);
+            const availableWidth = Math.max(1, ktvSubtitle.clientWidth - horizontalPadding);
+            const rowHeight = track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0;
+            const fontSize = parseFloat(subtitleStyle.fontSize) || 1;
+            const lineHeight = parseFloat(subtitleStyle.lineHeight) || fontSize * 1.12;
+            trackLines.forEach((line, index) => {
+                const measuredWidth = context.measureText(line).width;
+                const widthScale = measuredWidth > availableWidth ? availableWidth / measuredWidth : 1;
+                const heightScale = rowHeight > 0 ? Math.min(1, rowHeight / lineHeight) : 1;
+                track.children[index].style.fontSize = `${Math.min(widthScale, heightScale)}em`;
+            });
+            ktvSubtitle._plainLyricsState = {
+                scrollStartTime,
+                scrollEndTime: currentSlot.endTime,
+                lineHeight: track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0,
+                hasNextLine,
+            };
+            requestPlainLyricsScroll();
         }
 
         /**
          * Connects VTT cue changes to the custom KTV subtitle renderer.
          */
+        function handleSubtitleResize() {
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+            else fitSubtitleLineAnchors();
+        }
+
         subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
+        video.addEventListener('timeupdate', syncSubtitleSlotAtCurrentTime);
+        video.addEventListener('play', requestPlainLyricsScroll);
+        video.addEventListener('seeked', requestPlainLyricsScroll);
+        window.addEventListener('resize', handleSubtitleResize);
 
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
@@ -456,16 +754,15 @@
             return seekCorrectionEnabled && audioTrack;
         }
 
-        function getDualMediaDelaySeconds() {
-            if (!Number.isFinite(currentSeekOffset)) return 0;
-            return Math.abs(currentSeekOffset);
+        function getDualMediaOffsetSeconds() {
+            return Number.isFinite(currentSeekOffset) ? currentSeekOffset : 0;
         }
 
         function syncDualMediaTimeline() {
             if (!isDualMediaSeekCorrectionActive()) return;
             if (!Number.isFinite(audioTrack.currentTime) || !Number.isFinite(video.duration)) return;
-            const delay = getDualMediaDelaySeconds();
-            const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
+            const offset = getDualMediaOffsetSeconds();
+            const targetVideoTime = Math.max(0, audioTrack.currentTime - offset);
             const diff = Math.abs(video.currentTime - targetVideoTime);
             if (diff < 0.08) return;
             video.currentTime = Math.min(video.duration, targetVideoTime);
@@ -608,6 +905,12 @@
                 merger = audioCtx.createChannelMerger(2);
                 merger.channelInterpretation = 'discrete';
                 audioGains = Array.from({ length: 6 }, () => audioCtx.createGain());
+                legacyStereoGains = Array.from({ length: 2 }, () => audioCtx.createGain());
+                guideMixGain = audioCtx.createGain();
+                legacyGuideGain = audioCtx.createGain();
+                legacyGuideGain.gain.value = 0;
+                instrumentalModeGain = audioCtx.createGain();
+                instrumentalModeGain.gain.value = 0;
                 masterGain = audioCtx.createGain();
                 useSoundTouch = Boolean(audioCtx.audioWorklet);
                 if (useSoundTouch) {
@@ -625,18 +928,25 @@
                 setAudioKey(currentKey);
 
                 source.connect(splitter);
+                // Keep all layout paths connected; per-song gains select stereo, legacy 5.1, or vocal-stem 5.1.
                 audioGains.forEach((gain, channel) => {
                     splitter.connect(gain, channel);
-                    if (isSixChannelAudio) {
-                        gain.connect(merger, 0, channel % 2);
-                        /** Duplicates the mono guide and instrumental channels to both speakers. */
-                        if (channel === 2 || channel === 4) gain.connect(merger, 0, 1);
-                    }
-                    else {
-                        gain.connect(merger, 0, 0);
-                        gain.connect(merger, 0, 1);
-                    }
+                    if (channel === 2 || channel === 4) gain.connect(guideMixGain);
+                    if (channel === 2) gain.connect(legacyGuideGain);
+                    if (channel === 4) gain.connect(instrumentalModeGain);
+                    if (channel !== 2 && channel !== 4) gain.connect(merger, 0, channel % 2);
                 });
+                legacyStereoGains.forEach((gain, channel) => {
+                    splitter.connect(gain, channel);
+                    gain.connect(merger, 0, 0);
+                    gain.connect(merger, 0, 1);
+                });
+                guideMixGain.connect(merger, 0, 0);
+                guideMixGain.connect(merger, 0, 1);
+                legacyGuideGain.connect(merger, 0, 0);
+                legacyGuideGain.connect(merger, 0, 1);
+                instrumentalModeGain.connect(merger, 0, 0);
+                instrumentalModeGain.connect(merger, 0, 1);
                 merger.connect(masterGain);
                 liveLoudnessAnalyser = audioCtx.createAnalyser();
                 liveLoudnessAnalyser.fftSize = 2048;
@@ -725,12 +1035,14 @@
             overlay.innerText = songName ? `正在播放: ${songName}` : `正在播放: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
+            guideVocalControlSupported = Boolean(data.guide_vocal_control);
+            currentVocalLevel = Number.isFinite(Number(data.vocal_level)) ? Number(data.vocal_level) : 50;
             currentChannelLayout = data.audio_channel_layout || '';
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
             updateKeyStatus(currentKey);
-            setSubtitle(data.filename, Boolean(data.visible));
+            setSubtitle(data.filename, Number(data.subtitle_mode) || 0);
             video.pause();
             audioTrack.pause();
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
@@ -777,6 +1089,7 @@
         });
         socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
         socket.on('photo_show', showPhoto);
+        socket.on('sticker_show', showSticker);
 
         socket.on('update_queue', (playlist) => {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
@@ -785,12 +1098,15 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {
-                setSubtitle(data.filename, data.visible);
+                setSubtitle(data.filename, Number(data.subtitle_mode) || 0);
                 applySubtitleFontSize(data.font_size);
             }
         });
 
+        socket.on('subtitle_style_mode', (data) => applySubtitleStyleMode(data && data.mode));
+
         socket.on('current_song', (data) => {
+            applySubtitleMode(Number(data.subtitle_mode) || 0);
             applySubtitleFontSize(data.font_size);
         });
 
@@ -833,15 +1149,33 @@
             if (!Number.isFinite(seconds)) return;
             currentSeekOffset = Number.isFinite(offset) ? offset : 0;
             if (isDualMediaSeekCorrectionActive()) {
-                const delay = getDualMediaDelaySeconds();
                 const audioNow = Number.isFinite(audioTrack.currentTime) ? audioTrack.currentTime : 0;
-                const targetTime = Math.max(0, audioNow - delay);
+                const targetTime = Math.max(0, audioNow - getDualMediaOffsetSeconds());
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             } else {
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             }
             updateSeekStatus(currentSeekOffset);
+        });
+
+        // 只跳轉仍在播放的曲目；雙媒體時維持原有音畫偏移。
+        socket.on('seek_song', (data) => {
+            const seconds = Number(data && data.seconds);
+            if (seekCorrectionEnabled || !Number.isFinite(seconds) || !data.filename || data.filename !== currentFilename) return;
+            const dualMode = isDualMediaSeekCorrectionActive();
+            const playbackTime = dualMode ? audioTrack.currentTime : video.currentTime;
+            if (!Number.isFinite(playbackTime) || !Number.isFinite(video.duration)) return;
+            const maxTime = dualMode && Number.isFinite(audioTrack.duration)
+                ? Math.min(video.duration, audioTrack.duration)
+                : video.duration;
+            const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
+            if (dualMode) {
+                audioTrack.currentTime = targetTime;
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaOffsetSeconds()));
+            } else {
+                video.currentTime = targetTime;
+            }
         });
 
         function requestAudioMode(mode, requestId = null) {
@@ -856,14 +1190,40 @@
             const now = audioCtx.currentTime;
             const transitionEnd = now + 0.02;
             const channels = isSixChannelAudio
-                ? (safeMode === 'guide' ? [2] : safeMode === 'instrumental' ? [4] : [0, 1])
+                ? (safeMode === 'guide' ? (guideVocalControlSupported ? [2, 4] : [2]) : safeMode === 'instrumental' ? [4] : [0, 1])
                 : (safeMode === 'instrumental' ? [1] : safeMode === 'guide' ? [0, 1] : [0]);
             audioGains.forEach((gain) => {
                 const channelIndex = audioGains.indexOf(gain);
                 gain.gain.cancelScheduledValues(now);
                 gain.gain.setValueAtTime(gain.gain.value, now);
-                gain.gain.linearRampToValueAtTime(channels.includes(channelIndex) ? 1 : 0, transitionEnd);
+                const channelGain = isSixChannelAudio && channels.includes(channelIndex)
+                    ? (guideVocalControlSupported && safeMode === 'guide' && channelIndex === 2 ? currentVocalLevel / 100 : 1)
+                    : 0;
+                gain.gain.linearRampToValueAtTime(channelGain, transitionEnd);
             });
+            legacyStereoGains.forEach((gain, channelIndex) => {
+                gain.gain.setTargetAtTime(!isSixChannelAudio && channels.includes(channelIndex) ? 1 : 0, transitionEnd, 0.01);
+            });
+            if (guideMixGain) {
+                const guideGain = guideVocalControlSupported && safeMode === 'guide' ? 1 : 0;
+                guideMixGain.gain.cancelScheduledValues(now);
+                guideMixGain.gain.setValueAtTime(guideMixGain.gain.value, now);
+                guideMixGain.gain.linearRampToValueAtTime(guideGain, transitionEnd);
+            }
+            if (instrumentalModeGain) {
+                instrumentalModeGain.gain.setTargetAtTime(
+                    isSixChannelAudio && safeMode === 'instrumental' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
+            if (legacyGuideGain) {
+                legacyGuideGain.gain.setTargetAtTime(
+                    isSixChannelAudio && !guideVocalControlSupported && safeMode === 'guide' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = safeMode === 'guide' ? "🎵 目前模式：導唱" : safeMode === 'instrumental' ? "🚫 目前模式：伴奏" : "🎤 目前模式：原聲";
@@ -873,6 +1233,10 @@
             const mode = typeof data === 'string' ? data : data.mode;
             const requestId = Number.isFinite(Number(data && data.request_id)) ? Number(data.request_id) : null;
             const safeMode = ['original', 'guide', 'instrumental'].includes(mode) ? mode : 'original';
+            if (data && typeof data === 'object') {
+                if (typeof data.guide_vocal_control === 'boolean') guideVocalControlSupported = data.guide_vocal_control;
+                if (Number.isFinite(Number(data.vocal_level))) currentVocalLevel = Number(data.vocal_level);
+            }
             if (requestId !== null) {
                 audioModeRequestId = Math.max(audioModeRequestId, requestId);
             }
@@ -882,6 +1246,16 @@
                 setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             }
             requestAudioMode(safeMode, requestId !== null ? requestId : ++audioModeRequestId);
+        });
+
+        socket.on('set_vocal_level', (data) => {
+            if (!Number.isFinite(Number(data && data.level))) return;
+            currentVocalLevel = Math.max(0, Math.min(100, Number(data.level)));
+            if (guideVocalControlSupported && currentMode === 'guide' && audioGains && audioCtx) {
+                const now = audioCtx.currentTime;
+                audioGains[2].gain.cancelScheduledValues(now);
+                audioGains[2].gain.setTargetAtTime(currentVocalLevel / 100, now, 0.03);
+            }
         });
 
         socket.on('apply_effect', (data) => {

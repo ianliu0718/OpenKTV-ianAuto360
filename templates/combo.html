@@ -7,8 +7,11 @@
         /* --- 全局與響應式佈局 --- */
         body { background: #1a1a1a; color: white; font-family: "Microsoft JhengHei", sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         
-        #player-container { flex: 0 0 45vh; background: #000; position: relative; display: flex; justify-content: center; align-items: center; }
-        #remote-container { flex: 1 1 auto; min-height: 0; min-width: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; padding: 15px; background: #222; display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
+        /* Keep the playback surface typography aligned with /player; the remote panel remains independently styled. */
+        #player-container { flex: 0 0 45vh; background: #000; position: relative; display: flex; justify-content: center; align-items: center; font-family: Arial; }
+        #remote-container { flex: 1 1 auto; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden; padding: 0; background: #1a1a1a; display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
+        /* Let the shared remote page manage its own layout and scrolling inside the combo viewport. */
+        #remote-interface { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; border: 0; background: #1a1a1a; }
 
         /* 當螢幕夠寬 (例如筆電/PC) 時，自動變成左右分割模式 */
         @media (min-width: 800px) {
@@ -20,41 +23,69 @@
         /* --- 播放器區塊 UI --- */
         video { width: 100%; height: 100%; object-fit: contain; display: none; }
         audio { display: none; }
-        #overlay { position: absolute; top: 52px; left: 15px; font-size: 18px; text-shadow: 2px 2px 4px #000; z-index: 10; background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 5px; pointer-events: none; }
-        #key-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 26px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
+        #overlay { position: absolute; top: 20px; left: 20px; font-size: 24px; text-shadow: 2px 2px 4px #000; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; pointer-events: none; }
+        #key-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 14px 24px; border-radius: 8px; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #key-status.visible { opacity: 1; visibility: visible; }
-        #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 62px); background: rgba(0,0,0,0.6); padding: 10px 16px; border-radius: 8px; font-size: 22px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
+        #seek-status { position: absolute; top: 8%; left: 50%; z-index: 10; transform: translate(-50%, 70px); background: rgba(0,0,0,0.6); padding: 12px 20px; border-radius: 8px; font-size: 28px; font-weight: bold; text-shadow: 2px 2px 4px #000; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s ease; }
         #seek-status.visible { opacity: 1; visibility: visible; }
-        #next-info { position: absolute; top: 0; left: 0; right: 0; background: rgba(0, 100, 0, 0.8); color: white; text-align: center; padding: 8px; font-size: 16px; z-index: 20; display: none; font-weight: bold; }
-        #fs-btn { position: absolute; top: 15px; right: 15px; z-index: 50; background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 5px 10px; cursor: pointer; border-radius: 5px; font-size: 14px; }
+        #next-info { position: absolute; top: 0; left: 0; right: 0; background: rgba(0, 100, 0, 0.8); color: white; text-align: center; padding: 8px; font-size: 16px; z-index: 20; display: none; visibility: hidden; font-weight: bold; }
+        #fs-btn { position: absolute; top: 20px; right: 20px; z-index: 50; background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 8px 12px; cursor: pointer; border-radius: 5px; font-size: 16px; }
         #fs-btn:hover { background: rgba(255,255,255,0.4); }
         #idle-screen { text-align: center; width: 100%; }
-        #waiting { font-size: 24px; color: #aaa; cursor: pointer; border: 2px dashed #555; padding: 20px; border-radius: 10px; background: rgba(255,255,255,0.05); display: inline-block; }
-        #waiting:hover { color: #fff; border-color: #fff; }
-        #engine-status { position: absolute; right: 90px; bottom: 10px; left: 15px; z-index: 40; overflow: hidden; color: #66d9c5; font-size: 14px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
-        #engine-status.debug-visible { right: 15px; padding: 6px 10px; box-sizing: border-box; background: rgba(0, 0, 0, .72); color: #f9f9c5; border: 1px solid rgba(102, 217, 197, .75); border-radius: 4px; }
-        #remote-qr { position: absolute; right: 15px; bottom: 15px; z-index: 30; padding: 10px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
-        #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 6px; }
-        #remote-qr-label { font-size: 12px; font-weight: bold; }
-        #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 25; width: min(82%, 720px); padding: 14px 22px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(20px, 3vw, 36px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        #waiting { font-size: 50px; color: #555; cursor: pointer; }
+        #engine-status { position: absolute; right: 180px; bottom: 15px; left: 20px; z-index: 40; overflow: hidden; color: #66d9c5; font-size: 16px; font-weight: bold; text-shadow: 1px 1px 3px #000; display: block; white-space: nowrap; }
+        #engine-status.debug-visible { right: 20px; padding: 8px 12px; box-sizing: border-box; background: rgba(0, 0, 0, .72); color: #f9f9c5; border: 1px solid rgba(102, 217, 197, .75); border-radius: 4px; }
+        #remote-qr { position: absolute; right: 20px; bottom: 20px; z-index: 20; padding: 12px; background: rgba(255,255,255,0.96); color: #111; border-radius: 8px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+        #remote-qr canvas, #remote-qr img { display: block; margin: 0 auto 8px; }
+        #remote-qr-label { font-size: 14px; font-weight: bold; }
+        #song-announcement { position: absolute; top: 50%; left: 50%; z-index: 15; max-width: 80%; padding: 18px 28px; transform: translate(-50%, -50%); background: rgba(0,0,0,0.78); color: #fff; border-radius: 8px; text-align: center; font-size: clamp(24px, 4vw, 48px); font-weight: bold; line-height: 1.3; text-shadow: 2px 2px 4px #000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
         #song-announcement.visible { opacity: 1; }
-        #danmaku-overlay { position: absolute; inset: 0; z-index: 26; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
-        #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(18px, 3vw, 34px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
+        #danmaku-overlay { position: absolute; inset: 0; z-index: 16; width: auto; max-width: none; height: 100%; overflow: hidden; pointer-events: none; }
+        #danmaku-overlay .danmaku-item { position: absolute; left: 0; display: block; max-width: 82vw; padding: 10px 22px; color: #fff; background: rgba(126, 91, 132, .72); border: 1px solid rgba(255,255,255,.28); border-radius: 999px; font-size: clamp(20px, 3vw, 36px); font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,.7); overflow-wrap: anywhere; animation: danmaku-slide var(--danmaku-duration, 12s) linear forwards; }
         @keyframes danmaku-slide { from { opacity: 0; transform: translateX(calc(100vw + 110%)); } 8% { opacity: 1; } 88% { opacity: 1; } to { opacity: 0; transform: translateX(-110%); } }
-        #photo-overlay { position: absolute; inset: 0; z-index: 27; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
+        #photo-overlay { position: absolute; inset: 0; z-index: 17; display: flex; align-items: center; justify-content: center; padding: 5%; pointer-events: none; }
         #photo-overlay .photo-item { max-width: min(82vw, 720px); max-height: 78%; object-fit: contain; border: 5px solid white; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.72); animation: photo-pop 5s ease-in-out forwards; }
+        #photo-overlay .sticker-item { max-width: min(42vw, 360px); max-height: 45%; object-fit: contain; animation: photo-pop 5s ease-in-out forwards; }
         @keyframes photo-pop { 0%, 8% { opacity: 0; transform: scale(.92); } 18%, 82% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.97); } }
-        #queue-add-announcement { position: absolute; top: 15px; left: 50%; z-index: 24; max-width: 82%; padding: 8px 14px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 15px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        #queue-add-announcement { position: absolute; top: 20px; left: 50%; z-index: 14; max-width: 80%; padding: 10px 18px; transform: translateX(-50%); background: rgba(0,120,90,0.88); color: #fff; border-radius: 6px; text-align: center; font-size: 18px; font-weight: bold; text-shadow: 1px 1px 3px #000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
         #queue-add-announcement.visible { opacity: 1; }
-        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 22; display: flex; flex-direction: column; gap: 6px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000 }
+        #ktv-subtitle { position: absolute; right: 0; bottom: 9%; left: 0; z-index: 12; display: flex; flex-direction: column; gap: 7px; pointer-events: none; font-size: clamp(calc(22px * var(--subtitle-scale, 2)), calc(3.6vw * var(--subtitle-scale, 2)), calc(44px * var(--subtitle-scale, 2))); font-weight: bold; line-height: 1.2; }
         #ktv-subtitle .subtitle-line { position: relative; display: block; max-width: 50%; color: #fff; }
         #ktv-subtitle .subtitle-line:first-child { align-self: flex-start; text-align: right; }
         #ktv-subtitle .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
         #ktv-subtitle .subtitle-line:only-child { align-self: center; max-width: 90%; text-align: center; }
         #ktv-subtitle .subtitle-text-layer { display: block; white-space: pre-wrap; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line:not(:first-child) { display: none; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line:first-child { align-self: center; max-width: 90%; text-align: center; }
+        #ktv-subtitle.subtitle-mode-single .subtitle-line { min-height: 1.2em; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line { width: 50%; max-width: 50%; min-height: 1.2em; flex: 0 0 50%; white-space: nowrap; font-family: "Arial Rounded MT Bold", "Microsoft JhengHei", sans-serif; font-weight: 900; letter-spacing: .02em; -webkit-text-stroke: 2px #101820; paint-order: stroke fill; text-shadow: 0 4px 8px rgba(0,0,0,.8); }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:first-child,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:first-child { align-self: flex-start; text-align: right; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:nth-child(2),
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:nth-child(2) { align-self: flex-end; text-align: left; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line .subtitle-text-layer { width: max-content; white-space: nowrap; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:first-child .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:first-child .subtitle-text-layer { margin-left: auto; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line:nth-child(2) .subtitle-text-layer,
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-line:nth-child(2) .subtitle-text-layer { margin-right: auto; }
+        #ktv-subtitle.subtitle-mode-double .subtitle-line { color: #fff; }
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-base-layer { color: #fff; }
+        #ktv-subtitle.subtitle-mode-gradient .subtitle-highlight-layer { position: absolute; inset: 0; overflow: hidden; color: #ffe66d; clip-path: inset(0 calc(100% - var(--subtitle-progress, 0%)) 0 0); }
+        #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-highlight-layer { top: .08em; right: auto; bottom: auto; left: .3em; margin: 0; }
+        #ktv-subtitle.subtitle-style-background.subtitle-mode-gradient .subtitle-line:first-child .subtitle-highlight-layer { right: .3em; left: auto; }
         #ktv-subtitle .subtitle-char { display: inline-block; animation: none; transform: none; opacity: 1; }
-        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: center; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; background: rgba(0, 0, 0, .62); border-radius: 8px; font-size: clamp(calc(10px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(30px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode { top: 3%; right: 2%; bottom: 3%; left: auto; width: min(var(--plain-lyrics-width, 48vw), 70%); max-width: 70%; min-width: 24%; height: 94%; box-sizing: border-box; justify-content: flex-start; gap: 0; overflow: hidden; padding: 2.5vh 1.5vw; border-radius: 8px; font-size: clamp(calc(12px * var(--subtitle-scale, 1)), calc(min(2.6vw, 5vh) * var(--subtitle-scale, 1)), calc(38px * var(--subtitle-scale, 1))); line-height: 1.12; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .plain-lyrics-track { display: flex; flex: 0 0 auto; flex-direction: column; width: 100%; }
         #ktv-subtitle.plain-lyrics-mode .subtitle-line { flex: 1 1 0; align-self: stretch; max-width: none; min-height: 0; text-align: right; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:not(:first-child) { display: flex; }
+        #ktv-subtitle.plain-lyrics-mode.subtitle-mode-single .subtitle-line:first-child { align-self: stretch; max-width: none; text-align: right; }
+        #ktv-subtitle.plain-lyrics-mode .subtitle-text-layer { white-space: nowrap; }
+        /* Subtitle style classes are mutually exclusive; background covers lines or the plain-lyrics panel. */
+        #ktv-subtitle.subtitle-style-background:not(.plain-lyrics-mode) .subtitle-line { box-decoration-break: clone; padding: .08em .3em; border-radius: 4px; background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-background.plain-lyrics-mode { background: rgba(0, 0, 0, .62); }
+        #ktv-subtitle.subtitle-style-shadow { text-shadow: 5px 5px 10px #000, -4px -4px 8px #000, 0 0 18px #000; }
         @media (prefers-reduced-motion: reduce) {
             #ktv-subtitle .subtitle-char { animation: none; transition: none; }
         }
@@ -63,14 +94,16 @@
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; }
         .btn { padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; transition: 0.2s;}
         .btn:active { transform: scale(0.95); }
+        .subtitle-controls-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .subtitle-controls-row .btn { min-height: 34px; margin: 0; padding: 6px 4px; font-size: 12px; }
         .subtitle-size-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-top: 12px;
+            margin-top: 6px;
             color: #b8fff2;
-            font-size: 13px;
-            gap: 10px;
+            font-size: 12px;
+            gap: 8px;
         }
         .subtitle-size-value {
             min-width: 56px;
@@ -80,20 +113,21 @@
         }
         .subtitle-size-controls {
             display: flex;
-            gap: 8px;
-            margin-top: 8px;
+            gap: 6px;
+            margin-top: 6px;
         }
         .subtitle-size-btn {
             flex: 1;
             margin: 0;
-            padding: 10px 12px;
+            padding: 6px 8px;
             background: linear-gradient(180deg, #607d8b 0%, #4f6775 100%);
             color: white;
-            border-radius: 10px;
-            font-size: 18px;
+            border-radius: 6px;
+            font-size: 16px;
             font-weight: 700;
-            min-width: 52px;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.18);
+            min-width: 44px;
+            min-height: 34px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
         }
         .subtitle-size-btn:hover:not(:disabled) { filter: brightness(1.08); }
         .subtitle-size-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -102,7 +136,7 @@
         .stop { background: #F44336; }
         .vocal { background: #FF9800; color: black; }
         .inst { background: #FFC107; color: black; }
-        .admin-link { background: #607D8B; color: white; text-align: center; display: block; padding: 12px; text-decoration: none; border-radius: 8px; margin-bottom: 15px; font-weight: bold;}
+        .admin-link { background: #607D8B; color: white; text-align: center; display: block; padding: 12px; text-decoration: none; border-radius: 8px; margin-bottom: 15px; font-weight: bold; }
         
         /* 音量與歌單 */
         .control-group { background: #333; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
@@ -120,6 +154,9 @@
         .song-btn { background: #009688; border: none; padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer;}
         .song-btn.added { background: #607d8b; cursor: wait; }
         .song-status { margin-right: 6px; color: #80cbc4; font-size: 13px; font-weight: bold; white-space: nowrap; }
+        .song-audio-exception { color: #ffcc80; font-size: 12px; font-weight: bold; white-space: normal; overflow-wrap: anywhere; }
+        .song-main { display: flex; flex-direction: column; min-width: 0; max-width: 60%; }
+        .song-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
         ul#list li.song-playing { background: #174d48; border-color: #26a69a; }
         /* 待播歌曲備註面板，採用固定面板避免影響播放器版面。 */
         #song-note-panel { display: none; position: fixed; inset: 10% 5% auto; z-index: 60; background: #222; border: 1px solid #555; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
@@ -136,14 +173,27 @@
         .sound-effect-button { background: #00897b; }
         #danmaku-panel { display: none; position: fixed; top: max(12px, env(safe-area-inset-top)); right: 5%; bottom: max(12px, env(safe-area-inset-bottom)); left: 5%; box-sizing: border-box; overflow: hidden; z-index: 70; background: #222; border: 1px solid #777; border-radius: 8px; padding: 15px; box-shadow: 0 8px 30px rgba(0,0,0,.65); flex-direction: column; }
         #danmaku-panel h4 { margin: 0 0 12px; }
-        .emotion-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
-        .emotion-tab { margin: 0; padding: 9px 10px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 14px; font-weight: normal; box-shadow: none; }
+        .emotion-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 10px; border-bottom: 1px solid #555; }
+        .emotion-tab { min-width: 0; margin: 0; padding: 8px 3px; border: 1px solid transparent; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: #999; font-size: 12px; font-weight: normal; white-space: nowrap; box-shadow: none; }
         .emotion-tab.active { background: #333; border-color: #555; border-bottom-color: #2aa894; color: #b8fff2; font-weight: bold; }
         .emotion-tab-panel { flex: 1; min-height: 0; overflow-y: auto; }
         .emotion-tab-panel[hidden] { display: none; }
         .photo-picker { display: flex; flex-direction: column; gap: 10px; align-items: stretch; padding: 10px 0; color: #ccc; }
         .photo-picker input[type=file] { width: 100%; padding: 10px; box-sizing: border-box; background: #333; color: #ddd; border: 1px solid #555; border-radius: 6px; }
+        .photo-picker-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .photo-picker-actions .btn { margin: 0; }
+        .photo-upload-button { background: #00695c; color: #fff; border: 1px solid #4db6ac; }
+        .photo-upload-button:hover { background: #00897b; }
+        .photo-camera-button { background: #1565c0; color: #fff; border: 1px solid #64b5f6; }
+        .photo-camera-button:hover { background: #1976d2; }
+        .photo-picker-actions .btn:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
         .photo-preview { display: none; max-width: 100%; max-height: 30vh; margin: 0 auto; border-radius: 8px; object-fit: contain; }
+        .sticker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 8px 0; }
+        .sticker-option { aspect-ratio: 1; min-width: 0; margin: 0; padding: 5px; border: 1px solid #555; background-color: #333; background-image: radial-gradient(#555 0.7px, transparent 0.7px); background-size: 8px 8px; }
+        .sticker-option.selected { border: 2px solid #2aa894; background-color: #174d48; }
+        .sticker-option img { display: block; width: 100%; height: 100%; object-fit: contain; }
+        .sticker-preview { display: none; max-width: 100%; height: 90px; margin: 8px auto 0; object-fit: contain; }
+        .sticker-picker-status { margin: 4px 0 0; color: #ccc; text-align: center; font-size: 12px; overflow-wrap: anywhere; }
         .danmaku-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .danmaku-presets .btn { margin: 0; padding: 10px 6px; background: #5c3b6f; }
         .effect-section { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -158,10 +208,22 @@
         ul#list li.song-row { cursor: pointer; }
         ul#list li.song-row:hover { background: #34514e; }
         li.song-added { border: 1px solid #4caf50; box-shadow: 0 0 0 1px rgba(76,175,80,0.25); }
-        .category-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+        .category-filters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 10px; }
         .category-filters select { width: 100%; padding: 8px; box-sizing: border-box; background: #333; border: 1px solid #555; color: white; border-radius: 5px; }
+        .category-multi-filter { position: relative; min-width: 0; }
+        .category-multi-filter summary { overflow: hidden; padding: 8px; border: 1px solid #555; border-radius: 5px; background: #333; color: white; cursor: pointer; list-style: none; text-overflow: ellipsis; white-space: nowrap; }
+        .category-multi-filter summary::-webkit-details-marker { display: none; }
+        .category-multi-filter summary::after { content: '▾'; float: right; margin-left: 6px; }
+        .category-multi-filter[open] summary::after { content: '▴'; }
+        .category-multi-options { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 40; display: grid; gap: 2px; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px; border: 1px solid #555; border-radius: 5px; background: #333; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
+        .category-multi-filter:not([open]) .category-multi-options { display: none; }
+        .category-multi-option { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 4px; color: #eee; overflow-wrap: anywhere; }
+        .category-multi-option input { flex: 0 0 auto; width: auto; margin: 0; }
         .search-row { display: flex; gap: 6px; align-items: stretch; }
-        .search-row input[type=text] { flex: 1; margin-bottom: 10px; }
+        .search-row input[type=text] { flex: 1; min-width: 0; margin-bottom: 10px; }
+        .sort-mode-button { flex: 0 0 auto; width: auto; margin: 0 0 10px; padding: 10px 9px; background: #4b5d58; border: 1px solid #72817d; color: #f1f4f3; white-space: nowrap; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 2px 5px rgba(0,0,0,.2); }
+        .sort-mode-button:hover { background: #596b66; border-color: #8a9a95; }
+        .sort-mode-button:focus-visible { outline: 2px solid #a6b2ae; outline-offset: 2px; }
         .clear-filter-button { width: auto; margin: 0 0 10px; padding: 10px 14px; background: #607D8B; white-space: nowrap; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -198,11 +260,15 @@
     </div>
 
     <div id="remote-container">
+        <!-- Keep the existing controller DOM available to combo.js while the shared remote page renders the UI. -->
+        <div id="legacy-remote-controls" hidden>
         <a href="/admin" class="admin-link">⚙️ 進入後台 (下載新歌)</a>
 
-        <div id="current-song-control" style="display:none; background:#123c36; padding:12px; border:1px solid #2aa894; border-radius:8px; margin-bottom:15px;">
-            <div id="current-song-name" style="overflow-wrap:anywhere; margin-bottom:8px; color:#b8fff2;"></div>
-            <button id="current-subtitle-button" class="btn" style="margin:0; background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+        <div id="current-song-control" style="display:none; background:#123c36; padding:8px; border:1px solid #2aa894; border-radius:6px; margin-bottom:10px;">
+            <div class="subtitle-controls-row">
+                <button id="current-subtitle-button" class="btn" style="background:#2aa894;" onclick="toggleCurrentSubtitle()">字幕：隱藏</button>
+                <button id="subtitle-style-button" class="btn subtitle-style-button" style="background:#455a64;" onclick="cycleSubtitleStyleMode()">[背景]</button>
+            </div>
             <div class="subtitle-size-row">
                 <span>字幕比例</span>
                 <span id="subtitle-size-label" class="subtitle-size-value">120%</span>
@@ -221,6 +287,31 @@
             <button class="btn vocal" onclick="track('guide')">🎵 導唱</button>
             <button class="btn inst" onclick="track('instrumental')">🚫 伴奏</button>
             <button class="btn danmaku-button" onclick="openDanmakuPanel()">💬 情緒價值</button>
+        </div>
+
+        <!-- 歌曲位置調整與畫面延遲校正分開處理，避免改變同步偏移。 -->
+        <div id="song-seek-controls" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0 15px;">
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(-10)" disabled>&lt; 快退 10 秒</button>
+            <button class="btn song-seek-control" style="background:#455a64;" type="button" onclick="seekSong(10)" disabled>快進 10 秒 &gt;</button>
+        </div>
+
+        <!-- 雙媒體模式只顯示畫面延遲校正控制。 -->
+        <div id="seek-correction-control" style="display:none; background:#2a2a2a; padding:12px; border:1px solid #444; border-radius:8px; margin:8px 0 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; color:#ccc; font-size:13px;">
+                <span>⏱ 畫面進度</span><span id="seek-val">0 秒</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;">
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.5)">&lt;&lt;0.5</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(0.1)">&lt;0.1</button>
+                <button class="btn seek-control" style="background:#777; padding:10px 3px; margin:0;" onclick="seekVideo(0)">同步</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.1)">0.1&gt;</button>
+                <button class="btn seek-control" style="background:#555; padding:10px 3px; margin:0;" onclick="seekVideo(-0.5)">0.5&gt;&gt;</button>
+            </div>
+        </div>
+
+        <div id="guide-vocal-control" class="control-group" style="display:none;">
+            <div class="control-label"><label for="guide-vocal-level">🎵 導唱人聲音量</label><span id="guide-vocal-level-label">50%</span></div>
+            <input type="range" id="guide-vocal-level" min="0" max="100" step="1" value="50" aria-label="導唱人聲音量" oninput="updateGuideVocalLevel(this.value)">
         </div>
 
 <div class="control-group">
@@ -243,15 +334,24 @@
         </div>
 
         <div class="search-row">
+            <!-- 點歌排序依新歌、熱門、國語、台語循環。 -->
+            <button type="button" id="song-sort-mode" class="btn sort-mode-button" onclick="cycleSongSortMode()">新歌</button>
             <input type="text" id="search" placeholder="🔍 搜尋歌曲..." oninput="handleSearchInput()">
             <button type="button" class="btn clear-filter-button" onclick="clearFilters()">清除篩選</button>
         </div>
         <div class="category-filters">
-            <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange('song-length-filter')"><option value="">歌曲字數：全部</option></select>
-            <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange('singer-filter')"><option value="">主唱者：全部</option></select>
-            <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange('language-filter')"><option value="">語言：全部</option></select>
+            <select id="song-length-filter" aria-label="依歌曲名稱字數分類" onchange="handleCategoryChange()"><option value="">歌曲字數：全部</option></select>
+            <select id="singer-filter" aria-label="依主唱者分類" onchange="handleCategoryChange()"><option value="">主唱者：全部</option></select>
+            <select id="language-filter" aria-label="依語言分類" onchange="handleCategoryChange()"><option value="">語言：全部</option></select>
+            <details id="affiliation-filter" class="category-multi-filter">
+                <summary aria-label="依歌曲歸屬分類">歸屬：全部</summary>
+                <div id="affiliation-filter-options" class="category-multi-options" role="group" aria-label="選擇一個或多個歌曲歸屬"></div>
+            </details>
         </div>
         <ul id="list"></ul>
+        </div>
+        <!-- Reuse the standalone remote page so both routes share identical controls and behavior. -->
+        <iframe id="remote-interface" src="/remote" title="KTV 遙控器"></iframe>
     </div>
 
     <div id="danmaku-panel" role="dialog" aria-modal="true" aria-labelledby="danmaku-title">
@@ -260,6 +360,7 @@
             <button id="emotion-tab-danmaku" class="btn emotion-tab active" type="button" role="tab" aria-selected="true" onclick="switchEmotionTab('danmaku')">💬 彈幕</button>
             <button id="emotion-tab-sound" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sound')">🔊 音效</button>
             <button id="emotion-tab-photo" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('photo')">📷 照片</button>
+            <button id="emotion-tab-sticker" class="btn emotion-tab" type="button" role="tab" aria-selected="false" onclick="switchEmotionTab('sticker')">✨ 貼圖</button>
         </div>
         <div id="emotion-panel-danmaku" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-danmaku">
             <div class="effect-section">
@@ -285,10 +386,19 @@
         </div>
         <div id="emotion-panel-photo" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-photo" hidden>
             <div class="photo-picker">
-                <label for="emotion-photo-input">拍照或選擇手機照片</label>
-                <input id="emotion-photo-input" type="file" accept="image/*" capture="environment" onchange="prepareEmotionPhoto(event)">
+                <div class="photo-picker-actions">
+                    <button class="btn photo-upload-button" type="button" onclick="chooseEmotionPhotoUpload()">🖼️ 上傳照片</button>
+                    <button class="btn photo-camera-button" type="button" onclick="openEmotionCamera()">📷 開啟相機</button>
+                </div>
+                <input id="emotion-photo-upload-input" type="file" accept="image/*" hidden onchange="prepareEmotionPhoto(event)">
+                <input id="emotion-photo-camera-input" type="file" accept="image/*" capture="environment" hidden onchange="prepareEmotionPhoto(event)">
                 <img id="emotion-photo-preview" class="photo-preview" alt="照片預覽">
             </div>
+        </div>
+        <div id="emotion-panel-sticker" class="emotion-tab-panel" role="tabpanel" aria-labelledby="emotion-tab-sticker" hidden>
+            <div id="emotion-sticker-grid" class="sticker-grid" aria-label="選擇貼圖"></div>
+            <img id="emotion-sticker-preview" class="sticker-preview" alt="貼圖預覽">
+            <p id="emotion-sticker-status" class="sticker-picker-status">載入貼圖中...</p>
         </div>
         <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
@@ -338,7 +448,7 @@ const socket = io();
         const remoteQr = document.getElementById('remote-qr');
         const remoteQrCode = document.getElementById('remote-qr-code');
         
-        let audioCtx, source, splitter, audioGains, merger, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
+        let audioCtx, source, splitter, audioGains, legacyStereoGains, merger, guideMixGain, legacyGuideGain, instrumentalModeGain, masterGain, soundTouchNode, pitchShift, liveLoudnessAnalyser;
         let isAudioSetup = false;
         let audioSetupPromise;
         let useSoundTouch = false;
@@ -350,12 +460,16 @@ const socket = io();
         let currentVolume = 1;
         let currentFilename = '';
         let currentSubtitleFontSize = 120;
+        let subtitleHighlightFrame = 0;
+        let plainLyricsScrollFrame = 0;
         let currentLoudness = null;
         let liveLoudness = null;
         let liveLoudnessTimer = null;
         let currentChannelLayout = '';
         let currentActiveChannels = '';
         let isSixChannelAudio = false;
+        let guideVocalControlSupported = false;
+        let currentVocalLevel = 50;
         let clapBufferPromise;
         let announcementTimer;
         let queueAddAnnouncementTimer;
@@ -383,13 +497,26 @@ const socket = io();
          */
         function updateSeekStatus(seconds) {
             seekStatus.innerText = seconds === 0
-                ? '播放位置同步'
+                ? '畫面同步'
                 : seconds > 0
-                    ? `播放位置延後：${seconds.toFixed(1)} 秒`
-                    : `播放位置提前：${Math.abs(seconds).toFixed(1)} 秒`;
+                    ? `畫面延遲：${seconds.toFixed(1)} 秒（聲音提前）`
+                    : `畫面提前：${Math.abs(seconds).toFixed(1)} 秒（聲音落後）`;
             clearTimeout(seekStatusTimer);
             seekStatus.classList.add('visible');
             seekStatusTimer = setTimeout(() => seekStatus.classList.remove('visible'), 3000);
+        }
+
+        /** 依伺服器播放模式切換歌曲快轉與畫面延遲校正控制。 */
+        function updateSeekControls() {
+            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
+            document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
+            document.querySelectorAll('.song-seek-control').forEach((button) => { button.disabled = seekCorrectionEnabled; });
+            document.querySelectorAll('.seek-control').forEach((button) => { button.disabled = !seekCorrectionEnabled; });
+            document.getElementById('seek-val').innerText = currentSeekOffset === 0
+                ? '0 秒'
+                : currentSeekOffset > 0
+                    ? `延遲 ${currentSeekOffset.toFixed(1)} 秒`
+                    : `提前 ${Math.abs(currentSeekOffset).toFixed(1)} 秒`;
         }
 
         function updatePlaybackModeStatus(mode) {
@@ -448,6 +575,17 @@ const socket = io();
             photoOverlay.appendChild(photo);
         }
 
+        function showSticker(data) {
+            const filename = String(data && data.filename || '');
+            if (!filename || filename !== filename.split(/[\\/]/).pop() || !/\.(gif|webp|png)$/i.test(filename)) return;
+            const sticker = document.createElement('img');
+            sticker.className = 'sticker-item';
+            sticker.src = `/static/stickers/${encodeURIComponent(filename)}`;
+            sticker.alt = '情緒貼圖';
+            sticker.addEventListener('animationend', () => sticker.remove(), { once: true });
+            photoOverlay.appendChild(sticker);
+        }
+
         async function playSoundEffect(effect) {
             if (effect !== 'clap' || !audioCtx) return;
             if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -480,25 +618,92 @@ const socket = io();
         function openDanmakuPanel() {
             switchEmotionTab('danmaku');
             document.getElementById('danmaku-panel').style.display = 'flex';
-            document.getElementById('danmaku-custom-text').focus();
         }
 
         function switchEmotionTab(tabName) {
-            activeEmotionTab = ['danmaku', 'sound', 'photo'].includes(tabName) ? tabName : 'danmaku';
-            ['danmaku', 'sound', 'photo'].forEach((name) => {
+            activeEmotionTab = ['danmaku', 'sound', 'photo', 'sticker'].includes(tabName) ? tabName : 'danmaku';
+            ['danmaku', 'sound', 'photo', 'sticker'].forEach((name) => {
                 const active = activeEmotionTab === name;
                 document.getElementById(`emotion-panel-${name}`).hidden = !active;
                 document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
                 document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
             });
+            if (activeEmotionTab === 'sticker') loadEmotionStickers();
         }
 
         let activeEmotionTab = 'danmaku';
         let pendingEmotionPhoto = '';
+        let emotionStickerListPromise = null;
+        let pendingEmotionSticker = '';
 
         function sendEmotionAction() {
             if (activeEmotionTab === 'photo') sendEmotionPhoto();
+            else if (activeEmotionTab === 'sticker') sendEmotionSticker();
             else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
+        }
+
+        function loadEmotionStickers() {
+            if (emotionStickerListPromise) return;
+            const grid = document.getElementById('emotion-sticker-grid');
+            const status = document.getElementById('emotion-sticker-status');
+            emotionStickerListPromise = fetch('/api/stickers')
+                .then((response) => response.ok ? response.json() : Promise.reject(new Error('貼圖清單載入失敗')))
+                .then((stickers) => {
+                    grid.replaceChildren();
+                    stickers.forEach((filename) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'btn sticker-option';
+                        button.setAttribute('aria-label', `選擇貼圖 ${filename}`);
+                        button.setAttribute('aria-pressed', 'false');
+                        const image = document.createElement('img');
+                        image.src = `/static/stickers/${encodeURIComponent(filename)}`;
+                        image.alt = '';
+                        image.loading = 'lazy';
+                        button.appendChild(image);
+                        button.addEventListener('click', () => selectEmotionSticker(filename, button));
+                        grid.appendChild(button);
+                    });
+                    status.textContent = stickers.length ? `選擇一張貼圖（${stickers.length} 張）` : '目前沒有可用貼圖。';
+                })
+                .catch((error) => {
+                    emotionStickerListPromise = null;
+                    status.textContent = error.message;
+                });
+        }
+
+        function selectEmotionSticker(filename, selectedButton) {
+            pendingEmotionSticker = filename;
+            document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                const selected = button === selectedButton;
+                button.classList.toggle('selected', selected);
+                button.setAttribute('aria-pressed', String(selected));
+            });
+            const preview = document.getElementById('emotion-sticker-preview');
+            preview.src = `/static/stickers/${encodeURIComponent(filename)}`;
+            preview.style.display = 'block';
+            document.getElementById('emotion-sticker-status').textContent = filename;
+        }
+
+        function sendEmotionSticker() {
+            if (!pendingEmotionSticker) {
+                document.getElementById('emotion-sticker-status').textContent = '請先選擇貼圖。';
+                return;
+            }
+            socket.emit('sticker_submit', { filename: pendingEmotionSticker }, (result) => {
+                const status = document.getElementById('emotion-sticker-status');
+                if (!result || !result.success) {
+                    status.textContent = result && result.error ? result.error : '貼圖發送失敗。';
+                    return;
+                }
+                status.textContent = `已送出：${pendingEmotionSticker}`;
+                pendingEmotionSticker = '';
+                document.getElementById('emotion-sticker-preview').style.display = 'none';
+                document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                    button.classList.remove('selected');
+                    button.setAttribute('aria-pressed', 'false');
+                });
+            });
         }
 
         function prepareEmotionPhoto(event) {
@@ -519,6 +724,10 @@ const socket = io();
             image.src = URL.createObjectURL(file);
         }
 
+        /** Opens either the photo library or the rear camera from its dedicated file input. */
+        function chooseEmotionPhotoUpload() { document.getElementById('emotion-photo-upload-input').click(); }
+        function openEmotionCamera() { document.getElementById('emotion-photo-camera-input').click(); }
+
         function sendEmotionPhoto() {
             if (!pendingEmotionPhoto) return;
             socket.emit('photo_submit', { data: pendingEmotionPhoto }, (result) => {
@@ -533,9 +742,11 @@ const socket = io();
 
         function clearEmotionPhoto() {
             pendingEmotionPhoto = '';
-            const input = document.getElementById('emotion-photo-input');
+            const uploadInput = document.getElementById('emotion-photo-upload-input');
+            const cameraInput = document.getElementById('emotion-photo-camera-input');
             const preview = document.getElementById('emotion-photo-preview');
-            input.value = '';
+            uploadInput.value = '';
+            cameraInput.value = '';
             preview.removeAttribute('src');
             preview.style.display = 'none';
         }
@@ -669,13 +880,14 @@ const socket = io();
          * @param {string} filename Current MP4 filename.
          * @param {boolean} visible Whether subtitles should be visible.
          */
-        function setSubtitle(filename, visible) {
+        function setSubtitle(filename, mode) {
             const nextTrack = subtitleTrack.cloneNode(false);
             subtitleTrack.replaceWith(nextTrack);
             subtitleTrack = nextTrack;
             subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
             currentFilename = filename;
-            if (!filename || !visible) {
+            applySubtitleMode(mode);
+            if (!filename || !mode) {
                 subtitleTrack.src = '';
                 subtitleTrack.track.mode = 'disabled';
                 ktvSubtitle.style.display = 'none';
@@ -700,7 +912,33 @@ const socket = io();
             if (!Number.isFinite(size)) return;
             const clampedSize = Math.min(200, Math.max(80, size));
             ktvSubtitle.style.setProperty('--subtitle-scale', String(clampedSize / 100));
-            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode') || currentSubtitleMode >= 3) renderKtvSubtitle();
+        }
+
+        /** Applies the shared hidden, single-line, double-line, or gradient mode. */
+        function applySubtitleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 4) return;
+            currentSubtitleMode = value;
+            const modeClasses = ['subtitle-mode-general', 'subtitle-mode-single', 'subtitle-mode-double', 'subtitle-mode-gradient'];
+            ktvSubtitle.classList.remove(...modeClasses);
+            if (value > 0) ktvSubtitle.classList.add(modeClasses[value - 1]);
+            if (value === 4) requestSubtitleHighlightProgress();
+            else if (subtitleHighlightFrame) {
+                cancelAnimationFrame(subtitleHighlightFrame);
+                subtitleHighlightFrame = 0;
+            }
+            if (ktvSubtitle.style.display !== 'none') renderKtvSubtitle();
+        }
+
+        /** Applies the selected background or shadow mode to the subtitle root. */
+        function applySubtitleStyleMode(mode) {
+            const value = Number(mode);
+            if (!Number.isInteger(value) || value < 0 || value > 1) return;
+            currentSubtitleStyleMode = value;
+            const styleClasses = ['subtitle-style-background', 'subtitle-style-shadow'];
+            ktvSubtitle.classList.remove(...styleClasses);
+            ktvSubtitle.classList.add(styleClasses[value]);
         }
 
         /**
@@ -708,9 +946,9 @@ const socket = io();
          * @param {string} text Subtitle line text.
          * @returns {HTMLSpanElement} Rendered subtitle text layer.
          */
-        function createSubtitleTextLayer(text) {
+        function createSubtitleTextLayer(text, layerClass = '') {
             const layer = document.createElement('span');
-            layer.className = 'subtitle-text-layer';
+            layer.className = ['subtitle-text-layer', layerClass].filter(Boolean).join(' ');
             Array.from(text).forEach((character, index) => {
                 const characterElement = document.createElement('span');
                 characterElement.className = 'subtitle-char';
@@ -721,50 +959,270 @@ const socket = io();
             return layer;
         }
 
+        function getSubtitleTextLines(text) {
+            return String(text || '').replace(/<[^>]*>/g, '').split(/\r?\n/).filter(Boolean);
+        }
+
+        function getSubtitleSlots() {
+            const cues = subtitleTrack.track.cues;
+            if (!cues) return [];
+            const slots = [];
+            for (let index = 0; index < cues.length; index += 1) {
+                const cue = cues[index];
+                const plainLyrics = String(cue.id || '').startsWith('PLAIN_LYRICS_');
+                slots.push({ cue, text: getSubtitleTextLines(cue.text).join(plainLyrics ? '\n' : ' '), startTime: cue.startTime, endTime: cue.endTime });
+                const nextCue = cues[index + 1];
+                if (nextCue && nextCue.startTime > cue.endTime + 0.05) {
+                    slots.push({ cue: null, text: '', startTime: cue.endTime, endTime: nextCue.startTime });
+                }
+            }
+            return slots.map((slot, index) => ({ ...slot, index }));
+        }
+
+        function getSubtitleCueIndex(currentCue) {
+            return getSubtitleSlots().find((slot) => slot.cue === currentCue)?.index ?? -1;
+        }
+
+        function createSubtitleLineElement(text, progress = 0) {
+            const lineElement = document.createElement('span');
+            lineElement.className = 'subtitle-line';
+            if (currentSubtitleMode === 4) {
+                lineElement.style.setProperty('--subtitle-progress', `${Math.round(progress * 100)}%`);
+                lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-base-layer'));
+                lineElement.appendChild(createSubtitleTextLayer(text, 'subtitle-highlight-layer'));
+            } else {
+                lineElement.appendChild(createSubtitleTextLayer(text));
+            }
+            return lineElement;
+        }
+
+        function fitSubtitleLineAnchors() {
+            if (currentSubtitleMode < 3 || ktvSubtitle.classList.contains('plain-lyrics-mode')) return;
+            const containerWidth = ktvSubtitle.clientWidth;
+            const halfWidth = containerWidth / 2;
+            Array.from(ktvSubtitle.querySelectorAll('.subtitle-line')).slice(0, 2).forEach((lineElement) => {
+                const textLayer = lineElement.querySelector('.subtitle-base-layer, .subtitle-text-layer');
+                const textWidth = textLayer ? textLayer.scrollWidth : lineElement.scrollWidth;
+                const availableWidth = Math.max(1, containerWidth - 12);
+                const fontScale = textWidth > availableWidth ? availableWidth / textWidth : 1;
+                lineElement.style.fontSize = `${fontScale}em`;
+                const fittedTextWidth = textWidth * fontScale;
+                const lineWidth = Math.min(containerWidth, Math.max(halfWidth, fittedTextWidth));
+                lineElement.style.width = `${lineWidth}px`;
+                lineElement.style.maxWidth = 'none';
+                lineElement.style.flex = '0 0 auto';
+            });
+        }
+
+        function requestSubtitleHighlightProgress() {
+            if (!subtitleHighlightFrame) subtitleHighlightFrame = requestAnimationFrame(updateSubtitleHighlightProgress);
+        }
+
+        function requestPlainLyricsScroll() {
+            if (!plainLyricsScrollFrame) plainLyricsScrollFrame = requestAnimationFrame(updatePlainLyricsScroll);
+        }
+
+        function updatePlainLyricsScroll() {
+            plainLyricsScrollFrame = 0;
+            const state = ktvSubtitle._plainLyricsState;
+            const track = ktvSubtitle.querySelector('.plain-lyrics-track');
+            if (!state || !track) return;
+            const duration = state.scrollEndTime - state.scrollStartTime;
+            const progress = state.hasNextLine && duration > 0
+                ? Math.max(0, Math.min(1, (video.currentTime - state.scrollStartTime) / duration))
+                : 0;
+            track.style.transform = `translate3d(0, ${-state.lineHeight * progress}px, 0)`;
+            if (!video.paused && !video.ended) requestPlainLyricsScroll();
+        }
+
+        function syncSubtitleSlotAtCurrentTime() {
+            if (currentSubtitleMode < 3 || ktvSubtitle.style.display === 'none') return;
+            const activeCues = subtitleTrack.track.activeCues;
+            const currentCue = activeCues && activeCues[0];
+            const slots = getSubtitleSlots();
+            const currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if ((currentSlot?.index ?? -1) !== renderedSubtitleSlotIndex) renderKtvSubtitle();
+            if (currentSubtitleMode === 4) requestSubtitleHighlightProgress();
+        }
+
+        function updateSubtitleHighlightProgress() {
+            subtitleHighlightFrame = 0;
+            if (currentSubtitleMode !== 4 || ktvSubtitle.style.display === 'none') return;
+            const activeCues = subtitleTrack.track.activeCues;
+            const currentCue = activeCues && activeCues[0];
+            if (!currentCue) return;
+            const slots = getSubtitleSlots();
+            const currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if ((currentSlot?.index ?? -1) !== renderedSubtitleSlotIndex) {
+                renderKtvSubtitle();
+                return;
+            }
+            const cueIndex = currentCue ? getSubtitleCueIndex(currentCue) : -1;
+            const activeLine = ktvSubtitle.querySelectorAll('.subtitle-line')[renderedSubtitleActiveLineIndex];
+            if (currentCue && activeLine) {
+                const duration = currentCue.endTime - currentCue.startTime;
+                const progress = duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentCue.startTime) / duration)) : 0;
+                activeLine.style.setProperty('--subtitle-progress', `${progress * 100}%`);
+            }
+            requestSubtitleHighlightProgress();
+        }
+
         /**
          * Renders the active WebVTT cue as either a sliding plain-lyrics window or two KTV lines.
          */
         function renderKtvSubtitle() {
             const activeCues = subtitleTrack.track.activeCues;
-            if (!activeCues || !activeCues.length) {
+            const slots = getSubtitleSlots();
+            const currentCue = activeCues && activeCues[0];
+            let currentSlot = currentCue
+                ? slots.find((slot) => slot.cue === currentCue)
+                : slots.find((slot) => !slot.cue && video.currentTime >= slot.startTime && video.currentTime < slot.endTime);
+            if (!currentSlot && currentSubtitleMode > 0 && slots.length) {
+                currentSlot = { cue: null, text: '', startTime: video.currentTime, endTime: video.currentTime, index: -1 };
+            }
+            if (!currentSlot) {
+                renderedSubtitleSlotIndex = -1;
+                renderedSubtitleActiveLineIndex = 0;
                 ktvSubtitle.replaceChildren();
                 ktvSubtitle.classList.remove('plain-lyrics-mode');
-                ktvSubtitle.style.removeProperty('--plain-lyrics-width');
-                return;
-            }
-            const plainLyrics = activeCues[0].id.startsWith('PLAIN_LYRICS_');
-            const lines = String(activeCues[0].text || '')
-                .replace(/<[^>]*>/g, '')
-                .split(/\r?\n/)
-                .filter(Boolean);
-            if (!plainLyrics) lines.splice(2);
-            ktvSubtitle.classList.toggle('plain-lyrics-mode', plainLyrics);
-            if (!plainLyrics) {
-                ktvSubtitle.replaceChildren(...lines.map(line => {
-                    const lineElement = document.createElement('span');
-                    lineElement.className = 'subtitle-line';
-                    lineElement.appendChild(createSubtitleTextLayer(line));
-                    return lineElement;
-                }));
                 ktvSubtitle._plainLyricsState = null;
                 ktvSubtitle.style.removeProperty('--plain-lyrics-width');
                 return;
             }
-            ktvSubtitle.replaceChildren(...lines.map(line => {
-                const lineElement = document.createElement('span');
-                lineElement.className = 'subtitle-line';
-                lineElement.appendChild(createSubtitleTextLayer(line));
-                return lineElement;
-            }));
+            renderedSubtitleSlotIndex = currentSlot.index;
+            const plainLyrics = Boolean(currentCue && currentCue.id.startsWith('PLAIN_LYRICS_'));
+            const currentLines = getSubtitleTextLines(currentSlot.text);
+            if (currentSubtitleMode === 1) {
+                renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, plainLyrics && currentLines.length > 1);
+                return;
+            }
+            let displayLines = currentSubtitleMode === 2 ? currentLines.slice(0, 1) : currentLines.slice();
+            let activeLineIndex = 0;
+            let currentProgress = 0;
+            if (!currentCue || !currentLines.length) {
+                displayLines = currentSubtitleMode === 2 ? [''] : ['', ''];
+            } else if (plainLyrics && currentLines.length > 1 && currentSubtitleMode >= 3) {
+                displayLines = currentLines.slice(0, 2);
+                const duration = currentSlot.endTime - currentSlot.startTime;
+                currentProgress = duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
+            } else if (currentSubtitleMode >= 3) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextText = nextSlot ? nextSlot.text : '';
+                const currentText = currentLines.join(' ');
+                const previousSlot = slots[currentSlot.index - 1];
+                if (previousSlot && !previousSlot.cue) {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                    activeLineIndex = 0;
+                } else if (nextSlot && !nextSlot.cue) {
+                    displayLines = [currentText, ''];
+                    activeLineIndex = 0;
+                } else if (currentSlot.index % 2 === 1) {
+                    displayLines = nextText ? [nextText, currentText] : [currentText];
+                    activeLineIndex = nextText ? 1 : 0;
+                } else {
+                    displayLines = nextText ? [currentText, nextText] : [currentText];
+                    activeLineIndex = 0;
+                }
+                const duration = currentSlot.endTime - currentSlot.startTime;
+                currentProgress = currentSlot.cue && duration > 0 ? Math.max(0, Math.min(1, (video.currentTime - currentSlot.startTime) / duration)) : 0;
+            }
+            renderedSubtitleActiveLineIndex = activeLineIndex;
+            displayLines.splice(2);
+            ktvSubtitle.classList.remove('plain-lyrics-mode');
+            ktvSubtitle.replaceChildren(...displayLines.map((line, index) => createSubtitleLineElement(line, index === activeLineIndex ? currentProgress : 0)));
+            fitSubtitleLineAnchors();
+            ktvSubtitle._plainLyricsState = null;
+            ktvSubtitle.style.removeProperty('--plain-lyrics-width');
+        }
+
+        /** Builds the general-mode twelve-line window from per-line cues or legacy rolling cues. */
+        function renderPlainLyricsWindow(currentSlot, slots, currentCue, currentLines, legacyWindow) {
+            let trackLines;
+            let hasNextLine = false;
+            let nextCueDuration = 0;
+            if (legacyWindow) {
+                const nextSlot = slots[currentSlot.index + 1];
+                const nextLines = nextSlot && nextSlot.cue && String(nextSlot.cue.id || '').startsWith('PLAIN_LYRICS_')
+                    ? getSubtitleTextLines(nextSlot.text)
+                    : [];
+                hasNextLine = nextLines.length === currentLines.length && currentLines.length > 0
+                    && currentLines.slice(1).every((line, index) => line === nextLines[index]);
+                trackLines = hasNextLine ? [...currentLines, nextLines[nextLines.length - 1]] : currentLines;
+                nextCueDuration = nextSlot ? nextSlot.endTime - nextSlot.startTime : 0;
+            } else {
+                const lyricSlots = slots.slice();
+                if (!lyricSlots.includes(currentSlot)) {
+                    const insertionIndex = lyricSlots.findIndex((slot) => slot.startTime > currentSlot.startTime);
+                    lyricSlots.splice(insertionIndex < 0 ? lyricSlots.length : insertionIndex, 0, currentSlot);
+                }
+                const lyricLines = lyricSlots.flatMap((slot) => {
+                    const lines = slot.cue ? getSubtitleTextLines(slot.text) : [];
+                    return lines.length ? lines.map((text) => ({ slot, text })) : [{ slot, text: '' }];
+                });
+                const currentIndex = Math.max(0, lyricLines.findIndex((line) => line.slot === currentSlot));
+                const leadingRows = Math.max(0, 6 - currentIndex);
+                const windowStart = Math.max(0, currentIndex - 6);
+                const visibleLines = lyricLines.slice(windowStart, windowStart + 13 - leadingRows);
+                hasNextLine = currentIndex < lyricLines.length - 1;
+                trackLines = [...Array(leadingRows).fill(''), ...visibleLines.map((line) => line.text)];
+                const nextLineSlot = lyricLines[currentIndex + 1]?.slot;
+                nextCueDuration = nextLineSlot ? nextLineSlot.endTime - nextLineSlot.startTime : 0;
+            }
+            const scrollStartTime = currentSlot.startTime === 0 && hasNextLine
+                ? Math.max(currentSlot.startTime, currentSlot.endTime - nextCueDuration)
+                : currentSlot.startTime;
+            ktvSubtitle.classList.add('plain-lyrics-mode');
+            const rowCount = Math.max(12, trackLines.length);
+            const track = document.createElement('div');
+            track.className = 'plain-lyrics-track';
+            track.style.height = `${rowCount / 12 * 100}%`;
+            trackLines.forEach((line) => {
+                const lineElement = createSubtitleLineElement(line);
+                lineElement.style.flex = `0 0 ${100 / rowCount}%`;
+                track.appendChild(lineElement);
+            });
+            ktvSubtitle.replaceChildren(track);
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             context.font = getComputedStyle(ktvSubtitle).font;
-            const longestLine = Math.max(...lines.map((line) => context.measureText(line).width), 0);
+            const longestLine = Math.max(...trackLines.map((line) => context.measureText(line).width), 0);
             const width = Math.min(window.innerWidth * 0.7, Math.max(window.innerWidth * 0.24, longestLine + window.innerWidth * 0.04));
             ktvSubtitle.style.setProperty('--plain-lyrics-width', `${Math.round(width)}px`);
+            const subtitleStyle = getComputedStyle(ktvSubtitle);
+            const horizontalPadding = parseFloat(subtitleStyle.paddingLeft) + parseFloat(subtitleStyle.paddingRight);
+            const availableWidth = Math.max(1, ktvSubtitle.clientWidth - horizontalPadding);
+            const rowHeight = track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0;
+            const fontSize = parseFloat(subtitleStyle.fontSize) || 1;
+            const lineHeight = parseFloat(subtitleStyle.lineHeight) || fontSize * 1.12;
+            trackLines.forEach((line, index) => {
+                const measuredWidth = context.measureText(line).width;
+                const widthScale = measuredWidth > availableWidth ? availableWidth / measuredWidth : 1;
+                const heightScale = rowHeight > 0 ? Math.min(1, rowHeight / lineHeight) : 1;
+                track.children[index].style.fontSize = `${Math.min(widthScale, heightScale)}em`;
+            });
+            ktvSubtitle._plainLyricsState = {
+                scrollStartTime,
+                scrollEndTime: currentSlot.endTime,
+                lineHeight: track.querySelector('.subtitle-line')?.getBoundingClientRect().height || 0,
+                hasNextLine,
+            };
+            requestPlainLyricsScroll();
+        }
+
+        function handleSubtitleResize() {
+            if (ktvSubtitle.classList.contains('plain-lyrics-mode')) renderKtvSubtitle();
+            else fitSubtitleLineAnchors();
         }
 
         subtitleTrack.track.addEventListener('cuechange', renderKtvSubtitle);
+        video.addEventListener('timeupdate', syncSubtitleSlotAtCurrentTime);
+        video.addEventListener('play', requestPlainLyricsScroll);
+        video.addEventListener('seeked', requestPlainLyricsScroll);
+        window.addEventListener('resize', handleSubtitleResize);
 
         /** Clears the visible subtitle when playback leaves the current song. */
         function clearCurrentSubtitle() {
@@ -801,16 +1259,15 @@ const socket = io();
             return seekCorrectionEnabled && audioTrack;
         }
 
-        function getDualMediaDelaySeconds() {
-            if (!Number.isFinite(currentSeekOffset)) return 0;
-            return Math.abs(currentSeekOffset);
+        function getDualMediaOffsetSeconds() {
+            return Number.isFinite(currentSeekOffset) ? currentSeekOffset : 0;
         }
 
         function syncDualMediaTimeline() {
             if (!isDualMediaSeekCorrectionActive()) return;
             if (!Number.isFinite(audioTrack.currentTime) || !Number.isFinite(video.duration)) return;
-            const delay = getDualMediaDelaySeconds();
-            const targetVideoTime = Math.max(0, audioTrack.currentTime - delay);
+            const offset = getDualMediaOffsetSeconds();
+            const targetVideoTime = Math.max(0, audioTrack.currentTime - offset);
             const diff = Math.abs(video.currentTime - targetVideoTime);
             if (diff < 0.08) return;
             video.currentTime = Math.min(video.duration, targetVideoTime);
@@ -952,6 +1409,12 @@ const socket = io();
                 merger = audioCtx.createChannelMerger(2);
                 merger.channelInterpretation = 'discrete';
                 audioGains = Array.from({ length: 6 }, () => audioCtx.createGain());
+                legacyStereoGains = Array.from({ length: 2 }, () => audioCtx.createGain());
+                guideMixGain = audioCtx.createGain();
+                legacyGuideGain = audioCtx.createGain();
+                legacyGuideGain.gain.value = 0;
+                instrumentalModeGain = audioCtx.createGain();
+                instrumentalModeGain.gain.value = 0;
                 masterGain = audioCtx.createGain();
                 useSoundTouch = Boolean(audioCtx.audioWorklet);
                 if (useSoundTouch) {
@@ -969,18 +1432,25 @@ const socket = io();
                 setAudioKey(currentKey);
 
                 source.connect(splitter);
+                // Keep all layout paths connected; per-song gains select stereo, legacy 5.1, or vocal-stem 5.1.
                 audioGains.forEach((gain, channel) => {
                     splitter.connect(gain, channel);
-                    if (isSixChannelAudio) {
-                        gain.connect(merger, 0, channel % 2);
-                        /** Duplicates the mono guide and instrumental channels to both speakers. */
-                        if (channel === 2 || channel === 4) gain.connect(merger, 0, 1);
-                    }
-                    else {
-                        gain.connect(merger, 0, 0);
-                        gain.connect(merger, 0, 1);
-                    }
+                    if (channel === 2 || channel === 4) gain.connect(guideMixGain);
+                    if (channel === 2) gain.connect(legacyGuideGain);
+                    if (channel === 4) gain.connect(instrumentalModeGain);
+                    if (channel !== 2 && channel !== 4) gain.connect(merger, 0, channel % 2);
                 });
+                legacyStereoGains.forEach((gain, channel) => {
+                    splitter.connect(gain, channel);
+                    gain.connect(merger, 0, 0);
+                    gain.connect(merger, 0, 1);
+                });
+                guideMixGain.connect(merger, 0, 0);
+                guideMixGain.connect(merger, 0, 1);
+                legacyGuideGain.connect(merger, 0, 0);
+                legacyGuideGain.connect(merger, 0, 1);
+                instrumentalModeGain.connect(merger, 0, 0);
+                instrumentalModeGain.connect(merger, 0, 1);
                 merger.connect(masterGain);
                 liveLoudnessAnalyser = audioCtx.createAnalyser();
                 liveLoudnessAnalyser.fftSize = 2048;
@@ -1081,6 +1551,7 @@ const socket = io();
             currentSeekOffset = 0;
             syncMediaMuteState();
             updatePlaybackModeStatus(seekCorrectionEnabled ? 'dual' : 'single');
+            updateSeekControls();
             if (!seekCorrectionEnabled) {
                 audioTrack.pause();
                 audioTrack.src = '';
@@ -1104,12 +1575,15 @@ const socket = io();
             overlay.innerText = songName ? `播放中: ${songName}` : `播放中: ${data.title}`;
             currentMode = data.track_mode || currentMode || 'original';
             isSixChannelAudio = Number(data.audio_channels) >= 6;
+            guideVocalControlSupported = Boolean(data.guide_vocal_control);
+            currentVocalLevel = Number.isFinite(Number(data.vocal_level)) ? Number(data.vocal_level) : 50;
+            renderGuideVocalControl();
             currentChannelLayout = data.audio_channel_layout || '';
             currentLoudness = Number.isFinite(Number(data.audio_loudness_lufs)) ? Number(data.audio_loudness_lufs) : null;
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             showSongAnnouncement(data.filename);
             updateKeyStatus(currentKey);
-            setSubtitle(data.filename, Boolean(data.visible));
+            setSubtitle(data.filename, Number(data.subtitle_mode) || 0);
             const songUrl = "/songs/" + encodeURIComponent(data.filename) + "?t=" + new Date().getTime();
             if (isDualMediaSeekCorrectionActive()) {
                 syncMediaMuteState();
@@ -1160,13 +1634,16 @@ const socket = io();
         });
         socket.on('sound_effect', (data) => playSoundEffect(data && data.effect));
         socket.on('photo_show', showPhoto);
+        socket.on('sticker_show', showSticker);
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentFilename) {
-                setSubtitle(data.filename, data.visible);
+                setSubtitle(data.filename, Number(data.subtitle_mode) || 0);
                 applySubtitleFontSize(data.font_size);
             }
         });
+
+        socket.on('subtitle_style_mode', (data) => applySubtitleStyleMode(data && data.mode));
 
         // 當影片播完時只發送一次 song_ended，讓後端決定下一首歌。
         function handleVideoEnded() {
@@ -1197,18 +1674,39 @@ const socket = io();
         socket.on('seek_video', (data) => {
             const seconds = Number(data.seconds);
             if (!Number.isFinite(seconds)) return;
+            currentSeekOffset = Number(data.offset) || 0;
             if (isDualMediaSeekCorrectionActive()) {
                 // 這裡的語意是：「畫面比音訊延後 X 秒」
                 // 如果音訊時間軸是 01:00.00，畫面應該是 00:55.00。
                 // 因此 videoTime = audioTime - delaySeconds。
                 const audioNow = Number.isFinite(audioTrack.currentTime) ? audioTrack.currentTime : 0;
-                const targetTime = seconds === 0 ? audioNow : audioNow - seconds;
+                const targetTime = audioNow - getDualMediaOffsetSeconds();
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             } else {
                 const targetTime = seconds === 0 ? video.currentTime : video.currentTime - seconds;
                 video.currentTime = Math.max(0, Math.min(video.duration || Infinity, targetTime));
             }
+            updateSeekControls();
             updateSeekStatus(Number(data.offset) || 0);
+        });
+
+        // 只跳轉單媒體播放中的曲目，避免雙媒體時間軸失去同步。
+        socket.on('seek_song', (data) => {
+            const seconds = Number(data && data.seconds);
+            if (seekCorrectionEnabled || !Number.isFinite(seconds) || !data.filename || data.filename !== currentFilename) return;
+            const dualMode = isDualMediaSeekCorrectionActive();
+            const playbackTime = dualMode ? audioTrack.currentTime : video.currentTime;
+            if (!Number.isFinite(playbackTime) || !Number.isFinite(video.duration)) return;
+            const maxTime = dualMode && Number.isFinite(audioTrack.duration)
+                ? Math.min(video.duration, audioTrack.duration)
+                : video.duration;
+            const targetTime = Math.max(0, Math.min(maxTime, playbackTime + seconds));
+            if (dualMode) {
+                audioTrack.currentTime = targetTime;
+                video.currentTime = Math.max(0, Math.min(video.duration, targetTime - getDualMediaOffsetSeconds()));
+            } else {
+                video.currentTime = targetTime;
+            }
         });
 
         socket.on('command', (cmd) => {
@@ -1235,18 +1733,69 @@ const socket = io();
             const now = audioCtx.currentTime;
             const transitionEnd = now + 0.02;
             const channels = isSixChannelAudio
-                ? (safeMode === 'guide' ? [2] : safeMode === 'instrumental' ? [4] : [0, 1])
+                ? (safeMode === 'guide' ? (guideVocalControlSupported ? [2, 4] : [2]) : safeMode === 'instrumental' ? [4] : [0, 1])
                 : (safeMode === 'instrumental' ? [1] : safeMode === 'guide' ? [0, 1] : [0]);
             audioGains.forEach((gain) => {
                 const channelIndex = audioGains.indexOf(gain);
                 gain.gain.cancelScheduledValues(now);
                 gain.gain.setValueAtTime(gain.gain.value, now);
-                gain.gain.linearRampToValueAtTime(channels.includes(channelIndex) ? 1 : 0, transitionEnd);
+                const channelGain = isSixChannelAudio && channels.includes(channelIndex)
+                    ? (guideVocalControlSupported && safeMode === 'guide' && channelIndex === 2 ? currentVocalLevel / 100 : 1)
+                    : 0;
+                gain.gain.linearRampToValueAtTime(channelGain, transitionEnd);
             });
+            legacyStereoGains.forEach((gain, channelIndex) => {
+                gain.gain.setTargetAtTime(!isSixChannelAudio && channels.includes(channelIndex) ? 1 : 0, transitionEnd, 0.01);
+            });
+            if (guideMixGain) {
+                const guideGain = guideVocalControlSupported && safeMode === 'guide' ? 1 : 0;
+                guideMixGain.gain.cancelScheduledValues(now);
+                guideMixGain.gain.setValueAtTime(guideMixGain.gain.value, now);
+                guideMixGain.gain.linearRampToValueAtTime(guideGain, transitionEnd);
+            }
+            if (instrumentalModeGain) {
+                instrumentalModeGain.gain.setTargetAtTime(
+                    isSixChannelAudio && safeMode === 'instrumental' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
+            if (legacyGuideGain) {
+                legacyGuideGain.gain.setTargetAtTime(
+                    isSixChannelAudio && !guideVocalControlSupported && safeMode === 'guide' ? 1 : 0,
+                    transitionEnd,
+                    0.01,
+                );
+            }
             currentActiveChannels = channels.map((channel) => `c${channel}`).join(',');
             setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             overlay.innerText = safeMode === 'guide' ? "🎵 模式：導唱" : safeMode === 'instrumental' ? "🚫 模式：伴奏" : "🎤 模式：原聲";
+            renderGuideVocalControl();
         }
+
+        /** Show the vocal slider only for a marked vocal-stem song in guide mode. */
+        function renderGuideVocalControl() {
+            const control = document.getElementById('guide-vocal-control');
+            if (!control) return;
+            document.getElementById('guide-vocal-level-label').textContent = `${currentVocalLevel}%`;
+            document.getElementById('guide-vocal-level').value = String(currentVocalLevel);
+            control.style.display = currentMode === 'guide' && guideVocalControlSupported ? 'block' : 'none';
+        }
+
+        /** Apply vocal-only gain; rebroadcast only direct slider input to avoid event loops. */
+        function applyGuideVocalLevel(value, broadcast) {
+            currentVocalLevel = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+            if (guideVocalControlSupported && currentMode === 'guide' && audioGains && audioCtx) {
+                const now = audioCtx.currentTime;
+                audioGains[2].gain.cancelScheduledValues(now);
+                audioGains[2].gain.setTargetAtTime(currentVocalLevel / 100, now, 0.03);
+            }
+            renderGuideVocalControl();
+            if (broadcast) socket.emit('change_vocal_level', { level: currentVocalLevel });
+        }
+
+        /** Apply a user slider change and synchronize its value to other clients. */
+        function updateGuideVocalLevel(value) { applyGuideVocalLevel(value, true); }
 
         socket.on('set_audio', (data) => {
             const mode = typeof data === 'string' ? data : data.mode;
@@ -1256,11 +1805,20 @@ const socket = io();
                 audioModeRequestId = Math.max(audioModeRequestId, requestId);
             }
             currentMode = safeMode;
+            if (data && typeof data === 'object') {
+                if (typeof data.guide_vocal_control === 'boolean') guideVocalControlSupported = data.guide_vocal_control;
+                if (Number.isFinite(Number(data.vocal_level))) currentVocalLevel = Number(data.vocal_level);
+            }
             if (data && typeof data === 'object' && Number.isFinite(Number(data.audio_loudness_lufs))) {
                 currentLoudness = Number(data.audio_loudness_lufs);
                 setEngineStatus(useSoundTouch ? 'SoundTouch AudioWorklet' : 'Tone.js fallback（HTTP LAN）');
             }
             requestAudioMode(safeMode, requestId !== null ? requestId : ++audioModeRequestId);
+        });
+
+        socket.on('set_vocal_level', (data) => {
+            if (!Number.isFinite(Number(data && data.level))) return;
+            applyGuideVocalLevel(data.level, false);
         });
 
         /**
@@ -1273,9 +1831,18 @@ const socket = io();
 
         // --- 遙控器邏輯 ---
         let allSongs = [];
+        let sortedSongMetadata = [];
+        let songPlayCounts = {};
+        let songSortModeIndex = 0;
+        let songAudioExceptions = {};
         let subtitleSongs = new Set();
         let currentPlayingFilename = '';
-        let currentSubtitleVisible = false;
+        let currentSubtitleStyleMode = 0;
+        let currentSubtitleMode = 0;
+        const subtitleDisplayLabels = ['隱藏', '一般', '單行', '雙行', '雙行漸變'];
+        let renderedSubtitleSlotIndex = -1;
+        let renderedSubtitleActiveLineIndex = 0;
+        const subtitleStyleLabels = ['背景', '陰影'];
         const pendingSongs = new Set();
         /**
          * Loads the songs that have a matching subtitle file.
@@ -1296,9 +1863,18 @@ const socket = io();
         function parseSongMetadata(filename) {
             const name = filename.replace(/\.mp4$/i, '');
             const parts = name.split('-');
-            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識' };
+            if (parts.length < 2) return { title: name, singer: '未辨識', language: '未辨識', length: '未辨識', code: null, affiliation: '未標記' };
             const title = parts[0];
-            return { title, singer: parts[1] || '未辨識', language: parts[2] || '未辨識', length: String(Array.from(title).length) };
+            const code = /^\d+$/.test(parts[3] || '') ? Number(parts[3]) : null;
+            const affiliation = parts.length > 4 ? parts.slice(4).join('-') : '未標記';
+            return {
+                title,
+                singer: parts[1] || '未辨識',
+                language: parts[2] || '未辨識',
+                length: String(Array.from(title).length),
+                code,
+                affiliation,
+            };
         }
 
         /**
@@ -1307,8 +1883,7 @@ const socket = io();
          * @returns {number|null} Numeric song code, or null when unavailable.
          */
         function getSongCode(filename) {
-            const match = filename.match(/(\d+)(?:\.mp4)?$/i);
-            return match ? Number(match[1]) : null;
+            return parseSongMetadata(filename).code;
         }
 
         /**
@@ -1326,22 +1901,115 @@ const socket = io();
             return secondCode - firstCode || firstFilename.localeCompare(secondFilename, 'zh-Hant');
         }
 
-        /**
-         * Rebuilds category selectors from the currently loaded song list.
-         */
+        /** Returns the language filter required by the active language sort mode. */
+        function getSongSortLanguage() {
+            return songSortModeIndex === 3 ? '國' : songSortModeIndex === 4 ? '台' : '';
+        }
+
+        /** Keeps the visible language selector aligned with the active sort mode. */
+        function setSongSortLanguage(language) {
+            const languageFilter = document.getElementById('language-filter');
+            if (language && ![...languageFilter.options].some((option) => option.value === language)) {
+                const option = document.createElement('option');
+                option.value = language;
+                option.textContent = language;
+                languageFilter.appendChild(option);
+            }
+            languageFilter.value = language;
+        }
+
+        /** Sorts visible songs by playback starts or by the existing reverse song-code rule. */
+        function sortSongEntries(songs) {
+            return [...songs].sort((firstSong, secondSong) => {
+                if (songSortModeIndex === 0) return compareSongCodeDescending(firstSong.filename, secondSong.filename);
+                const firstPlayCount = Number(songPlayCounts[firstSong.filename]) || 0;
+                const secondPlayCount = Number(songPlayCounts[secondSong.filename]) || 0;
+                const playCountDifference = songSortModeIndex === 2
+                    ? firstPlayCount - secondPlayCount
+                    : secondPlayCount - firstPlayCount;
+                return playCountDifference || compareSongCodeDescending(firstSong.filename, secondSong.filename);
+            });
+        }
+
+        /** Cycles five sort modes and applies the language selector when needed. */
+        function cycleSongSortMode() {
+            const previousLanguage = getSongSortLanguage();
+            songSortModeIndex = (songSortModeIndex + 1) % 5;
+            if (previousLanguage && document.getElementById('language-filter').value === previousLanguage) {
+                setSongSortLanguage('');
+            }
+            const nextLanguage = getSongSortLanguage();
+            if (nextLanguage) setSongSortLanguage(nextLanguage);
+            document.getElementById('song-sort-mode').textContent = ['新歌', '熱門', '冷門', '國語', '台語'][songSortModeIndex];
+            renderCategoryFilters();
+            filter();
+        }
+
+        function setSongList(songs) {
+            allSongs = Array.isArray(songs) ? songs : [];
+            sortedSongMetadata = allSongs.map((filename) => ({ filename, metadata: parseSongMetadata(filename) }))
+                .sort((firstSong, secondSong) => compareSongCodeDescending(firstSong.filename, secondSong.filename));
+        }
+
+        /** Rebuilds each category from search results matching every other selected category. */
         function renderCategoryFilters() {
             const lengthFilter = document.getElementById('song-length-filter');
             const singerFilter = document.getElementById('singer-filter');
             const languageFilter = document.getElementById('language-filter');
-            const previous = [lengthFilter.value, singerFilter.value, languageFilter.value];
-            const metadata = allSongs.map(parseSongMetadata);
-            const lengths = [...new Set(metadata.map(song => song.length))].sort((a, b) => Number(a) - Number(b));
-            const singers = [...new Set(metadata.map(song => song.singer))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-            const languages = [...new Set(metadata.map(song => song.language))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliationFilter = document.getElementById('affiliation-filter');
+            const affiliationOptions = document.getElementById('affiliation-filter-options');
+            const affiliationSummary = affiliationFilter.querySelector('summary');
+            const selectedAffiliations = getSelectedAffiliations();
+            const filters = [lengthFilter, singerFilter, languageFilter];
+            const previous = filters.map((filterElement) => filterElement.value);
+            const fields = ['length', 'singer', 'language', 'affiliation'];
+            const query = document.getElementById('search').value.toLowerCase();
+            const matchingSongs = sortedSongMetadata.filter(({ filename }) => filename.toLowerCase().includes(query));
+            const valuesForFilter = (filterIndex) => [...new Set(matchingSongs
+                .filter(({ metadata }) => previous.every((value, index) => index === filterIndex || !value || metadata[fields[index]] === value)
+                    && (filterIndex === 3 || !selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation)))
+                .map(({ metadata }) => metadata[fields[filterIndex]]))];
+            const lengths = valuesForFilter(0).sort((a, b) => Number(a) - Number(b));
+            const singers = valuesForFilter(1).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const languages = valuesForFilter(2);
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && !languages.includes(sortLanguage)) languages.push(sortLanguage);
+            languages.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const affiliations = valuesForFilter(3).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+            const availableAffiliations = new Set(affiliations);
+            const validSelections = new Set([...selectedAffiliations].filter(value => availableAffiliations.has(value)));
             lengthFilter.innerHTML = '<option value="">歌曲字數：全部</option>' + lengths.map(value => `<option value="${value}">${value === '未辨識' ? value : `${value} 字`}</option>`).join('');
             singerFilter.innerHTML = '<option value="">主唱者：全部</option>' + singers.map(value => `<option value="${value}">${value}</option>`).join('');
             languageFilter.innerHTML = '<option value="">語言：全部</option>' + languages.map(value => `<option value="${value}">${value}</option>`).join('');
-            [lengthFilter, singerFilter, languageFilter].forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            filters.forEach((filterElement, index) => { filterElement.value = previous[index]; });
+            affiliationOptions.replaceChildren();
+            affiliations.forEach((value) => {
+                const label = document.createElement('label');
+                label.className = 'category-multi-option';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = value;
+                checkbox.checked = validSelections.has(value);
+                checkbox.addEventListener('change', handleCategoryChange);
+                const text = document.createElement('span');
+                text.textContent = value;
+                label.append(checkbox, text);
+                affiliationOptions.appendChild(label);
+            });
+            affiliationSummary.textContent = validSelections.size ? `歸屬：${validSelections.size} 項` : '歸屬：全部';
+            if (filters.some((filterElement, index) => filterElement.value !== previous[index]) || validSelections.size !== selectedAffiliations.size) {
+                renderCategoryFilters();
+            }
+        }
+
+        /** 取得目前勾選的歌曲歸屬分類。 */
+        function getSelectedAffiliations() {
+            return new Set([...document.querySelectorAll('#affiliation-filter-options input:checked')].map(input => input.value));
+        }
+
+        /** 清除已選歸屬，供搜尋與清除篩選時重設。 */
+        function clearSelectedAffiliations() {
+            document.querySelectorAll('#affiliation-filter-options input').forEach(input => { input.checked = false; });
         }
 
         /**
@@ -1349,15 +2017,27 @@ const socket = io();
          */
         function renderCurrentSongControl() {
             const control = document.getElementById('current-song-control');
-            const name = document.getElementById('current-song-name');
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
             const shouldShow = hasSong && hasSubtitle;
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
-            name.textContent = `播放中：${currentPlayingFilename.replace(/\.mp4$/i, '')}`;
-            button.textContent = currentSubtitleVisible && hasSubtitle ? '字幕：顯示中' : '字幕：隱藏';
+            const subtitleLabel = subtitleDisplayLabels[currentSubtitleMode] || subtitleDisplayLabels[0];
+            button.textContent = `字幕：${subtitleLabel}`;
+            renderSubtitleStyleButton();
+        }
+
+        /** Show the active background or shadow mode and cycle between them. */
+        function renderSubtitleStyleButton() {
+            const button = document.getElementById('subtitle-style-button');
+            const label = subtitleStyleLabels[currentSubtitleStyleMode] || subtitleStyleLabels[0];
+            button.textContent = `${label}`;
+            button.setAttribute('aria-label', `字幕：${label}，按一下切換`);
+        }
+
+        function cycleSubtitleStyleMode() {
+            socket.emit('set_subtitle_style_mode', { mode: (currentSubtitleStyleMode + 1) % subtitleStyleLabels.length });
         }
 
         /**
@@ -1371,7 +2051,7 @@ const socket = io();
                 renderQueue([]);
             }
             const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
-            currentSubtitleVisible = Boolean(data.visible) && hasSubtitle;
+            currentSubtitleMode = hasSubtitle ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
             currentSubtitleFontSize = Number(data.font_size) || 120;
             applySubtitleFontSize(currentSubtitleFontSize);
             renderSubtitleFontSizeControl();
@@ -1383,7 +2063,8 @@ const socket = io();
          */
         function toggleCurrentSubtitle() {
             if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
-                toggleSubtitle(currentPlayingFilename);
+                const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
+                socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
         }
 
@@ -1416,9 +2097,16 @@ const socket = io();
 
         socket.on('current_song', updateCurrentSong);
 
+        socket.on('subtitle_style_mode', (data) => {
+            const mode = Number(data && data.mode);
+            if (!Number.isInteger(mode) || mode < 0 || mode >= subtitleStyleLabels.length) return;
+            currentSubtitleStyleMode = mode;
+            renderSubtitleStyleButton();
+        });
+
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleVisible = Boolean(data.visible) && subtitleSongs.has(currentPlayingFilename);
+                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
                 if (data.font_size !== undefined) {
                     currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                     applySubtitleFontSize(currentSubtitleFontSize);
@@ -1434,7 +2122,11 @@ const socket = io();
             socket.emit('control_effect', { volume: vol });
         }
 
-        socket.on('update_list', (songs) => { allSongs = songs; renderCategoryFilters(); filter(); });
+        socket.on('update_list', (songs) => { setSongList(songs); renderCategoryFilters(); filter(); });
+        socket.on('song_play_counts', (counts) => {
+            songPlayCounts = counts && typeof counts === 'object' ? counts : {};
+            filter();
+        });
 
         function renderQueue(playlist) {
             currentQueueHistory = Array.isArray(playlist) ? playlist : [];
@@ -1569,21 +2261,43 @@ const socket = io();
         /** Clears all four song filtering methods and restores the full list. */
         function clearFilters() {
             document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            const filtersToClear = ['song-length-filter', 'singer-filter'];
+            if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+            filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+            clearSelectedAffiliations();
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears category filters when the free-text search is used. */
+        /** Resets all category filters while a non-empty search query is entered. */
         function handleSearchInput() {
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { document.getElementById(id).value = ''; });
+            if (document.getElementById('search').value) {
+                const filtersToClear = ['song-length-filter', 'singer-filter'];
+                if (!getSongSortLanguage()) filtersToClear.push('language-filter');
+                filtersToClear.forEach((id) => { document.getElementById(id).value = ''; });
+                clearSelectedAffiliations();
+            }
+            renderCategoryFilters();
             filter();
         }
 
-        /** Clears search and other categories when one category is selected. @param {string} selectedId Selected filter id. */
-        function handleCategoryChange(selectedId) {
-            document.getElementById('search').value = '';
-            ['song-length-filter', 'singer-filter', 'language-filter'].forEach((id) => { if (id !== selectedId) document.getElementById(id).value = ''; });
+        /** Applies category changes without clearing other categories or the search query. */
+        function handleCategoryChange() {
+            const sortLanguage = getSongSortLanguage();
+            if (sortLanguage && document.getElementById('language-filter').value !== sortLanguage) {
+                songSortModeIndex = 1;
+                document.getElementById('song-sort-mode').textContent = '熱門';
+            }
+            renderCategoryFilters();
             filter();
+        }
+
+        function songAudioExceptionLabel(filename) {
+            const exception = songAudioExceptions[filename];
+            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
+            if (!exception || !Number.isFinite(measuredPeak)) return '';
+            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
+            return `<span class="song-audio-exception">⚠ c4 TP ${peakText}</span>`;
         }
 
         function filter() {
@@ -1591,15 +2305,16 @@ const socket = io();
             const selectedLength = document.getElementById('song-length-filter').value;
             const selectedSinger = document.getElementById('singer-filter').value;
             const selectedLanguage = document.getElementById('language-filter').value;
+                const selectedAffiliations = getSelectedAffiliations();
             const list = document.getElementById('list');
-            list.innerHTML = "";
-            allSongs.slice().sort(compareSongCodeDescending).filter(s => {
-                const metadata = parseSongMetadata(s);
-                return s.toLowerCase().includes(key)
+                const matchingSongs = sortedSongMetadata.filter(({ filename, metadata }) => {
+                return filename.toLowerCase().includes(key)
                     && (!selectedLength || metadata.length === selectedLength)
                     && (!selectedSinger || metadata.singer === selectedSinger)
-                    && (!selectedLanguage || metadata.language === selectedLanguage);
-            }).forEach(s => {
+                    && (!selectedLanguage || metadata.language === selectedLanguage)
+                    && (!selectedAffiliations.size || selectedAffiliations.has(metadata.affiliation));
+                });
+                const rows = sortSongEntries(matchingSongs).map(({ filename: s }) => {
                 const name = s.replace('.mp4', '');
                 const subtitleButton = subtitleSongs.has(s) ? '<button class="song-btn" type="button" disabled title="此歌有字幕">字幕</button>' : '';
                 const isPending = pendingSongs.has(s);
@@ -1607,18 +2322,14 @@ const socket = io();
                 const isQueued = queueIndex !== -1;
                 const isPlaying = queueIndex === 0;
                 const statusLabel = isPlaying ? '<span class="song-status">播放中</span>' : isQueued ? '<span class="song-status">已排隊</span>' : '';
+                const exceptionLabel = songAudioExceptionLabel(s);
                 const playButton = isPending
                     ? '<button class="song-btn added" disabled>已加入</button>'
                     : `<button class="song-btn" onclick="play(this, '${s}')">播歌</button>`;
-                list.innerHTML += `<li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; font-size:15px;">${statusLabel}${name}</span><span>${subtitleButton}${playButton}</span></li>`;
+                return `<li class="song-row ${isPending || isQueued ? 'song-added' : ''} ${isPlaying ? 'song-playing' : ''}" onclick="playSongFromRow(this, '${s}', event)"><span class="song-main"><span class="song-name">${statusLabel}${name}</span>${exceptionLabel}</span><span>${subtitleButton}${playButton}</span></li>`;
             });
+            list.innerHTML = rows.join('');
         }
-
-        /**
-         * Requests the player to toggle subtitles for a song with an attached file.
-         * @param {string} filename Song filename used by the player.
-         */
-        function toggleSubtitle(filename) { socket.emit('toggle_subtitle', { filename: filename }); }
 
         /**
          * Sends a song to the queue and keeps visible feedback during the request window.
@@ -1652,6 +2363,19 @@ const socket = io();
         }
 
         function cmd(action) { socket.emit('control', action); }
+
+        /** 只在單媒體模式要求目前歌曲快退或快進 10 秒。 */
+        function seekSong(seconds) {
+            if (seekCorrectionEnabled || (seconds !== -10 && seconds !== 10)) return;
+            socket.emit('seek_song', { seconds });
+        }
+
+        /** 只在雙媒體模式調整畫面與聲音的相對位置。 */
+        function seekVideo(seconds) {
+            if (!seekCorrectionEnabled || ![-0.5, -0.1, 0, 0.1, 0.5].includes(seconds)) return;
+            socket.emit('seek_video', { seconds });
+        }
+
         function track(mode) {
             currentMode = mode;
             setAudioMode(mode);
@@ -1664,7 +2388,15 @@ const socket = io();
         function replayCurrentSong() { socket.emit('replay_current_song'); }
 
         function loadList() {
-            fetch('/api/list').then(r => r.json()).then(data => { allSongs = data; renderCategoryFilters(); filter(); });
+            fetch('/api/list').then(r => r.json()).then((songs) => {
+                setSongList(songs);
+                renderCategoryFilters();
+                filter();
+                fetch('/api/song-audio-exceptions').then(r => r.json()).then((exceptions) => {
+                    songAudioExceptions = exceptions && typeof exceptions === 'object' ? exceptions : {};
+                    filter();
+                }).catch(() => { songAudioExceptions = {}; });
+            });
         }
         
         loadList();
