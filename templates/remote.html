@@ -1536,7 +1536,7 @@
 
         /** Returns the language filter required by the active language sort mode. */
         function getSongSortLanguage() {
-            return songSortModeIndex === 2 ? '國' : songSortModeIndex === 3 ? '台' : '';
+            return songSortModeIndex === 3 ? '國' : songSortModeIndex === 4 ? '台' : '';
         }
 
         /** Keeps the visible language selector aligned with the active sort mode. */
@@ -1555,22 +1555,25 @@
         function sortSongEntries(songs) {
             return [...songs].sort((firstSong, secondSong) => {
                 if (songSortModeIndex === 0) return compareSongCodeDescending(firstSong.filename, secondSong.filename);
-                const playCountDifference = (Number(songPlayCounts[secondSong.filename]) || 0)
-                    - (Number(songPlayCounts[firstSong.filename]) || 0);
+                const firstPlayCount = Number(songPlayCounts[firstSong.filename]) || 0;
+                const secondPlayCount = Number(songPlayCounts[secondSong.filename]) || 0;
+                const playCountDifference = songSortModeIndex === 2
+                    ? firstPlayCount - secondPlayCount
+                    : secondPlayCount - firstPlayCount;
                 return playCountDifference || compareSongCodeDescending(firstSong.filename, secondSong.filename);
             });
         }
 
-        /** Cycles the four requested sort modes and applies the language selector when needed. */
+        /** Cycles five sort modes and applies the language selector when needed. */
         function cycleSongSortMode() {
             const previousLanguage = getSongSortLanguage();
-            songSortModeIndex = (songSortModeIndex + 1) % 4;
+            songSortModeIndex = (songSortModeIndex + 1) % 5;
             if (previousLanguage && document.getElementById('language-filter').value === previousLanguage) {
                 setSongSortLanguage('');
             }
             const nextLanguage = getSongSortLanguage();
             if (nextLanguage) setSongSortLanguage(nextLanguage);
-            document.getElementById('song-sort-mode').textContent = ['新歌', '熱門', '國語', '台語'][songSortModeIndex];
+            document.getElementById('song-sort-mode').textContent = ['新歌', '熱門', '冷門', '國語', '台語'][songSortModeIndex];
             renderCategoryFilters();
             filter();
         }
