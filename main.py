@@ -3423,14 +3423,19 @@ if __name__ == "__main__" and os.environ.get('IANAUTOKTV_WORKER') != '1':
     # 【關鍵】多進程保護必須放在 if __name__ == "__main__": 的第一行
     multiprocessing.freeze_support()
 
+    startup_window = StartupWindow()
+    startup_window.set_status("正在檢查是否已有其他 KTV Server...")
+    # 先顯示等待畫面，再執行可能需要等待舊程序退出的防重檢查。
+    startup_window.update()
+    if not startup_window.winfo_exists():
+        raise SystemExit(0)
+
     try:
         ensure_single_server_instance()
     except Exception as error:
-        messagebox.showerror('啟動失敗', f'單一 Server 啟動保護失敗：{error}')
+        messagebox.showerror('啟動失敗', f'單一 Server 啟動保護失敗：{error}', parent=startup_window)
+        startup_window.destroy()
         raise SystemExit(1)
-
-    startup_window = StartupWindow()
-    startup_window.update()
 
     if get_ffmpeg_location() is None:
         startup_window.set_status("找不到 FFmpeg，程式無法啟動。")
