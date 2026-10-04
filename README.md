@@ -42,14 +42,14 @@ YouTube URL
 | 暫時不使用 | c3 |
 | 暫時不使用 | c5 |
 
-新進歌曲入庫前，原聲 c0/c1 盡量以約 `-14 LUFS` 為基準，但響度偏差可接受，不以此單獨阻擋入庫，也不要求 `-1 dBTP`；若完全無法量測仍視為製作驗證失敗。伴奏 c4 一般歌曲最終輸出必須維持約 `-14 LUFS`、True Peak 不高於 `-1 dBTP`，LRA 不高於 `8 LU`。若初次驗收只有 c4 True Peak 超過 `-1 dBTP`，且 LUFS、LRA、聲道與完整性檢查均通過、實測峰值不高於 `+0.5 dBTP`，系統會自動沿用同一個 AAC 成品重新驗收，不重新下載、分離或編碼；通過後在 MP4 容器 metadata 記錄 `ktv_peak_exception=true`、自動上限 `ktv_peak_exception_limit_dbtp` 與實測值 `ktv_peak_exception_measured_dbtp`。超過 `+0.5 dBTP` 或其他規則不合格仍會失敗，不自動放寬。管理端、遙控端與整合端的選歌項目會顯示違規類別及實測值，例如 `c4 TP +0.3 dBTP`，可供查詢比對。c2 儲存切割後的獨立人聲，c4 儲存正常音量伴奏。c4 為單聲道 stem，會先在 PCM 階段以 `-3 dBTP` 為峰值上限及 `7 LU` LRA 目標進行響度處理，補償平均音量時也不得超過此峰值上限，為 AAC 編碼保留峰值餘裕；之後只進行一次 AAC 合成。完成 AAC 後仍以雙聲道播放模式驗收 c4，LUFS 容差為 `-14 ±2 LU`，一般歌曲 True Peak 不高於 `-1 dBTP`，LRA 不高於 `8 LU`。播放導唱時以預設 50% 人聲增益將 c2 與 c4 即時混合；不對 c2+c4 混音結果再做整體響度或峰值校正，因人聲比例由使用者在 0–100% 間調整。故導唱混音的 LUFS/True Peak 會隨音源及滑桿比例變動，不作固定值驗收；c4 仍維持獨立伴奏標準，且滑桿不改變伴奏音量或聲道來源。
+新進歌曲入庫前，原聲 c0/c1 盡量以約 `-14 LUFS` 為基準，但響度偏差可接受，不以此單獨阻擋入庫，也不要求 `-1 dBTP`；若完全無法量測仍視為製作驗證失敗。伴奏 c4 一般歌曲最終輸出必須維持約 `-14 LUFS`、True Peak 不高於 `-1 dBTP`，LRA 不高於 `8 LU`。若 c4 LRA 超過 `8 LU` 但不高於核准例外上限 `14 LU`，且其他驗收均通過，允許標記例外後入庫；超過 `14 LU` 仍拒收。若 c4 True Peak 超過 `-1 dBTP`，仍只有在 TP 為唯一超標項目、實測不高於 `+0.5 dBTP` 且其他驗收均通過時，才可標記 TP 例外。TP 與 LRA 例外不可同時套用：套用 LRA 例外時 TP 必須符合一般上限；套用 TP 例外時 LRA 必須符合 `8 LU` 上限。例外標記記錄於 MP4 容器 metadata：TP 使用 `ktv_peak_exception`、`ktv_peak_exception_limit_dbtp`、`ktv_peak_exception_measured_dbtp`；LRA 使用 `ktv_lra_exception`、`ktv_lra_exception_limit_lu`、`ktv_lra_exception_measured_lu`。管理端、遙控端與整合端的選歌項目顯示例外類別與實測值，例如 `c4 TP +0.3 dBTP` 或 `c4 LRA 13.2 LU`。metadata 以不重新編碼音訊的 remux 寫入；整體製作仍只執行一次 AAC 合成，不重新下載、分離或 AAC 重編碼。c2 儲存切割後的獨立人聲，c4 儲存正常音量伴奏。c4 為單聲道 stem，會先在 PCM 階段以 `-3 dBTP` 為峰值上限及 `7 LU` LRA 目標進行響度處理，補償平均音量時也不得超過此峰值上限，為 AAC 編碼保留峰值餘裕；之後只進行一次 AAC 合成。完成 AAC 後仍以雙聲道播放模式驗收 c4，LUFS 容差為 `-14 ±2 LU`，一般歌曲 True Peak 不高於 `-1 dBTP`，標準 LRA 上限為 `8 LU`，例外上限為 `14 LU`。播放導唱時以預設 50% 人聲增益將 c2 與 c4 即時混合；不對 c2+c4 混音結果再做整體響度或峰值校正，因人聲比例由使用者在 0–100% 間調整。故導唱混音的 LUFS/True Peak 會隨音源及滑桿比例變動，不作固定值驗收；c4 仍維持獨立伴奏標準，且滑桿不改變伴奏音量或聲道來源。
 
 ### 伴奏製作規則
 
 1. Spleeter 先產生 `vocals.wav`、`drums.wav`、`bass.wav`、`other.wav`；FFmpeg 只將後三者合成唯一 `accompaniment.wav`。
 2. 伴奏檔必須先通過 FFmpeg 完整解碼驗證。
 3. 將伴奏左右聲道平均成單一正常音量伴奏訊號。
-4. 同一個非人聲伴奏訊號供導唱播放混音與 c4 使用；新格式 c2 只存切割後的人聲，c4 只存 `drums/bass/other` 合成的 `accompaniment.wav`。c4 單聲道 stem 在唯一一次 AAC 合成前，以 PCM 響度處理將峰值控制在 `-3 dBTP` 以下並以 `7 LU` LRA 為目標，補償平均音量時不得突破峰值上限；AAC 完成後依雙聲道播放方式驗收 `-14 ±2 LUFS`、一般歌曲 True Peak 不高於 `-1 dBTP`、LRA 不高於 `8 LU`。若首次驗收唯獨 c4 TP 超標、其他條件全通過且 TP 不高於 `+0.5 dBTP`，自動沿用同一 AAC 成品重驗並記錄違規實測值；不重新下載或 AAC 重編碼。超過此上限或其他條件不合格仍失敗。例外歌曲以 MP4 容器 metadata 記錄，歌曲選單顯示違規項目及實測值。播放導唱時直接混合 c2 與 c4，不對混音套用額外整體增益或正規化；遙控端或整合端滑桿只改變 c2 增益。舊歌曲若無新版格式標記，仍依原 c2 混合導唱播放。
+4. 同一個非人聲伴奏訊號供導唱播放混音與 c4 使用；新格式 c2 只存切割後的人聲，c4 只存 `drums/bass/other` 合成的 `accompaniment.wav`。c4 單聲道 stem 在唯一一次 AAC 合成前，以 PCM 響度處理將峰值控制在 `-3 dBTP` 以下並以 `7 LU` LRA 為目標，補償平均音量時不得突破峰值上限；AAC 完成後依雙聲道播放方式驗收 `-14 ±2 LUFS`、一般歌曲 True Peak 不高於 `-1 dBTP`、標準 LRA 不高於 `8 LU`。c4 LRA 若大於 `8 LU` 但不高於 `14 LU`，且其他驗收（包含一般 TP 上限）均通過，可記錄 `ktv_lra_exception=true`、核准上限 `ktv_lra_exception_limit_lu` 與實測值 `ktv_lra_exception_measured_lu` 後入庫；高於 `14 LU` 或其他條件不合格仍失敗。c4 TP 例外仍僅適用於 TP 單項超標且不高於 `+0.5 dBTP`，此時 LRA 須符合 `8 LU` 標準上限。例外標記後以 MP4 容器 metadata 保存，歌曲選單顯示類別及實測值。寫入 metadata 使用不重新編碼音訊的 remux，不重新下載、分離或 AAC 重編碼。播放導唱時直接混合 c2 與 c4，不對混音套用額外整體增益或正規化；遙控端或整合端滑桿只改變 c2 增益。舊歌曲若無新版格式標記，仍依原 c2 混合導唱播放。
 5. 不得對伴奏執行第二次 Spleeter、左右相減、Mid/Side 濾波或其他未驗證加工。
 6. 不得反覆 AAC 重編碼；完成六聲道後只執行必要的最終響度處理。
 
@@ -78,7 +78,7 @@ YouTube URL
 4. 使用 `spleeter:4stems` 先分離人聲、鼓、Bass 與其他音樂元素，再將非人聲三 stem 合成伴奏。
 5. 依音訊規則建立 c0/c1、c2 人聲、c4 伴奏。
 6. 以 `join/5.1` 封裝成單一 MP4。
-7. 依各模式的音量基準處理並量測：原聲盡量接近 `-14 LUFS`，偏差可接受且不要求 `-1 dBTP`；導唱須為約 `-14 LUFS`、True Peak 不高於 `-1 dBTP`；伴奏另以 `7 LU` LRA 為目標，最終驗收 `-14 ±2 LUFS`、True Peak 不高於 `-1 dBTP`、LRA 不高於 `8 LU`。
+7. 依各模式的音量基準處理並量測：原聲盡量接近 `-14 LUFS`，偏差可接受且不要求 `-1 dBTP`；導唱須為約 `-14 LUFS`、True Peak 不高於 `-1 dBTP`；伴奏另以 `7 LU` LRA 為目標，最終驗收 `-14 ±2 LUFS`、True Peak 不高於 `-1 dBTP`、標準 LRA 不高於 `8 LU`。LRA 例外限 `8–14 LU`（含 14），需記錄 MP4 metadata 並在選歌介面顯示；高於 `14 LU` 仍失敗。
 8. 使用 FFprobe 確認第一條音訊流為 6 channels、配置為 `5.1`，並使用 FFmpeg 完整解碼。
 9. 所有驗證成功後才搬入 `ktv_songs`；失敗時不得留下可播放半成品。
 
@@ -244,11 +244,11 @@ TypeError: emit() got an unexpected keyword argument 'broadcast'
 ### 批次平衡防錯規則
 
 - 批次開始時必須固定輸入檔案清單與總數；不可依處理中的暫存檔數量推測成功數。
-- 每首歌曲都必須獨立建立暫存輸出，完成 FFprobe 六聲道、三種播放模式 LUFS 與 True Peak 驗證，以及 c4 LRA 不高於 `8 LU` 的檢查後，才可使用原子替換取代原檔；只有 c4 TP 單項失敗且實測不高於 `+0.5 dBTP` 才能自動重驗，metadata 記錄實測值，其他失敗仍拒絕。
+- 每首歌曲都必須獨立建立暫存輸出，完成 FFprobe 六聲道、三種播放模式 LUFS 與 True Peak 驗證，以及 c4 LRA 驗收後，才可使用原子替換取代原檔；c4 LRA 標準上限為 `8 LU`，核准例外上限為 `14 LU`，例外須記錄 metadata 實測值並在選歌介面顯示。c4 TP 例外上限仍為 `+0.5 dBTP`；超過任一例外上限或其他條件失敗仍拒絕。
 - 單首 FFmpeg 工作設有逾時；逾時或驗證失敗必須記錄檔名與錯誤，繼續處理後續歌曲，並在批次結束後逐首重試失敗清單。
 - 編碼後響度校正最多只允許一次；校正仍未通過時必須標記失敗，不得繼續遞迴重編碼或以降低驗證標準掩蓋問題。
 - 批次 API 只有在失敗清單為空時才回傳 `success: true`；`success_count` 必須等於輸入總數，才可視為批次完成。
-- 最終交付前必須重新掃描完整輸入清單，確認 `成功數 = 總數`、所有檔案為六聲道 `5.1`；c0/c1 盡量接近 `-14 LUFS`，偏差可接受且不要求 `-1 dBTP`；c2/c4 必須為約 `-14 LUFS`，一般歌曲 True Peak 不高於 `-1 dBTP`，c4 LRA 不高於 `8 LU`；自動標記的 c4 TP 例外不得高於 `+0.5 dBTP`，且 metadata 實測值須與成品一致。
+- 最終交付前必須重新掃描完整輸入清單，確認 `成功數 = 總數`、所有檔案為六聲道 `5.1`；c0/c1 盡量接近 `-14 LUFS`，偏差可接受且不要求 `-1 dBTP`；c2/c4 必須為約 `-14 LUFS`，一般歌曲 True Peak 不高於 `-1 dBTP`，c4 LRA 標準上限為 `8 LU`。已標記的 c4 TP 例外不得高於 `+0.5 dBTP`；已標記的 c4 LRA 例外不得高於 `14 LU`；兩者 metadata 實測值均須與成品一致。
 
 ## 開發環境
 

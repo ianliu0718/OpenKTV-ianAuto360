@@ -1858,10 +1858,17 @@
 
         function songAudioExceptionLabel(filename) {
             const exception = songAudioExceptions[filename];
-            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
-            if (!exception || !Number.isFinite(measuredPeak)) return '';
-            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
-            return `<span class="song-audio-exception">⚠ c4 TP ${peakText}</span>`;
+            if (!exception) return '';
+            const labels = [];
+            const measuredPeak = Number(exception.c4_true_peak_dbtp);
+            const measuredLra = Number(exception.c4_lra_lu);
+            if (exception.c4_true_peak_dbtp != null && Number.isFinite(measuredPeak)) {
+                labels.push(`c4 TP ${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`);
+            }
+            if (exception.c4_lra_lu != null && Number.isFinite(measuredLra)) {
+                labels.push(`c4 LRA ${measuredLra.toFixed(1)} LU`);
+            }
+            return labels.length ? `<span class="song-audio-exception">⚠ ${labels.join(' · ')}</span>` : '';
         }
 
         function filter() {

@@ -177,6 +177,10 @@ C4_PEAK_EXCEPTION_TAG = 'ktv_peak_exception'
 C4_PEAK_EXCEPTION_LIMIT_TAG = 'ktv_peak_exception_limit_dbtp'
 C4_PEAK_EXCEPTION_MEASURED_TAG = 'ktv_peak_exception_measured_dbtp'
 C4_PEAK_AUTO_RETRY_MAX_DBTP = 0.5
+C4_LRA_EXCEPTION_TAG = 'ktv_lra_exception'
+C4_LRA_EXCEPTION_LIMIT_TAG = 'ktv_lra_exception_limit_lu'
+C4_LRA_EXCEPTION_MEASURED_TAG = 'ktv_lra_exception_measured_lu'
+C4_LRA_EXCEPTION_MAX_LU = 14.0
 
 
 def _get_c4_peak_exception_metadata(ffmpeg_path, song_path):
@@ -207,17 +211,58 @@ def _get_c4_peak_exception_metadata(ffmpeg_path, song_path):
         return True, None, None
 
 
-def _write_c4_peak_exception_metadata(ffmpeg_path, song_path, limit, measured, marked=True):
-    """Add queryable c4 exception metadata by remuxing without re-encoding audio."""
-    temporary_path = song_path + '.peak_exception.mp4'
+def _get_c4_lra_exception_metadata(ffmpeg_path, song_path):
+    """Read an approved c4 LRA exception marker, limit, and measured range."""
+    ffprobe_path = get_ffprobe_path(ffmpeg_path)
+    if not ffprobe_path or not os.path.exists(song_path):
+        return False, None, None
+    try:
+        result = subprocess.run(
+            [ffprobe_path, '-v', 'error', '-show_entries',
+             f'format_tags={C4_LRA_EXCEPTION_TAG},{C4_LRA_EXCEPTION_LIMIT_TAG},{C4_LRA_EXCEPTION_MEASURED_TAG}',
+             '-of', 'json', song_path],
+            check=True, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+        )
+        tags = json.loads(result.stdout).get('format', {}).get('tags', {})
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        return False, None, None
+    if str(tags.get(C4_LRA_EXCEPTION_TAG, '')).lower() != 'true':
+        return False, None, None
+    try:
+        limit = float(tags.get(C4_LRA_EXCEPTION_LIMIT_TAG))
+        measured = float(tags.get(C4_LRA_EXCEPTION_MEASURED_TAG))
+        if not math.isfinite(limit) or not math.isfinite(measured):
+            raise ValueError('LRA exception metadata must be finite')
+        return True, limit, measured
+    except (TypeError, ValueError):
+        return True, None, None
+
+
+def _write_c4_audio_exception_metadata(
+        ffmpeg_path, song_path, peak_limit=None, peak_measured=None, lra_limit=None, lra_measured=None,
+        peak_marked=True, lra_marked=True):
+    """Store approved c4 exception measurements by remuxing without AAC re-encoding."""
+    temporary_path = song_path + '.audio_exception.mp4'
+    metadata = []
+    if peak_limit is not None and peak_measured is not None:
+        metadata.extend([
+            '-metadata', f'{C4_PEAK_EXCEPTION_TAG}={str(peak_marked).lower()}',
+            '-metadata', f'{C4_PEAK_EXCEPTION_LIMIT_TAG}={peak_limit:.3f}',
+            '-metadata', f'{C4_PEAK_EXCEPTION_MEASURED_TAG}={peak_measured:.3f}',
+        ])
+    if lra_limit is not None and lra_measured is not None:
+        metadata.extend([
+            '-metadata', f'{C4_LRA_EXCEPTION_TAG}={str(lra_marked).lower()}',
+            '-metadata', f'{C4_LRA_EXCEPTION_LIMIT_TAG}={lra_limit:.3f}',
+            '-metadata', f'{C4_LRA_EXCEPTION_MEASURED_TAG}={lra_measured:.3f}',
+        ])
     try:
         result = subprocess.run(
             [
                 ffmpeg_path, '-y', '-i', song_path, '-map', '0', '-map_metadata', '0', '-c', 'copy',
                 '-movflags', '+faststart+use_metadata_tags',
-                '-metadata', f'{C4_PEAK_EXCEPTION_TAG}={str(marked).lower()}',
-                '-metadata', f'{C4_PEAK_EXCEPTION_LIMIT_TAG}={limit:.3f}',
-                '-metadata', f'{C4_PEAK_EXCEPTION_MEASURED_TAG}={measured:.3f}', temporary_path,
+                *metadata, temporary_path,
             ],
             stdin=subprocess.DEVNULL, capture_output=True, text=True,
             encoding='utf-8', errors='replace', timeout=600,
@@ -225,7 +270,7 @@ def _write_c4_peak_exception_metadata(ffmpeg_path, song_path, limit, measured, m
         )
         if result.returncode != 0 or not os.path.exists(temporary_path):
             detail = (result.stderr or result.stdout or 'FFmpeg 未提供錯誤訊息').strip()[-2000:]
-            raise RuntimeError(f'寫入伴奏 TP 例外標籤失敗：{detail}')
+            raise RuntimeError(f'寫入伴奏音訊例外標籤失敗：{detail}')
         os.replace(temporary_path, song_path)
     finally:
         if os.path.exists(temporary_path):
@@ -1146,7 +1191,7 @@ song_audio_exception_cache_lock = threading.Lock()
 
 @app.route('/api/song-audio-exceptions')
 def get_song_audio_exceptions():
-    """Return automatically marked c4 peak exceptions for song-picker labels."""
+    """Return marked c4 peak and LRA exceptions for song-picker labels."""
     ffmpeg_dir = get_ffmpeg_location()
     ffmpeg_path = os.path.join(ffmpeg_dir, 'ffmpeg.exe') if ffmpeg_dir else shutil.which('ffmpeg')
     exceptions = {}
@@ -1163,13 +1208,18 @@ def get_song_audio_exceptions():
         for filename, stat_key in song_stats.items():
             cached = song_audio_exception_cache.get(filename)
             if cached is None or cached[0] != stat_key:
-                has_exception, limit, measured = _get_c4_peak_exception_metadata(
+                has_peak_exception, peak_limit, peak_measured = _get_c4_peak_exception_metadata(
+                    ffmpeg_path, os.path.join(SONGS_DIR, filename),
+                )
+                has_lra_exception, lra_limit, lra_measured = _get_c4_lra_exception_metadata(
                     ffmpeg_path, os.path.join(SONGS_DIR, filename),
                 )
                 exception = {
-                    'c4_true_peak_dbtp': measured,
-                    'automatic_limit_dbtp': limit,
-                } if has_exception else None
+                    'c4_true_peak_dbtp': peak_measured,
+                    'automatic_limit_dbtp': peak_limit,
+                    'c4_lra_lu': lra_measured,
+                    'approved_lra_limit_lu': lra_limit,
+                } if has_peak_exception or has_lra_exception else None
                 song_audio_exception_cache[filename] = (stat_key, exception)
             exception = song_audio_exception_cache[filename][1]
             if exception:
@@ -1579,6 +1629,13 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     has_peak_exception, peak_exception_limit, peak_exception_measured = _get_c4_peak_exception_metadata(ffmpeg_path, source_path)
     if has_peak_exception and (peak_exception_limit is None or peak_exception_measured is None):
         raise RuntimeError('既有歌曲的伴奏 True Peak 例外標籤缺少有效上限')
+    has_lra_exception, lra_exception_limit, lra_exception_measured = _get_c4_lra_exception_metadata(
+        ffmpeg_path, source_path,
+    )
+    if has_lra_exception and (
+            lra_exception_limit is None or lra_exception_measured is None
+            or lra_exception_limit > C4_LRA_EXCEPTION_MAX_LU):
+        raise RuntimeError('既有歌曲的伴奏 LRA 例外標籤缺少有效上限')
 
     def gain_factor(mode, peak_target=-2.5):
         loudness, peak = mode_levels[mode]
@@ -1601,7 +1658,7 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
     command = [
         ffmpeg_path, '-y', '-i', source_path, '-filter_complex', audio_filter,
         '-map', '0:v:0', '-map', '[audio]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '384k',
-        '-movflags', '+faststart+use_metadata_tags' if has_peak_exception else '+faststart',
+        '-movflags', '+faststart+use_metadata_tags' if has_peak_exception or has_lra_exception else '+faststart',
     ]
     if has_vocal_stem:
         command.extend(['-metadata:s:a:0', f'{VOCAL_STEM_LAYOUT_TAG}={VOCAL_STEM_LAYOUT_VERSION}'])
@@ -1620,12 +1677,22 @@ def _balance_six_channel_loudness(ffmpeg_path, source_path, output_path):
         )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError('六聲道音量平衡逾時（超過 600 秒）') from error
-    if has_peak_exception:
+    if has_peak_exception or has_lra_exception:
         _, balanced_peak = _measure_audio_metrics(ffmpeg_path, output_path, 'instrumental')
-        if balanced_peak is None:
-            raise RuntimeError('既有歌曲平衡後無法量測 c4 True Peak')
-        _write_c4_peak_exception_metadata(
-            ffmpeg_path, output_path, peak_exception_limit, balanced_peak, balanced_peak > -1.0,
+        balanced_lra = _measure_audio_loudness_range(ffmpeg_path, output_path)
+        if (has_peak_exception and balanced_peak is None) or (has_lra_exception and balanced_lra is None):
+            raise RuntimeError('既有歌曲平衡後無法量測 c4 例外指標')
+        _write_c4_audio_exception_metadata(
+            ffmpeg_path, output_path,
+            peak_limit=peak_exception_limit if has_peak_exception else None,
+            peak_measured=balanced_peak if has_peak_exception else None,
+            peak_marked=balanced_peak > -1.0 if has_peak_exception else True,
+            lra_limit=lra_exception_limit if has_lra_exception else None,
+            lra_measured=balanced_lra if has_lra_exception else None,
+            lra_marked=(
+                balanced_lra > 8.0 and balanced_lra <= lra_exception_limit
+                if has_lra_exception else True
+            ),
         )
 
 def _normalize_accompaniment_source(ffmpeg_path, source_path, output_path):
@@ -1753,16 +1820,30 @@ def _rebalance_encoded_six_channel_audio(ffmpeg_path, song_path):
         if os.path.exists(temporary_path):
             os.remove(temporary_path)
 
-def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path, c4_peak_exception_limit=None):
+def _validate_six_channel_audio(
+        ffmpeg_path, ffprobe_path, song_path, c4_peak_exception_limit=None, c4_lra_exception_limit=None):
     """Accept the final file once it has the correct six-channel layout and the processed modes are in range."""
     channel_count = get_audio_channel_count_from_path(song_path, ffprobe_path)
     if channel_count != 6:
         raise RuntimeError(f'最終音訊驗證失敗：聲道數為 {channel_count or "未知"}，預期 6')
     has_vocal_stem = _has_separated_vocal_track(ffmpeg_path, song_path)
     has_peak_exception, stored_peak_limit, stored_peak_measurement = _get_c4_peak_exception_metadata(ffmpeg_path, song_path)
+    has_lra_exception, stored_lra_limit, stored_lra_measurement = _get_c4_lra_exception_metadata(ffmpeg_path, song_path)
     warnings = []
     if has_peak_exception and (stored_peak_limit is None or stored_peak_measurement is None):
         warnings.append('instrumental TP 例外標籤缺少有效資料')
+    if has_lra_exception and (
+            stored_lra_limit is None or stored_lra_measurement is None
+            or stored_lra_limit <= 8.0 or stored_lra_limit > C4_LRA_EXCEPTION_MAX_LU
+            or stored_lra_measurement <= 8.0 or stored_lra_measurement > stored_lra_limit):
+        warnings.append('instrumental LRA 例外標籤缺少有效資料')
+    if has_peak_exception and has_lra_exception:
+        warnings.append('instrumental TP 與 LRA 例外不可同時標記')
+    if c4_lra_exception_limit is not None and (
+            not math.isfinite(c4_lra_exception_limit)
+            or c4_lra_exception_limit <= 8.0
+            or c4_lra_exception_limit > C4_LRA_EXCEPTION_MAX_LU):
+        warnings.append('instrumental LRA 例外驗收上限無效')
     for mode in ('original', 'guide', 'instrumental'):
         if mode == 'guide' and has_vocal_stem:
             continue
@@ -1784,10 +1865,68 @@ def _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path, c4_peak_ex
             loudness_range = _measure_audio_loudness_range(ffmpeg_path, song_path, mode)
             if loudness_range is None:
                 warnings.append(f'{mode} LRA=無法量測')
-            elif loudness_range > 8.0:
-                warnings.append(f'{mode} LRA={loudness_range:.1f} LU（上限 8.0 LU）')
+            else:
+                lra_limit = 8.0
+                if c4_lra_exception_limit is not None:
+                    lra_limit = c4_lra_exception_limit
+                elif has_lra_exception and stored_lra_limit is not None:
+                    lra_limit = stored_lra_limit
+                if loudness_range > lra_limit:
+                    warnings.append(f'{mode} LRA={loudness_range:.1f} LU（上限 {lra_limit:.1f} LU）')
+                if has_lra_exception and stored_lra_measurement is not None:
+                    if abs(loudness_range - stored_lra_measurement) > 0.05:
+                        warnings.append(
+                            f'{mode} LRA 例外標記實測值不符（標記 {stored_lra_measurement:.3f} LU，'
+                            f'目前 {loudness_range:.3f} LU）'
+                        )
     if warnings:
         raise RuntimeError('最終音訊響度驗證失敗：' + '、'.join(warnings))
+
+
+def _validate_six_channel_audio_with_exceptions(ffmpeg_path, ffprobe_path, song_path):
+    """Validate a song and mark only approved c4 peak/LRA exceptions."""
+    try:
+        _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path)
+        return None, None
+    except RuntimeError as strict_error:
+        try:
+            _validate_six_channel_audio(
+                ffmpeg_path, ffprobe_path, song_path,
+                c4_lra_exception_limit=C4_LRA_EXCEPTION_MAX_LU,
+            )
+            peak_limit = None
+        except RuntimeError:
+            try:
+                _validate_six_channel_audio(
+                    ffmpeg_path, ffprobe_path, song_path, C4_PEAK_AUTO_RETRY_MAX_DBTP,
+                )
+                peak_limit = C4_PEAK_AUTO_RETRY_MAX_DBTP
+            except RuntimeError:
+                raise strict_error
+
+        _, peak = _measure_audio_metrics(ffmpeg_path, song_path, 'instrumental')
+        lra = _measure_audio_loudness_range(ffmpeg_path, song_path)
+        if peak is None or lra is None:
+            raise strict_error
+        peak_exception = peak if peak > -1.0 else None
+        lra_exception = lra if lra > 8.0 else None
+        if peak_exception is not None and (peak_limit is None or peak_exception > peak_limit):
+            raise strict_error
+        if peak_exception is not None and lra_exception is not None:
+            raise strict_error
+        if lra_exception is not None and lra_exception > C4_LRA_EXCEPTION_MAX_LU:
+            raise strict_error
+        if peak_exception is None and lra_exception is None:
+            raise strict_error
+        _write_c4_audio_exception_metadata(
+            ffmpeg_path, song_path,
+            peak_limit=peak_limit if peak_exception is not None else None,
+            peak_measured=peak_exception,
+            lra_limit=C4_LRA_EXCEPTION_MAX_LU if lra_exception is not None else None,
+            lra_measured=lra_exception,
+        )
+        _validate_six_channel_audio(ffmpeg_path, ffprobe_path, song_path)
+        return peak_exception, lra_exception
 
 def _optimize_downloaded_video(ffmpeg_path, source_path, output_path):
     """Convert and validate a downloaded video for reliable legacy-PC playback."""
@@ -1877,8 +2016,20 @@ def ai_vocal_remove_video():
             ffmpeg_path, ffprobe_path, source_path, vocal_path, accompaniment_path,
             output_path, normalize_volume=True,
         )
-        _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
+        peak_exception, lra_exception = _validate_six_channel_audio_with_exceptions(
+            ffmpeg_path, ffprobe_path, output_path,
+        )
         shutil.move(output_path, final_path)
+        if lra_exception is not None:
+            broadcast_log(
+                f'⚠️ 標記 c4 LRA 例外：實測 {lra_exception:.1f} LU '
+                f'（核准上限 {C4_LRA_EXCEPTION_MAX_LU:.1f} LU）。'
+            )
+        if peak_exception is not None:
+            broadcast_log(
+                f'⚠️ 標記 c4 True Peak 例外：實測 {peak_exception:+.1f} dBTP '
+                f'（自動上限 +{C4_PEAK_AUTO_RETRY_MAX_DBTP:.1f} dBTP）。'
+            )
         broadcast_log(f'✅ AI 去人聲完成：{filename}（六聲道：原聲 / 導唱 / 伴奏）')
         socketio.emit('refresh_list')
         return json.dumps({'success': True, 'filename': filename}, ensure_ascii=False)
@@ -1924,7 +2075,7 @@ def normalize_video_audio():
             # 平衡流程已包含動態處理與峰值保護；只允許一次 AAC 輸出，避免重編碼再次推高峰值。
             _balance_six_channel_loudness(ffmpeg_path, balanced_source, balanced_path)
             balanced_source = balanced_path
-            _validate_six_channel_audio(ffmpeg_path, ffprobe_path, balanced_source)
+            _validate_six_channel_audio_with_exceptions(ffmpeg_path, ffprobe_path, balanced_source)
             shutil.move(balanced_source, final_path)
             broadcast_log(f'✅ 六聲道音量平衡完成：{filename}')
             socketio.emit('refresh_list')
@@ -2000,7 +2151,7 @@ def normalize_videos_audio_batch():
                 broadcast_log(f'=== 批次音量平衡 {index}/{len(video_files)}：{filename} ===')
                 if get_audio_channel_count_from_path(source_path, ffprobe_path) >= 6:
                     _balance_six_channel_loudness(ffmpeg_path, source_path, output_path)
-                    _validate_six_channel_audio(ffmpeg_path, ffprobe_path, output_path)
+                    _validate_six_channel_audio_with_exceptions(ffmpeg_path, ffprobe_path, output_path)
                 else:
                     result = subprocess.run(
                         [ffmpeg_path, '-y', '-i', source_path, '-map', '0:v:0', '-map', '0:a?',
@@ -3148,25 +3299,18 @@ class KTVProcessor:
                 ffmpeg_path, ffprobe_path, temp_input, voc_path, acc_path,
                 temp_output, normalize_volume,
             )
-            try:
-                _validate_six_channel_audio(ffmpeg_path, ffprobe_path, temp_output)
-            except RuntimeError as validation_error:
-                try:
-                    _validate_six_channel_audio(
-                        ffmpeg_path, ffprobe_path, temp_output, C4_PEAK_AUTO_RETRY_MAX_DBTP,
-                    )
-                except RuntimeError:
-                    raise validation_error
-                _, measured_peak = _measure_audio_metrics(ffmpeg_path, temp_output, 'instrumental')
-                if measured_peak is None or measured_peak <= -1.0 or measured_peak > C4_PEAK_AUTO_RETRY_MAX_DBTP:
-                    raise validation_error
-                _write_c4_peak_exception_metadata(
-                    ffmpeg_path, temp_output, C4_PEAK_AUTO_RETRY_MAX_DBTP, measured_peak,
-                )
-                _validate_six_channel_audio(ffmpeg_path, ffprobe_path, temp_output)
+            peak_exception, lra_exception = _validate_six_channel_audio_with_exceptions(
+                ffmpeg_path, ffprobe_path, temp_output,
+            )
+            if peak_exception is not None:
                 self.log(
-                    f'⚠️ 自動標記 c4 True Peak 例外：實測 {measured_peak:+.1f} dBTP '
-                    f'（自動上限 +{C4_PEAK_AUTO_RETRY_MAX_DBTP:.1f} dBTP；其他音訊規則均通過）。'
+                    f'⚠️ 自動標記 c4 True Peak 例外：實測 {peak_exception:+.1f} dBTP '
+                    f'（自動上限 +{C4_PEAK_AUTO_RETRY_MAX_DBTP:.1f} dBTP）。'
+                )
+            if lra_exception is not None:
+                self.log(
+                    f'⚠️ 標記 c4 LRA 例外：實測 {lra_exception:.1f} LU '
+                    f'（核准上限 {C4_LRA_EXCEPTION_MAX_LU:.1f} LU；其他音訊規則均通過）。'
                 )
 
             current_step = '步驟 5/5 儲存檔案'

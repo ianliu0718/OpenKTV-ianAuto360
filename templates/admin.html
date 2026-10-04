@@ -755,10 +755,17 @@
         /** Return a warning suffix without changing the filename used as the option value. */
         function songPickerLabel(song) {
             const exception = songAudioExceptions[song];
-            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
-            if (!exception || !Number.isFinite(measuredPeak)) return song;
-            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
-            return `${song} | ⚠ c4 TP ${peakText}`;
+            if (!exception) return song;
+            const labels = [];
+            const measuredPeak = Number(exception.c4_true_peak_dbtp);
+            const measuredLra = Number(exception.c4_lra_lu);
+            if (exception.c4_true_peak_dbtp != null && Number.isFinite(measuredPeak)) {
+                labels.push(`c4 TP ${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`);
+            }
+            if (exception.c4_lra_lu != null && Number.isFinite(measuredLra)) {
+                labels.push(`c4 LRA ${measuredLra.toFixed(1)} LU`);
+            }
+            return labels.length ? `${song} | ⚠ ${labels.join(' | ')}` : song;
         }
 
         function loadSongAudioExceptions(forceRefresh = false) {
