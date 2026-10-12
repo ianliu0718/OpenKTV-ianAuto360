@@ -76,6 +76,9 @@ else:
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 STICKERS_DIR = os.path.join(BASE_DIR, "static", "stickers")
 STICKER_EXTENSIONS = {'.gif', '.webp', '.png'}
+STICKER_COOLDOWN_SECONDS = 2
+sticker_last_sent_at = {}
+sticker_cooldown_lock = threading.Lock()
 FFMPEG_DIR = os.path.join(BASE_DIR, "ffmpeg", "bin")
 YT_DLP_PATH = os.path.join(BASE_DIR, "yt-dlp.exe")
 # 待播備註獨立保存於專案目錄，避免重啟 server 後遺失。
@@ -2938,8 +2941,24 @@ def handle_sticker_submit(data):
         return {'success': False, 'error': '找不到支援的貼圖'}
     if os.path.getsize(sticker_path) > 2 * 1024 * 1024:
         return {'success': False, 'error': '貼圖大小不可超過 2 MB'}
+    now = time.monotonic()
+    with sticker_cooldown_lock:
+        last_sent_at = sticker_last_sent_at.get(request.sid)
+        remaining = STICKER_COOLDOWN_SECONDS - (now - last_sent_at) if last_sent_at is not None else 0
+        if remaining > 0:
+            return {
+                'success': False,
+                'error': '每 2 秒只能傳送一張貼圖。',
+                'retry_after': remaining,
+            }
+        sticker_last_sent_at[request.sid] = now
     emit('sticker_show', {'filename': filename}, broadcast=True)
     return {'success': True}
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    with sticker_cooldown_lock:
+        sticker_last_sent_at.pop(request.sid, None)
 
 @socketio.on('seek_video')
 def handle_seek_video(data):
