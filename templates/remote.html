@@ -2020,13 +2020,13 @@
             seekCorrectionEnabled = Boolean(enabled);
             // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
             document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
-            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
             });
             document.querySelectorAll('.song-seek-control').forEach((button) => {
                 button.disabled = seekCorrectionEnabled;
+                button.style.display = seekCorrectionEnabled ? 'none' : '';
                 button.style.opacity = seekCorrectionEnabled ? '0.45' : '1';
             });
             document.getElementById('seek-val').innerText = seekCorrectionEnabled
