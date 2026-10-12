@@ -2296,14 +2296,26 @@ const socket = io();
             const exception = songAudioExceptions[filename];
             if (!exception) return '';
             const labels = [];
+            const hasDetailedExceptions = Array.isArray(exception.audio_exceptions) && exception.audio_exceptions.length > 0;
+            const modeNames = { guide: '導唱 c2', instrumental: '伴奏 c4' };
+            const metricNames = { loudness: 'LUFS', true_peak: 'TP', loudness_range: 'LRA' };
+            for (const item of (hasDetailedExceptions ? exception.audio_exceptions : [])) {
+                const measured = Number(item.measured);
+                if (!Number.isFinite(measured) || !modeNames[item.mode] || !metricNames[item.metric]) continue;
+                const value = item.metric === 'true_peak'
+                    ? `${measured >= 0 ? '+' : ''}${measured.toFixed(1)} dBTP`
+                    : `${measured.toFixed(1)} ${item.unit}`;
+                labels.push(`${modeNames[item.mode]} ${metricNames[item.metric]} ${value}（標準 ${item.standard}）`);
+            }
             const measuredPeak = Number(exception.c4_true_peak_dbtp);
             const measuredLra = Number(exception.c4_lra_lu);
-            if (exception.c4_true_peak_dbtp != null && Number.isFinite(measuredPeak)) {
+            if (!hasDetailedExceptions && exception.c4_true_peak_dbtp != null && Number.isFinite(measuredPeak)) {
                 labels.push(`c4 TP ${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`);
             }
-            if (exception.c4_lra_lu != null && Number.isFinite(measuredLra)) {
+            if (!hasDetailedExceptions && exception.c4_lra_lu != null && Number.isFinite(measuredLra)) {
                 labels.push(`c4 LRA ${measuredLra.toFixed(1)} LU`);
             }
+            if (exception.metadata_error) labels.push('特殊歌曲標記無效');
             return labels.length ? `<span class="song-audio-exception">⚠ ${labels.join(' · ')}</span>` : '';
         }
 
