@@ -72,6 +72,8 @@
         .nav-remote { background: #E91E63; }
         .nav-console { background: #9C27B0; }
         .nav-player { background: #2196F3; }
+        .drive-library-hint { color: #607D8B; font-size: 14px; }
+        .drive-host-link { display: inline-block; margin-top: 4px; font-weight: bold; color: #1565c0; }
         .channel-inspector video { display: block; width: 100%; background: #000; margin: 10px 0; }
         .channel-inspector-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     </style>
@@ -83,6 +85,13 @@
         <a href="/remote" class="nav-btn nav-remote">📱 遙控器</a>
         <a href="/combo" class="nav-btn nav-combo">🖥️ 雙合一控制台</a>
         <a href="/player" class="nav-btn nav-player">📺 播放端</a>
+    </div>
+
+    <div class="card">
+        <h3>☁ Google 歌庫（本安裝共用）</h3>
+        <p id="drive_library_status">載入 Google 歌庫狀態中...</p>
+        <p class="drive-library-hint">帳號連結、重新授權與資料夾選擇只能在 KTV 主機本機進行；區網遙控器共用此歌庫，不能變更 Google 帳號。</p>
+        <a class="drive-host-link" href="/drive-prototype">在 KTV 主機本機開啟歌庫連結頁</a>
     </div>
 
     <div class="card">
@@ -716,6 +725,33 @@
         }
         updateManualLyricOverlayFontSize();
         loadChannelInspectorSongs();
+        fetch('/api/drive/library-status', { cache: 'no-store' })
+            .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+            .then(({ payload }) => {
+                const status = document.getElementById('drive_library_status');
+                if (!payload.deploy_configured) {
+                    status.textContent = payload.deploy_error || '尚未完成 Google 部署設定。';
+                    return;
+                }
+                if (payload.expired) {
+                    status.textContent = 'Google 授權已失效，請由 KTV 主機重新登入。帳號：'
+                        + (payload.account_email || '未知')
+                        + '；資料夾：'
+                        + (payload.folder_name || '尚未選擇');
+                    return;
+                }
+                if (!payload.linked) {
+                    status.textContent = '尚未連結 Google 帳號。請在 KTV 主機本機完成登入並選擇歌曲資料夾。';
+                    return;
+                }
+                status.textContent = '共用帳號：'
+                    + (payload.account_email || payload.account_name || '已連結')
+                    + '；歌曲資料夾：'
+                    + (payload.folder_name || '尚未選擇');
+            })
+            .catch(() => {
+                document.getElementById('drive_library_status').textContent = '無法讀取 Google 歌庫狀態。';
+            });
         socket.on('refresh_list', () => {
             songAudioExceptionsPromise = null;
             loadChannelInspectorSongs();

@@ -25,6 +25,57 @@
             cursor: pointer;
         }
 
+        .drive-library-panel {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #2aa894;
+            border-radius: 8px;
+            background: #123c36;
+        }
+
+        .drive-library-panel h4 { margin: 0 0 6px; }
+        .drive-library-status { color: #b8fff2; margin: 6px 0; font-size: 14px; }
+        .drive-library-list { list-style: none; padding: 0; margin: 6px 0 0; }
+        .drive-library-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+        .drive-library-row span { flex: 1; overflow-wrap: anywhere; }
+        .drive-library-row button { width: auto; padding: 8px 10px; margin: 0; font-size: 14px; }
+
+        /* 使用低飽和色搭配深色文字，降低雲端歌庫按鈕的刺眼感並提升辨識度。 */
+        #drive-library-refresh {
+            background: #cfe8e2;
+            border: 1px solid #9fc9be;
+            color: #24574f;
+        }
+
+        #drive-library-refresh:hover,
+        #drive-library-refresh:focus-visible {
+            background: #b9ddd4;
+            border-color: #83b9ab;
+            color: #1c463f;
+        }
+
+        /* 下載／點歌使用柔和暖色，與重新整理按鈕形成清楚但不刺眼的功能區分。 */
+        .drive-library-row button {
+            background: #f0dfc5;
+            border: 1px solid #d2b98e;
+            color: #5f4728;
+        }
+
+        .drive-library-row button:hover,
+        .drive-library-row button:focus-visible {
+            background: #e7cfaa;
+            border-color: #c6a574;
+            color: #4d381f;
+        }
+
+        .drive-library-row button:disabled,
+        #drive-library-refresh:disabled {
+            background: #c8c6c0;
+            border-color: #aaa7a0;
+            color: #66645f;
+            cursor: wait;
+        }
+
         .play {
             background: #2196F3;
         }
@@ -864,6 +915,12 @@
                 </details>
             </div>
         </div>
+        <section id="drive-library-panel" class="drive-library-panel" hidden>
+            <h4>☁ Google Drive 歌庫</h4>
+            <p id="drive-library-status" class="drive-library-status">讀取雲端歌庫中...</p>
+            <button id="drive-library-refresh" class="btn" type="button">重新整理雲端歌庫</button>
+            <ul id="drive-library-list" class="drive-library-list"></ul>
+        </section>
         <ul id="list"></ul>
     </section>
 
@@ -1089,6 +1146,7 @@
         let editingSongFilename = '';
         let editingNoteKeyValue = 0;
         const pendingSongs = new Set();
+        let driveLibrarySongs = [];
         const qrVisibility = document.getElementById('qr-visibility');
         const randomPlay = document.getElementById('random-play');
         const screenWakeLock = document.getElementById('screen-wake-lock');
@@ -1947,6 +2005,80 @@
             if (playButton) play(playButton, filename);
         }
 
+        /** Download a selected cloud song on the KTV server, then use the shared queue event. */
+        async function queueDriveSong(button, song) {
+            if (button.disabled) return;
+            button.disabled = true;
+            button.textContent = song.downloaded ? '加入中...' : '下載中...';
+            try {
+                let filename = song.filename;
+                if (!song.downloaded) {
+                    const response = await fetch('/api/drive/library-songs/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ file_id: song.id })
+                    });
+                    const payload = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+                    filename = payload.filename;
+                    song.downloaded = true;
+                    song.filename = filename;
+                    // 下載完成後同步刷新一般歌曲清單，讓其他遙控器立即看到本機可播放歌曲。
+                    loadList();
+                }
+                if (!filename) throw new Error('伺服器未回傳可播放的本機歌曲識別。');
+                pendingSongs.add(filename);
+                socket.emit('add_to_queue', { filename });
+                button.textContent = '已加入';
+                window.setTimeout(() => {
+                    pendingSongs.delete(filename);
+                    button.disabled = false;
+                    button.textContent = '點歌';
+                }, 1500);
+            } catch (error) {
+                button.disabled = false;
+                button.textContent = song.downloaded ? '點歌' : '下載並點歌';
+                document.getElementById('drive-library-status').textContent = error.message;
+            }
+        }
+
+        /** Load the host-selected Drive folder without exposing OAuth credentials. */
+        async function loadDriveLibrary() {
+            const panel = document.getElementById('drive-library-panel');
+            const status = document.getElementById('drive-library-status');
+            const list = document.getElementById('drive-library-list');
+            try {
+                const response = await fetch('/api/drive/library-songs', { cache: 'no-store' });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    // 未連結或未選擇資料夾時仍保留面板，讓遙控器使用者知道目前設定狀態。
+                    panel.hidden = false;
+                    status.textContent = payload.error || `HTTP ${response.status}`;
+                    return;
+                }
+                panel.hidden = false;
+                driveLibrarySongs = Array.isArray(payload.songs) ? payload.songs : [];
+                status.textContent = `資料夾「${payload.folder && payload.folder.name || ''}」：${driveLibrarySongs.length} 首 MP4`;
+                list.replaceChildren();
+                for (const song of driveLibrarySongs) {
+                    const row = document.createElement('li');
+                    row.className = 'drive-library-row';
+                    const label = document.createElement('span');
+                    label.textContent = song.name || song.id;
+                    const button = document.createElement('button');
+                    button.className = 'btn';
+                    button.type = 'button';
+                    button.textContent = song.downloaded ? '點歌' : '下載並點歌';
+                    button.addEventListener('click', () => queueDriveSong(button, song));
+                    row.append(label, button);
+                    list.appendChild(row);
+                }
+            } catch (error) {
+                panel.hidden = false;
+                status.textContent = '無法讀取 Google Drive 歌庫：' + error.message;
+            }
+        }
+
         function cmd(action) { socket.emit('control', action); }
         function track(mode) { socket.emit('change_track', mode); }
 
@@ -1974,6 +2106,8 @@
         }
 
         loadList();
+        document.getElementById('drive-library-refresh').addEventListener('click', loadDriveLibrary);
+        loadDriveLibrary();
         loadSubtitleList();
         // 監聽後台更新完畢事件，自動重整歌單
         socket.on('refresh_list', () => { loadList(); loadSubtitleList(); });

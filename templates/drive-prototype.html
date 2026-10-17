@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>Google 歌庫連結 - ianAutoKTV</title>
+    <style>
+        body { max-width: 760px; margin: 32px auto; padding: 0 16px; color: #263238; font-family: sans-serif; }
+        section { margin: 16px 0; padding: 18px; border: 1px solid #cfd8dc; border-radius: 8px; }
+        button { padding: 10px 16px; border: 0; border-radius: 5px; background: #1565c0; color: #fff; cursor: pointer; margin: 0 8px 8px 0; }
+        button:disabled { background: #90a4ae; cursor: wait; }
+        #unlink { background: #c62828; }
+        code { overflow-wrap: anywhere; }
+        #status { min-height: 1.5em; white-space: pre-wrap; }
+        #songs { padding-left: 22px; }
+        #downloaded-songs { padding-left: 22px; }
+        .download-row { margin: 8px 0; }
+        .download-meta { color: #546e7a; font-size: 14px; }
+        .warning { color: #9a3412; }
+        .hint { margin: 5px 0; color: #546e7a; font-size: 14px; }
+        #account-status { font-weight: 600; }
+    </style>
+</head>
+<body>
+    <h1>Google 歌庫連結</h1>
+    <p>此頁僅限 KTV 主機本機使用。OAuth Client ID、Client Secret 與 Picker API Key 由伺服器端部署檔提供；終端使用者只需登入自己的 Google 帳號。refresh token 只保存在此 KTV 主機，不會交給區網遙控器。</p>
+    <section>
+        <h2>本安裝共用狀態</h2>
+        <p id="account-status">正在讀取狀態...</p>
+        <p class="hint">同一台 KTV 的區網使用者共用此帳號與資料夾，不能從遙控器變更 Google 帳號。</p>
+        <p class="warning">本系統使用受限範圍 `drive.readonly`。正式使用前須確認適用的 Google OAuth 驗證與安全評估要求。Picker 短效權杖只存在本頁記憶體，並允許 Picker SDK 在開啟期間放入 docs.google.com iframe URL；關閉後會清除暫存。</p>
+        <button id="start" type="button" disabled>連結／重新授權 Google 帳號</button>
+        <button id="choose-folder" type="button" disabled>選擇歌曲資料夾</button>
+        <button id="retry-picker" type="button" hidden>重新開啟 Picker</button>
+        <button id="cancel" type="button" hidden>取消並清除暫存</button>
+        <button id="unlink" type="button" disabled>解除連結</button>
+        <div id="status" role="status" aria-live="polite"></div>
+        <p id="oauth-fallback" class="hint" hidden><a id="oauth-fallback-link" target="_blank" rel="noopener noreferrer">若系統瀏覽器沒有開啟，請在此瀏覽器開啟 Google 授權</a></p>
+    </section>
+    <section id="results" hidden>
+        <h2>`drive.readonly` 第一層列檔結果</h2>
+        <p id="summary"></p>
+        <p id="diagnostics"></p>
+        <ul id="songs"></ul>
+        <p class="warning">只列出直接子項目的 MP4，不進入子資料夾。下載會重新確認檔案仍屬於此資料夾。</p>
+    </section>
+    <section id="download-management">
+        <h2>已下載歌曲管理</h2>
+        <p id="download-summary">正在讀取已下載歌曲...</p>
+        <button id="refresh-downloads" type="button">重新整理下載清單</button>
+        <button id="clear-all-downloads" type="button" disabled>清除全部 Drive 歌曲</button>
+        <ul id="downloaded-songs"></ul>
+        <p class="hint">清除只會移除 KTV 主機上的 Drive 下載檔與 metadata，不會刪除 Google Drive 原始檔。</p>
+    </section>
+
+    <script>
+        const startButton = document.getElementById("start");
+        const chooseFolderButton = document.getElementById("choose-folder");
+        const retryPickerButton = document.getElementById("retry-picker");
+        const cancelButton = document.getElementById("cancel");
+        const unlinkButton = document.getElementById("unlink");
+        const statusElement = document.getElementById("status");
+        const oauthFallbackElement = document.getElementById("oauth-fallback");
+        const oauthFallbackLink = document.getElementById("oauth-fallback-link");
+        const accountStatusElement = document.getElementById("account-status");
+        const downloadSummaryElement = document.getElementById("download-summary");
+        const downloadedSongsElement = document.getElementById("downloaded-songs");
+        const refreshDownloadsButton = document.getElementById("refresh-downloads");
+        const clearAllDownloadsButton = document.getElementById("clear-all-downloads");
+        let flowId = null;
+        let pickerReady = false;
+        let activePicker = null;
+        let pickerConfig = null;
+        let folderSelectionInProgress = false;
+        let accountState = null;
+        // Picker 需要短效 access token，只保存在此頁記憶體。
+        let pickerAccessToken = null;
+
+        function setStatus(message) {
+            statusElement.textContent = message;
+        }
+
+        function formatBytes(value) {
+            const bytes = Number(value);
+            if (!Number.isFinite(bytes) || bytes < 0) return "未知大小";
+            if (bytes < 1024 * 1024) return bytes + " bytes";
+            return (bytes / 1024 / 1024).toFixed(1) + " MB";
+        }
+
+        async function loadDownloadedSongs() {
+            try {
+                const response = await fetch("/api/drive-prototype/downloads", { cache: "no-store" });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload.error || ("HTTP " + response.status));
+                const downloads = Array.isArray(payload.downloads) ? payload.downloads : [];
+                const disk = payload.disk || {};
+                downloadSummaryElement.textContent =
+                    "已下載 " + downloads.length + " 首；磁碟可用 " + formatBytes(disk.free) +
+                    "／總容量 " + formatBytes(disk.total) + "。";
+                downloadedSongsElement.replaceChildren();
+                clearAllDownloadsButton.disabled = downloads.length === 0;
+                for (const song of downloads) {
+                    const item = document.createElement("li");
+                    item.className = "download-row";
+                    item.append(document.createTextNode(song.name || song.filename));
+                    const meta = document.createElement("span");
+                    meta.className = "download-meta";
+                    meta.textContent = "（" + formatBytes(song.size) + "；file ID：" + song.file_id + "） ";
+                    item.appendChild(meta);
+                    const clearButton = document.createElement("button");
+                    clearButton.type = "button";
+                    clearButton.textContent = "清除本機檔案";
+                    clearButton.addEventListener("click", async () => {
+                        if (!window.confirm("確定清除這首歌曲的 KTV 本機下載檔？Google Drive 原始檔不會被刪除。")) return;
+                        clearButton.disabled = true;
+                        try {
+                            await postJson("/api/drive-prototype/downloads/clear", { file_id: song.file_id });
+                            setStatus("已清除本機歌曲：「" + (song.name || song.filename) + "」。");
+                            await loadDownloadedSongs();
+                        } catch (error) {
+                            setStatus(error.message);
+                            clearButton.disabled = false;
+                        }
+                    });
+                    item.appendChild(clearButton);
+                    downloadedSongsElement.appendChild(item);
+                }
+            } catch (error) {
+                downloadSummaryElement.textContent = error.message;
+            }
+        }
+
+        function currentPageOrigin() {
+            return window.location.origin;
+        }
+
+        function pickerWebsiteRestriction() {
+            return currentPageOrigin() + "/*";
+        }
+
+        function hidePickerDialog() {
+            if (activePicker) {
+                activePicker.setVisible(false);
+                activePicker = null;
+            }
+        }
+
+        function pickerErrorText(data) {
+            return (
+                data[google.picker.Response.ERROR] ||
+                data.error ||
+                ""
+            );
+        }
+
+        function isInvalidDeveloperKeyError(pickerError) {
+            return /developer key|invalid/i.test(String(pickerError || ""));
+        }
+
+        async function postJson(url, body) {
+            const response = await fetch(url, {
+                method: "POST",
+                cache: "no-store",
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body: JSON.stringify(body || {})
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || ("HTTP " + response.status));
+            }
+            return payload;
+        }
+
+        async function loadAccountStatus() {
+            const response = await fetch("/api/drive-prototype/account", { cache: "no-store" });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || "無法讀取 Google 歌庫狀態。");
+            }
+            accountState = payload;
+            if (!payload.deploy_configured) {
+                accountStatusElement.textContent = payload.deploy_error || "尚未完成 Google 部署設定。";
+            } else if (payload.account_error) {
+                // 權杖狀態異常時仍保留重新登入按鈕，避免把帳號問題誤判成部署設定問題。
+                accountStatusElement.textContent = payload.account_error + " 請重新連結 Google 帳號。";
+            } else if (payload.expired) {
+                accountStatusElement.textContent =
+                    "Google 授權已失效，請重新登入。帳號：" +
+                    (payload.account_email || "未知") +
+                    "；資料夾：" +
+                    (payload.folder_name || "尚未選擇");
+            } else if (!payload.linked) {
+                accountStatusElement.textContent = "尚未連結 Google 帳號。";
+            } else {
+                accountStatusElement.textContent =
+                    "共用帳號：" + (payload.account_email || payload.account_name || "已連結") +
+                    "；歌曲資料夾：" + (payload.folder_name || "尚未選擇");
+            }
+            startButton.disabled = !pickerReady || !payload.deploy_configured;
+            chooseFolderButton.disabled = !pickerReady || !payload.linked || payload.expired || !payload.deploy_configured;
+            unlinkButton.disabled = !payload.linked;
+            return payload;
+        }
+
+        function showPicker() {
+            if (!pickerReady || !window.google || !google.picker) {
+                setStatus("Google Picker 載入中，請稍候。");
+                return;
+            }
+            if (typeof flowId !== "string" || !flowId || !pickerAccessToken || !pickerConfig) {
+                setStatus("OAuth 驗證流程已遺失，請重新開始授權。");
+                flowId = null;
+                retryPickerButton.hidden = true;
+                return;
+            }
+            hidePickerDialog();
+            const pickerFlowId = flowId;
+            const folderView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+                .setSelectFolderEnabled(true)
+                .setIncludeFolders(true);
+            // Origin 必須與 HTTPS 本機頁相同；developer key 會對此頁與 docs.google.com 驗證。
+            activePicker = new google.picker.PickerBuilder()
+                .addView(folderView)
+                .setOrigin(currentPageOrigin())
+                .setDeveloperKey(pickerConfig.pickerApiKey)
+                .setAppId(pickerConfig.projectNumber)
+                .setOAuthToken(pickerAccessToken)
+                .setCallback(data => handlePickerResult(data, pickerFlowId))
+                .build();
+            activePicker.setVisible(true);
+            retryPickerButton.hidden = true;
+            setStatus("請在 Google Picker 選擇歌曲資料夾。");
+        }
+
+        async function handlePickerResult(data, currentFlowId) {
+            const response = google.picker.Response;
+            const action = data[response.ACTION];
+            if (action === google.picker.Action.CANCEL) {
+                hidePickerDialog();
+                const cleanupError = await clearTemporaryAuthorization("picker_cancel");
+                setStatus(cleanupError || "已取消資料夾選擇；短效授權暫存已清除。已保存的 Google 帳號仍保留。");
+                retryPickerButton.hidden = true;
+                await loadAccountStatus();
+                return;
+            }
+            if (action === google.picker.Action.ERROR) {
+                hidePickerDialog();
+                const pickerError = pickerErrorText(data);
+                if (!pickerError || isInvalidDeveloperKeyError(pickerError)) {
+                    retryPickerButton.hidden = false;
+                    setStatus(
+                        "Google Picker 判定 API developer key 無效。這通常不是 OAuth 失敗，而是 API key 的網站／API 限制不符。" +
+                        "請在同一 Google Cloud 專案確認：1) 已啟用 Google Picker API 與 Google Drive API；" +
+                        "2) 此金鑰不是 OAuth Client Secret；3) 應用程式限制為「網站」，並包含 " +
+                        pickerWebsiteRestriction() + " 與 https://docs.google.com/*；" +
+                        "4) API 限制同時允許 Google Picker API 與 Google Drive API；不要用 IP 限制。" +
+                        "儲存後等待數分鐘，再按「重新開啟 Picker」。"
+                    );
+                    return;
+                }
+                const cleanupError = await clearTemporaryAuthorization("picker_error");
+                setStatus(
+                    cleanupError ||
+                    ("Google Picker 回報錯誤" + (pickerError ? "：" + pickerError : "") +
+                    "。尚未取得資料夾；請確認 Picker API、OAuth 權限及 Google 帳號後重試。")
+                );
+                retryPickerButton.hidden = true;
+                await loadAccountStatus();
+                return;
+            }
+            if (action !== google.picker.Action.PICKED) {
+                const actionLabel = typeof action === "string" && action
+                    ? action.slice(0, 40)
+                    : "未提供";
+                setStatus("收到 Google Picker 通知（" + actionLabel +
+                    "），授權流程仍有效；請繼續在 Picker 選擇資料夾。");
+                return;
+            }
+            folderSelectionInProgress = true;
+            cancelButton.disabled = true;
+            if (activePicker) {
+                activePicker.setVisible(false);
+                activePicker = null;
+            }
+            pickerAccessToken = null;
+            const documents = data[response.DOCUMENTS] || data.docs;
+            if (!documents || !documents.length) {
+                const cleanupError = await clearTemporaryAuthorization("picker_no_documents");
+                setStatus(cleanupError || "Google Picker 表示已選取，但沒有回傳文件資料；請重試並確認所選的是資料夾。");
+                cancelButton.disabled = false;
+                folderSelectionInProgress = false;
+                await loadAccountStatus();
+                return;
+            }
+
+            const folder = documents[0];
+            const folderId = folder[google.picker.Document.ID];
+            const mimeType = folder[google.picker.Document.MIME_TYPE];
+            if (typeof folderId !== "string" || !folderId) {
+                const cleanupError = await clearTemporaryAuthorization("picker_missing_folder_id");
+                setStatus(cleanupError || "Google Picker 回傳的資料夾識別碼無效，請重新開始。");
+                cancelButton.disabled = false;
+                folderSelectionInProgress = false;
+                await loadAccountStatus();
+                return;
+            }
+            if (mimeType !== "application/vnd.google-apps.folder") {
+                const cleanupError = await clearTemporaryAuthorization("picker_not_folder");
+                setStatus(cleanupError || "選取項目不是資料夾，請重新開始授權並選擇資料夾。");
+                cancelButton.disabled = false;
+                folderSelectionInProgress = false;
+                await loadAccountStatus();
+                return;
+            }
+
+            if (typeof currentFlowId !== "string" || !currentFlowId) {
+                const cleanupError = await clearTemporaryAuthorization("missing_flow_id");
+                setStatus(cleanupError || "OAuth 驗證流程已遺失，請重新開始授權。");
+                cancelButton.disabled = false;
+                folderSelectionInProgress = false;
+                await loadAccountStatus();
+                return;
+            }
+
+            setStatus("正在以 drive.readonly 驗證所選資料夾的第一層檔案清單...");
+            let listingSucceeded = false;
+            try {
+                const result = await postJson("/api/drive-prototype/files", {
+                    flow_id: currentFlowId,
+                    folder_id: folderId
+                });
+                document.getElementById("results").hidden = false;
+                document.getElementById("summary").textContent =
+                    "資料夾：「" + result.folder.name + "」；直接子項目 " +
+                    result.direct_child_count + " 個；MP4 歌曲 " + result.song_count +
+                    " 首；資料夾或其他格式 " + result.ignored_item_count + " 個。";
+                const driveType = result.diagnostics.drive_type === "shared_drive"
+                    ? "Shared Drive"
+                    : "我的雲端硬碟";
+                document.getElementById("diagnostics").textContent =
+                    "查詢診斷：資料夾 ID 已核對；資料位置 " + driveType +
+                    "；corpora=" + result.diagnostics.corpus +
+                    "；已讀取 " + result.diagnostics.pages_read + " 頁。";
+                const songsList = document.getElementById("songs");
+                songsList.replaceChildren();
+                for (const song of result.songs) {
+                    const item = document.createElement("li");
+                    item.append(document.createTextNode(song.name + " (" + song.mimeType + ") "));
+                    const downloadButton = document.createElement("button");
+                    downloadButton.type = "button";
+                    downloadButton.textContent = "下載原始 MP4 至 KTV 主機";
+                    downloadButton.addEventListener("click", async () => {
+                        downloadButton.disabled = true;
+                        cancelButton.disabled = true;
+                        setStatus("正在從 Google Drive 下載並驗證「" + song.name + "」...");
+                        try {
+                            const downloaded = await postJson("/api/drive-prototype/download", {
+                                flow_id: currentFlowId,
+                                file_id: song.id
+                            });
+                            setStatus(
+                                "下載完成：「" + downloaded.name + "」；" +
+                                downloaded.size + " bytes；已保存至原型下載目錄（" +
+                                downloaded.saved_as + "）。"
+                            );
+                            await loadDownloadedSongs();
+                        } catch (error) {
+                            setStatus(error.message);
+                        } finally {
+                            downloadButton.disabled = false;
+                            cancelButton.disabled = false;
+                        }
+                    });
+                    item.appendChild(downloadButton);
+                    songsList.appendChild(item);
+                }
+                listingSucceeded = true;
+                cancelButton.textContent = "結束並清除短效授權暫存";
+                if (result.direct_child_count === 0) {
+                    setStatus(
+                        "驗收未通過：Drive API 在所選資料夾中回傳 0 個直接子項目。" +
+                        "請確認 MP4 位於第一層；若畫面資料夾中確有歌曲，請記錄查詢診斷與結果。"
+                    );
+                } else {
+                    setStatus("列檔完成，此安裝已保存所選資料夾。請確認既有歌曲有列出、子資料夾內歌曲未出現。");
+                }
+            } catch (error) {
+                setStatus(error.message);
+            } finally {
+                if (!listingSucceeded) {
+                    const cleanupError = await clearTemporaryAuthorization();
+                    if (cleanupError) {
+                        setStatus(cleanupError);
+                    }
+                }
+                cancelButton.disabled = false;
+                folderSelectionInProgress = false;
+                await loadAccountStatus();
+            }
+        }
+
+        async function clearTemporaryAuthorization(reason = "cleanup") {
+            pickerAccessToken = null;
+            retryPickerButton.hidden = true;
+            cancelButton.hidden = true;
+            cancelButton.textContent = "取消並清除暫存";
+            const currentFlowId = flowId;
+            flowId = null;
+            if (currentFlowId) {
+                try {
+                    await postJson("/api/drive-prototype/oauth/cancel", {
+                        flow_id: currentFlowId,
+                        reason
+                    });
+                } catch (error) {
+                    return "無法確認 KTV 後端已清除短效授權暫存：" + error.message;
+                }
+            }
+            return null;
+        }
+
+        async function waitForAuthorization(currentFlowId) {
+            for (let attempt = 0; attempt < 300; attempt += 1) {
+                const result = await postJson("/api/drive-prototype/oauth/status", {
+                    flow_id: currentFlowId
+                });
+                if (result.status === "authorized") {
+                    const token = await postJson("/api/drive-prototype/oauth/token", {
+                        flow_id: currentFlowId
+                    });
+                    // 不得把此權杖寫入 storage、cookie、URL 或頁面文字。
+                    pickerAccessToken = token.access_token;
+                    showPicker();
+                    return;
+                }
+                if (result.authorization_url) {
+                    // 只顯示 OAuth 授權網址，不包含 access token；網址僅由本機限定的 status API 提供。
+                    oauthFallbackLink.href = result.authorization_url;
+                    oauthFallbackElement.hidden = false;
+                }
+                if (result.status === "failed" || result.status === "expired") {
+                    throw new Error(result.error || "OAuth 授權未完成。");
+                }
+                if (result.status === "cancelled") {
+                    throw new Error("OAuth 授權流程已取消。");
+                }
+                setStatus("等待 Google OAuth 完成，請在系統瀏覽器依畫面授權...");
+                await new Promise(resolve => window.setTimeout(resolve, 1000));
+            }
+            throw new Error("等待授權逾時，請重新開始。");
+        }
+
+        async function beginAuthorization() {
+            startButton.disabled = true;
+            chooseFolderButton.disabled = true;
+            unlinkButton.disabled = true;
+            retryPickerButton.hidden = true;
+            document.getElementById("results").hidden = true;
+            document.getElementById("songs").replaceChildren();
+            cancelButton.textContent = "取消並清除暫存";
+            setStatus("正在啟動 KTV 主機系統瀏覽器...");
+            try {
+                const started = await postJson("/api/drive-prototype/oauth/start", {});
+                flowId = started.flow_id;
+                pickerConfig = {
+                    pickerApiKey: started.picker_api_key,
+                    projectNumber: started.project_number
+                };
+                cancelButton.hidden = false;
+                await waitForAuthorization(flowId);
+            } catch (error) {
+                const cleanupError = await clearTemporaryAuthorization();
+                setStatus(cleanupError || error.message);
+            } finally {
+                await loadAccountStatus();
+            }
+        }
+
+        async function beginFolderSelection() {
+            startButton.disabled = true;
+            chooseFolderButton.disabled = true;
+            retryPickerButton.hidden = true;
+            document.getElementById("results").hidden = true;
+            document.getElementById("songs").replaceChildren();
+            cancelButton.textContent = "取消並清除暫存";
+            setStatus("正在以已保存的授權開啟 Google Picker...");
+            try {
+                const started = await postJson("/api/drive-prototype/picker/start", {});
+                flowId = started.flow_id;
+                pickerConfig = {
+                    pickerApiKey: started.picker_api_key,
+                    projectNumber: started.project_number
+                };
+                cancelButton.hidden = false;
+                const token = await postJson("/api/drive-prototype/oauth/token", {
+                    flow_id: flowId
+                });
+                pickerAccessToken = token.access_token;
+                showPicker();
+            } catch (error) {
+                const cleanupError = await clearTemporaryAuthorization();
+                setStatus(cleanupError || error.message);
+                await loadAccountStatus();
+            }
+        }
+
+        startButton.addEventListener("click", beginAuthorization);
+        chooseFolderButton.addEventListener("click", beginFolderSelection);
+        retryPickerButton.addEventListener("click", () => {
+            if (folderSelectionInProgress) {
+                return;
+            }
+            showPicker();
+        });
+        cancelButton.addEventListener("click", async () => {
+            if (folderSelectionInProgress) {
+                return;
+            }
+            hidePickerDialog();
+            const cleanupError = await clearTemporaryAuthorization("user_cancel");
+            setStatus(cleanupError || "已取消；短效授權暫存已清除。");
+            await loadAccountStatus();
+        });
+        unlinkButton.addEventListener("click", async () => {
+            if (!window.confirm("確定解除此 KTV 安裝的 Google 帳號連結？將清除本機保存的 refresh token 與資料夾設定。")) {
+                return;
+            }
+            unlinkButton.disabled = true;
+            hidePickerDialog();
+            await clearTemporaryAuthorization("unlink");
+            try {
+                await postJson("/api/drive-prototype/unlink", {});
+                document.getElementById("results").hidden = true;
+                document.getElementById("songs").replaceChildren();
+                setStatus("已解除 Google 帳號連結，並清除本機保存的授權。");
+            } catch (error) {
+                setStatus(error.message);
+            } finally {
+                await loadAccountStatus();
+                await loadDownloadedSongs();
+            }
+        });
+        refreshDownloadsButton.addEventListener("click", loadDownloadedSongs);
+        clearAllDownloadsButton.addEventListener("click", async () => {
+            if (!window.confirm("確定清除全部 Drive 歌曲的 KTV 本機下載檔？Google Drive 原始檔不會被刪除。")) return;
+            clearAllDownloadsButton.disabled = true;
+            try {
+                const result = await postJson("/api/drive-prototype/downloads/clear", { all: true });
+                setStatus("已清除 " + result.cleared_count + " 首本機 Drive 歌曲。");
+                await loadDownloadedSongs();
+            } catch (error) {
+                setStatus(error.message);
+                await loadDownloadedSongs();
+            }
+        });
+        const pickerScript = document.createElement("script");
+        pickerScript.src = "https://apis.google.com/js/api.js";
+        pickerScript.async = true;
+        pickerScript.onload = () => {
+            window.gapi.load("picker", {
+                callback: () => {
+                    pickerReady = true;
+                    loadAccountStatus().catch((error) => setStatus(error.message));
+                }
+            });
+        };
+        pickerScript.onerror = () => {
+            setStatus("無法載入 Google Picker JavaScript API，請檢查網路與 API 設定。");
+        };
+        document.head.appendChild(pickerScript);
+        loadAccountStatus().catch((error) => setStatus(error.message));
+        loadDownloadedSongs();
+    </script>
+</body>
+</html>

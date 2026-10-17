@@ -5,6 +5,11 @@
 .env.*.local
 .env.*
 
+# KTV 主機 Google 部署設定與加密帳號狀態不得進入版本庫。
+google_drive_deploy.json
+google_drive_account.bin
+drive_downloads/
+
 # 忽略 Node.js 依賴套件資料夾
 node_modules/
 

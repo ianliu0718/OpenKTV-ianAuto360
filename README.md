@@ -9,6 +9,22 @@ ianAutoKTV 是以 Python、Flask、SocketIO、FFmpeg 與 Spleeter 建立的區�
 - 若選擇「先看差異」，先提出具體差異，不套用修改，再取得明確同意；選擇「修改」只核准已說明的內容，選擇「取消」則保持本文件不變。
 - 若需求與本文件的既有規則衝突，或需要變更規則，先停下並詢問，不得自行改動規則或降低驗收標準。
 
+## Google Drive 前置設定與驗收順序
+
+依下列順序逐步完成；未通過某一步時先記錄錯誤與證據，不跳過驗收，也不擴大 OAuth 權限。Google Cloud Console 的選單名稱可能隨介面更新調整，請以官方文件為準。
+
+1. **使用正式專案與準備驗收資料**：使用已建立的正式 `ianAutoKTV` 專案，記錄 Project ID 與 Project number。以該 KTV 安裝預計共用的 Google 帳號在 Drive 建立專用歌庫資料夾，放入一首可合法驗收的六聲道 MP4、一個子資料夾及一個非支援檔案，供確認列檔範圍；不另建測試 Cloud 專案，但正式上線前仍須逐項完成本文件及 ToDo 的功能驗收。
+2. **啟用 API 與建立 API key**：在 API Library 分別啟用 **Google Drive API** 與 **Google Picker API**。接著到「API 和服務」>「憑證」建立 API key，並依 [Picker 網頁整合文件](https://developers.google.com/workspace/drive/picker/guides/web-picker)限制允許的網站來源及可用 API。
+3. **設定 OAuth 同意與資料存取範圍**：在 Google Auth Platform 的 Branding、Audience、Data Access 設定應用資訊、支援聯絡方式與實際使用對象；依正式發布及 Google 驗證要求完成設定，不另以測試專案取代正式專案。Drive 權限優先使用較窄的 `drive.file`；但此 scope 實測無法列出本歌庫中已存在且未逐檔授權的歌曲。經使用者同意，本原型改用 `drive.readonly` 驗證自動列出及讀取既有歌曲。Google 將此 scope 列為受限範圍，授權可讀取及下載整個 Drive；正式使用前必須確認並完成適用的 OAuth 驗證與安全評估要求。參考 [OAuth 同意畫面設定](https://developers.google.com/workspace/guides/configure-oauth-consent)。
+4. **建立 Desktop OAuth client**：建立 Desktop app 類型的 OAuth client，採用系統瀏覽器與 PKCE/loopback 回呼，由 KTV 主機本機啟動授權。這個流程不把各家庭不同的區網 IP 設為 OAuth 網頁來源，也不要求把 KTV 對外開放；實際流程仍須依 ToDo 驗證。參考 [Google 桌面應用 OAuth](https://developers.google.com/identity/protocols/oauth2/native-app)。
+5. **限制 Picker API key 並保護權杖**：依 [Picker 網頁整合文件](https://developers.google.com/workspace/drive/picker/guides/web-picker)限制 API key 可用 API 與來源，包含 KTV 主機本機 Picker 頁面（目前伺服器 port 為 `5000`，來源依實際頁面設定）及 `https://docs.google.com/*`。Desktop OAuth client 是公開用戶端，Client Secret 不可視為可靠的保密邊界；雖然 Google 文件將其列為選填，若實際權杖交換要求提供，允許由 KTV 部署端設定並由伺服器端使用，不要求終端使用者輸入。Client Secret 不得提交至版本庫、寫入一般日誌或交給區網瀏覽器。refresh token 只保存在 KTV 主機的安全儲存區，不得提交至版本庫、寫入一般日誌或交給區網瀏覽器。Picker 必要的短效 access token 可暫時交給 KTV 主機本機頁面，並允許 Picker SDK 在 Picker 開啟期間將其放入 `docs.google.com` iframe URL；這是唯一 URL 例外，不得放入 KTV 頁面自身網址或其他連結，不得寫入 localStorage、sessionStorage、Cookie 或日誌，Picker 關閉或完成後須清除頁面與伺服器端暫存。分享頁面、截圖或除錯資料前，必須確認不含該 iframe URL 或權杖。
+6. **驗證 Picker 與資料夾列檔**：由 KTV 管理者在主機本機頁面完成授權並透過 Picker 選取歌庫資料夾。本原型目前使用 `drive.readonly`；確認只保存資料夾 ID 與必要 metadata，並由後端依所選資料夾的 Drive 類型設定 `user` 或 Shared Drive `drive` corpus，使用 `'<folderId>' in parents` 和 `trashed = false` 列出直接子項目、逐頁讀取並排除資料夾及不支援格式。確認子資料夾內歌曲不出現，且既有歌曲可列出。雖然 OAuth scope 本身可讀取整個 Drive，正式下載實作必須先確認檔案是所選歌庫第一層的有效項目，不得接受任意 file ID。若 API 回傳空清單，記錄資料夾 ID 核對、查詢 corpus、分頁數及結果，停止驗收並排查原因；不得把空清單視為成功。
+7. **驗證後台完整下載**：以驗收 MP4 的原始 Drive API 媒體內容驗證後台完整下載，不使用預覽頁或轉碼網址。確認下載完成後的位元組數與 Drive metadata 大小相符、檔案可完整解碼，並保存於 KTV 主機專用歌曲目錄，直到管理者透過清除管理刪除。測試中斷、磁碟空間不足及 Drive API `401/403/404/429` 等失敗時，不得留下可被當成完整歌曲播放的部分檔案；不得在命令列歷史、截圖或回報中包含 `Authorization` header 或權杖。
+8. **驗證本機播放、六聲道與錯誤恢復**：在預定支援的桌面、手機及電視瀏覽器，以已下載至 KTV 主機的歌曲實測起播、暫停、seek、續播與切歌；確認本機播放來源可由 Web Audio 讀取六聲道，原聲／導唱／伴奏、KEY 與字幕均正常。確認管理者可檢視並清除已下載歌曲，再測試權限撤銷、權杖過期、Drive 原始檔刪除、離線與 API 錯誤，並確認既有下載檔會保留至管理者清除；確保下載及播放失敗可理解、可恢復或可重試。
+9. **保存驗收紀錄**：記錄驗收日期、瀏覽器／裝置、OAuth scope、API 回應狀態與必要 headers、功能結果及錯誤處理結果；遮蔽 Client Secret、權杖、API key 與歌曲內容。只有實際通過的 ToDo 項目才可勾選。
+
+官方參考：[Picker 網頁整合](https://developers.google.com/workspace/drive/picker/guides/web-picker)、[Picker OAuth token 設定](https://developers.google.com/workspace/drive/picker/reference/picker.pickerbuilder.setoauthtoken)、[Drive API OAuth 範圍](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)、[桌面應用 OAuth](https://developers.google.com/identity/protocols/oauth2/native-app)、[Drive API 限流](https://developers.google.com/workspace/drive/api/guides/limits)、[Drive API 錯誤處理](https://developers.google.com/workspace/drive/api/guides/handle-errors)。
+
 ## 系統架構
 
 ```text
@@ -22,6 +38,24 @@ YouTube URL
   -> 原子搬入 ktv_songs
   -> player/combo 以 Web Audio 分流播放
 ```
+
+Google Drive 歌曲下載與播放來源（每台 KTV 安裝共用一個 Google 帳號與歌庫，並與本機 `ktv_songs` 路徑並存）：
+
+> **目前實作狀態：**`main.py` 註冊本機 OAuth／Picker／資料夾列檔與單曲下載。KTV 管理者可在主機本機頁連結 Google 帳號；OAuth Client ID、必要時的 Client Secret 與 Picker API key 由安裝目錄的 `google_drive_deploy.json` 提供，終端使用者不必輸入用戶端設定。授權改為 Desktop OAuth PKCE/loopback 離線存取，refresh token 以 Windows DPAPI 加密保存於該安裝的 `google_drive_account.bin`，資料夾 ID／名稱在第一層列檔成功後一併保存。短效 access token 仍只暫存於主機本機頁面與 Picker；區網可查看共用帳號與資料夾，但不能變更授權。下載仍僅能在短效授權流程內操作；伺服器會重新確認歌曲仍是所選資料夾的直接子項目，並將 Drive 原始媒體串流至 `drive_downloads/`，檢查檔案大小後以 Drive file ID 雜湊命名並原子保存，同時以 `drive_downloads.json` 原子保存 file ID 與本機檔名、來源名稱、資料夾、大小及修改時間的對應。Drive metadata 與原始媒體下載已加入有限退避重試：429／限流型 403 最多 5 次，網路／5xx 最多 3 次；401、權限型 403、404 與磁碟／完整性錯誤會明確失敗並清除半成品。`/api/list` 會合併具有完整 metadata 的已下載 Drive 歌曲，`/songs/<filename>` 會安全解析至對應本機檔案，讓 `/remote`、`/combo` 與播放事件沿用既有 filename-based 流程。KTV 主機本機管理頁已提供下載歌曲、來源 file ID、檔案大小、磁碟用量及單首／全部清除；管理 API 不開放區網遙控器。尚未完成實際 Google Drive／瀏覽器下載驗收。以下完整流程仍是目標架構，尚未全部實作或驗收。
+
+```text
+KTV 管理者在伺服器端啟動帳號連結，由 KTV 主機開啟系統瀏覽器進行 Desktop OAuth PKCE/loopback 授權
+  -> KTV 伺服器使用部署設定中的 OAuth Client ID（及必要時的 Client Secret）交換授權碼；終端使用者只登入自己的 Google 帳號
+  -> KTV 主機安全保存該安裝唯一帳號的 refresh token
+  -> Picker 暫時取得短效 access token（只在主機本機頁面記憶體）
+  -> 管理者選定一個 Drive 資料夾，KTV 後端只列出該資料夾第一層歌曲
+  -> 區網遙控器共用歌庫；播放佇列保存來源類型與 Drive file ID
+  -> 歌曲被指定下載時，KTV 後台確認檔案屬於所選資料夾第一層，再完整下載 Drive 原始 MP4 至專用本機歌曲目錄
+  -> 完整檔案保留至管理者透過清除管理刪除
+  -> player/combo 從本機下載檔以 Web Audio 分流播放
+```
+
+同一台 KTV 的所有區網遙控器依產品設計共用已連結帳號及歌庫，不提供遙控使用者層級的 Google 帳號隔離。登入與資料夾選擇由 KTV 管理者在伺服器端操作；終端使用者不需自行輸入 OAuth 用戶端設定。refresh token 僅保存在 KTV 主機；Picker 必要的短效 access token 只暫時交給主機本機頁面，不交給區網遙控器。僅在 Picker SDK 必須使用時，允許短效 access token 暫時出現在 `docs.google.com` Picker iframe URL；不得出現在 KTV 頁面自身網址、應用程式日誌或一般儲存空間，且 Picker 關閉或完成後須清除頁面與伺服器端暫存。Desktop OAuth client 是公開用戶端，Client Secret 不得視為可靠的保密邊界；若部署需要使用，僅由伺服器端設定與傳送，且不得提交至版本庫、寫入一般日誌或交給區網瀏覽器。後台只可下載所選資料夾第一層中已確認的有效檔案；下載檔保存於 KTV 主機專用目錄，直到管理者透過清除管理刪除。本機 `ktv_songs` 與既有 `/songs/<filename>` 播放路徑維持不變。
 
 單曲新增、批量新增與管理端進階 AI 去人聲，必須共用相同的音訊分類、聲道映射、響度處理與驗證規則。批量作業逐首執行，不得同時啟動多個 Spleeter 工作。
 
@@ -329,3 +363,27 @@ ianAutoKTV/
 - Spleeter 需要 CPU 與記憶體，歌曲製作期間請等待處理完成。
 - Spleeter 分離品質依歌曲混音而異；系統會固定套用伴奏來源與聲道規則，但模型仍可能留下少量人聲殘留。
 - 版權影音僅供程式交流與個人家庭娛樂使用，請遵守相關法律與平台規範。
+## 2026-10-18 初步 UI 里程碑
+
+目前 `/remote` 已提供「Google Drive 歌庫」面板：區網遙控器可讀取 KTV 主機管理者選定的資料夾、查看 MP4 歌曲，按下「下載並點歌」後由伺服器使用主機端已連結帳號下載並加入共用待播清單。前端不接觸 OAuth 權杖；下載檔完成後沿用既有 `/api/list`、`/songs/<filename>` 與 Socket.IO 點歌流程。
+
+本階段僅代表離線測試與初步 UI 流程完成；真實 Google 授權、瀏覽器播放及六聲道／字幕／KEY 相容性仍須依 [ToDo.md](./ToDo.md) 的未完成項目進行實機驗收。
+### 2026-10-18 部署設定檔讀取修正
+
+伺服器會優先讀取 `google_drive_deploy.json`；若該正式檔尚未建立，且專案根目錄已有使用者填妥的 `google_drive_deploy.example.json`，則會回退讀取 example 檔，讓現有部署方式可以直接啟動 OAuth。正式環境仍建議將設定移至 `google_drive_deploy.json`，並避免將 Client Secret 與 API key 提交至版本庫。
+## 2026-10-18 真實 Google Drive 驗收進度
+
+已完成一次真實驗收：KTV 主機可使用 Google OAuth 登入已連結帳號、保留並讀取 `ianAutoKTV` 資料夾；`/remote` 可顯示雲端 MP4，按下「下載並點歌」後由伺服器完整保存至 `drive_downloads/`，並加入共用待播清單。`/player` 已確認透過既有 `/songs/<filename>` 本機播放端點播放，HTTP Range 回應為 `206`，播放器實際載入完成且正在播放。
+
+本次驗收尚未涵蓋其他瀏覽器／手機／電視、六聲道 Web Audio 分流、字幕、KEY、暫停／拖曳 seek／重播，以及權限撤銷和檔案刪除等完整錯誤情境；這些項目仍以 [ToDo.md](./ToDo.md) 未勾選內容為準。OAuth fallback link 只在 KTV 主機本機頁提供，遇到系統瀏覽器未開啟時可手動完成授權。
+## 2026-10-18 伺服器端登入入口
+
+伺服器主視窗的本機連結區已新增「Google Drive 歌庫（登入／選資料夾）」入口，會使用 `https://127.0.0.1:5000/drive-prototype` 開啟本機限定的 OAuth／Picker 頁面。Google 帳號連結與資料夾選擇不得使用區網 IP 或遙控器入口，避免被本機限定保護機制拒絕。
+## 2026-10-18 OAuth 回呼完成後關閉回呼頁
+
+OAuth loopback 回呼服務在完成授權碼交換、取得並保存 refresh token 後，只回傳成功訊息並嘗試關閉目前的 OAuth 回呼分頁，不再導向或重新開啟 `/drive-prototype`。原本的 KTV 本機驗證頁會持續輪詢授權狀態並開啟 Picker；若瀏覽器禁止回呼頁自動關閉，頁面會提示使用者手動關閉該分頁。OAuth 錯誤仍維持原本的錯誤頁面與流程狀態。
+
+若原本的驗證頁已被瀏覽器取代，伺服器會重用尚未領取 Picker 短效權杖的 `authorized` flow，讓「選擇歌曲資料夾」可以正常繼續，不會將已完成的登入誤判為重複驗證流程。
+## 2026-10-18 遙控器雲端歌庫按鈕配色
+
+`/remote` 與 `/combo` 共用的雲端歌庫面板，將「重新整理雲端歌庫」設定為低飽和淺青綠色，將歌曲列上的「下載並點歌／點歌」設定為低飽和暖米色；兩者均使用深色文字、明確 hover／focus 狀態及柔和 disabled 狀態，維持原有功能與版面配置。
