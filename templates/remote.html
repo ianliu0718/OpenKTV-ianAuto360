@@ -125,6 +125,34 @@
 
         .settings-trigger:focus-visible { outline: 2px solid #b8fff2; outline-offset: 2px; }
 
+        /* 雲端歌庫按鈕固定在標題左側，與右側設定按鈕形成對稱入口。 */
+        .drive-library-trigger {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            display: grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transform: translateY(-50%);
+            border-radius: 6px;
+            background: #5b837a;
+            border: 1px solid #7eaa9f;
+            color: #ffffff;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .drive-library-trigger:hover,
+        .drive-library-trigger:focus-visible {
+            background: #6c958b;
+            border-color: #9bc0b6;
+            color: #ffffff;
+        }
+
         .settings-panel {
             width: min(420px, calc(100vw - 32px));
             max-height: calc(100dvh - 32px);
@@ -876,6 +904,9 @@
 
 <body>
     <div class="remote-header">
+        <button id="drive-library-toggle" class="btn drive-library-trigger" type="button"
+            aria-label="開啟 Google Drive 歌庫" aria-expanded="false" aria-controls="drive-library-panel"
+            title="Google Drive 歌庫">☁️</button>
         <h3 style="margin:0;">📱 KTV 遙控器</h3>
         <small style="color:#aaa;">已連線至主機</small>
         <button class="btn settings-trigger" type="button" aria-label="開啟設定" title="設定"
@@ -2044,19 +2075,16 @@
 
         /** Load the host-selected Drive folder without exposing OAuth credentials. */
         async function loadDriveLibrary() {
-            const panel = document.getElementById('drive-library-panel');
             const status = document.getElementById('drive-library-status');
             const list = document.getElementById('drive-library-list');
             try {
                 const response = await fetch('/api/drive/library-songs', { cache: 'no-store' });
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    // 未連結或未選擇資料夾時仍保留面板，讓遙控器使用者知道目前設定狀態。
-                    panel.hidden = false;
+                    // 面板只有在使用者主動展開後才顯示設定狀態，避免佔用遙控器畫面。
                     status.textContent = payload.error || `HTTP ${response.status}`;
                     return;
                 }
-                panel.hidden = false;
                 driveLibrarySongs = Array.isArray(payload.songs) ? payload.songs : [];
                 status.textContent = `資料夾「${payload.folder && payload.folder.name || ''}」：${driveLibrarySongs.length} 首 MP4`;
                 list.replaceChildren();
@@ -2074,9 +2102,19 @@
                     list.appendChild(row);
                 }
             } catch (error) {
-                panel.hidden = false;
                 status.textContent = '無法讀取 Google Drive 歌庫：' + error.message;
             }
+        }
+
+        /** 切換雲端歌庫面板；首次展開時才向伺服器讀取歌曲清單。 */
+        function toggleDriveLibrary() {
+            const panel = document.getElementById('drive-library-panel');
+            const toggle = document.getElementById('drive-library-toggle');
+            const shouldShow = panel.hidden;
+            panel.hidden = !shouldShow;
+            toggle.setAttribute('aria-expanded', String(shouldShow));
+            toggle.setAttribute('aria-label', shouldShow ? '關閉 Google Drive 歌庫' : '開啟 Google Drive 歌庫');
+            if (shouldShow) loadDriveLibrary();
         }
 
         function cmd(action) { socket.emit('control', action); }
@@ -2106,8 +2144,8 @@
         }
 
         loadList();
+        document.getElementById('drive-library-toggle').addEventListener('click', toggleDriveLibrary);
         document.getElementById('drive-library-refresh').addEventListener('click', loadDriveLibrary);
-        loadDriveLibrary();
         loadSubtitleList();
         // 監聽後台更新完畢事件，自動重整歌單
         socket.on('refresh_list', () => { loadList(); loadSubtitleList(); });
