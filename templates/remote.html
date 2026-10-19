@@ -1587,6 +1587,18 @@
             });
         }
 
+        function hasSubtitleForSong(filename) {
+            const normalized = String(filename || '').toLowerCase().replace(/\.mp4$/, '');
+            return [...subtitleSongs].some((song) =>
+                String(song || '').toLowerCase().replace(/\.mp4$/, '') === normalized
+            );
+        }
+
+        function normalizePlayingSongFilename(filename) {
+            const value = String(filename || '').trim();
+            return value && !/\.mp4$/i.test(value) ? `${value}.mp4` : value;
+        }
+
         /**
          * Parses the fixed song filename format into classification fields.
          * @param {string} filename Song filename in song-singer-language-id.mp4 format.
@@ -1751,7 +1763,7 @@
             const control = document.getElementById('current-song-control');
             const button = document.getElementById('current-subtitle-button');
             const hasSong = Boolean(currentPlayingFilename);
-            const hasSubtitle = subtitleSongs.has(currentPlayingFilename);
+            const hasSubtitle = hasSubtitleForSong(currentPlayingFilename);
             const shouldShow = hasSong && hasSubtitle;
             control.style.display = shouldShow ? 'block' : 'none';
             if (!hasSong) return;
@@ -1794,7 +1806,7 @@
          * @param {Object} data Current playback state with filename and visible fields.
          */
         function updateCurrentSong(data) {
-            currentPlayingFilename = data.filename || '';
+            currentPlayingFilename = normalizePlayingSongFilename(data.filename);
             guideVocalControlSupported = Boolean(data.guide_vocal_control);
             if (!currentPlayingFilename) {
                 currentPlaylist = [];
@@ -1813,7 +1825,7 @@
          * Toggles subtitles for the song currently being played.
          */
         function toggleCurrentSubtitle() {
-            if (currentPlayingFilename && subtitleSongs.has(currentPlayingFilename)) {
+            if (currentPlayingFilename && hasSubtitleForSong(currentPlayingFilename)) {
                 const nextMode = (currentSubtitleMode + 1) % subtitleDisplayLabels.length;
                 socket.emit('set_subtitle_mode', { filename: currentPlayingFilename, mode: nextMode });
             }
@@ -1914,7 +1926,7 @@
 
         socket.on('subtitle_state', (data) => {
             if (data.filename === currentPlayingFilename) {
-                currentSubtitleMode = subtitleSongs.has(currentPlayingFilename) ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
+                currentSubtitleMode = hasSubtitleForSong(currentPlayingFilename) ? Math.max(0, Math.min(4, Number(data.subtitle_mode) || 0)) : 0;
                 currentSubtitleFontSize = Number(data.font_size) || currentSubtitleFontSize;
                 renderSubtitleFontSizeControl();
                 renderCurrentSongControl();

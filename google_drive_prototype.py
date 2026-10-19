@@ -224,6 +224,7 @@ def get_downloaded_song_records(download_dir):
             "file_id": file_id,
             "filename": item.get("public_filename") or saved_as,
             "saved_as": saved_as,
+            "subtitle_saved_as": item.get("subtitle_saved_as", ""),
             "name": item.get("name", ""),
             "size": item.get("size"),
             "modifiedTime": item.get("modifiedTime", ""),
@@ -239,6 +240,28 @@ def get_downloaded_song_path(download_dir, filename):
     for record in get_downloaded_song_records(download_dir):
         if filename in {record["filename"], record["saved_as"]}:
             return os.path.join(download_dir, record["saved_as"])
+    return None
+
+
+def get_downloaded_subtitle_path(download_dir, filename):
+    """Resolve a subtitle stored alongside an indexed Drive song."""
+    if not isinstance(filename, str) or os.path.basename(filename) != filename:
+        return None
+    song_filename = os.path.splitext(filename)[0] + ".mp4"
+    for record in get_downloaded_song_records(download_dir):
+        if song_filename not in {record["filename"], record["saved_as"]}:
+            continue
+        subtitle_saved_as = record.get("subtitle_saved_as")
+        if not isinstance(subtitle_saved_as, str) or os.path.basename(subtitle_saved_as) != subtitle_saved_as:
+            saved_stem = os.path.splitext(record["saved_as"])[0]
+            for extension in (".vtt", ".srt", ".lrc"):
+                candidate = os.path.join(download_dir, saved_stem + extension)
+                if os.path.isfile(candidate):
+                    return candidate
+            return None
+        subtitle_path = os.path.join(download_dir, subtitle_saved_as)
+        if os.path.isfile(subtitle_path):
+            return subtitle_path
     return None
 
 
@@ -267,7 +290,8 @@ def _clear_downloaded_records(download_dir, file_id=None):
     return len(selected_ids)
 
 
-def _save_downloaded_item(download_dir, folder_id, item, expected_size, safe_filename):
+def _save_downloaded_item(download_dir, folder_id, item, expected_size, safe_filename,
+                          subtitle_saved_as=None):
     """Persist one completed Drive download and roll back media if indexing fails."""
     metadata = _load_download_metadata(download_dir)
     file_id = item["id"]
@@ -282,6 +306,8 @@ def _save_downloaded_item(download_dir, folder_id, item, expected_size, safe_fil
         "public_filename": _safe_public_filename(item.get("name", ""), file_id),
         "downloaded_at": time.time(),
     }
+    if subtitle_saved_as:
+        metadata[file_id]["subtitle_saved_as"] = subtitle_saved_as
     try:
         _save_download_metadata(download_dir, metadata)
     except DriveStorageError:
@@ -838,7 +864,90 @@ def _validate_drive_song(folder_id, file_id, access_token):
     return item, expected_size
 
 
-def _download_drive_media_once(file_id, access_token, expected_size, download_dir):
+def _find_drive_song_lyrics(folder_id, song_item, access_token):
+    """Find a direct-child subtitle file with the same stem as an MP4 song."""
+    listing = _list_folder_children(folder_id, access_token)
+    song = next((item for item in listing.get("songs", []) if item.get("id") == song_item.get("id")), None)
+    if not song:
+        return None
+    lyrics = song.get("lyrics") or []
+    return next((item for item in lyrics if str(item.get("name", "")).lower().endswith(".vtt")), None) or (
+        lyrics[0] if lyrics else None
+    )
+
+
+def _validate_drive_subtitle(folder_id, subtitle_id, song_stem, access_token):
+    """Revalidate a matching direct-child subtitle before downloading it."""
+    item = _get_drive_metadata(subtitle_id, access_token)
+    name = str(item.get("name", ""))
+    extension = os.path.splitext(name)[1].lower()
+    if extension not in {".vtt", ".srt", ".lrc"} or os.path.splitext(name)[0].casefold() != song_stem.casefold():
+        raise ValueError("Drive 歌詞檔與歌曲名稱不匹配。")
+    if item.get("trashed") or folder_id not in item.get("parents", []):
+        raise ValueError("Drive 歌詞檔不在選定的歌庫資料夾中。")
+    try:
+        expected_size = int(item.get("size"))
+    except (TypeError, ValueError):
+        raise ValueError("Drive 歌詞檔大小無效。") from None
+    if expected_size <= 0:
+        raise ValueError("Drive 歌詞檔大小無效。")
+    return item, expected_size, extension
+
+
+def _ensure_downloaded_song_subtitle(download_dir, folder_id, song_item, access_token):
+    """Download or repair the subtitle association for an already downloaded song."""
+    subtitle_item = _find_drive_song_lyrics(folder_id, song_item, access_token)
+    if not subtitle_item:
+        return None
+    subtitle_item, subtitle_size, subtitle_extension = _validate_drive_subtitle(
+        folder_id,
+        subtitle_item.get("id"),
+        os.path.splitext(song_item.get("name", ""))[0],
+        access_token,
+    )
+    subtitle_filename = os.path.splitext(
+        _safe_public_filename(song_item.get("name", ""), song_item["id"])
+    )[0] + subtitle_extension
+    subtitle_path = os.path.join(download_dir, subtitle_filename)
+    if not os.path.isfile(subtitle_path):
+        _download_drive_media(
+            subtitle_item["id"],
+            access_token,
+            subtitle_size,
+            download_dir,
+            subtitle_extension,
+            subtitle_filename,
+        )
+    metadata = _load_download_metadata(download_dir)
+    record = metadata.get(song_item["id"])
+    if isinstance(record, dict):
+        record["subtitle_saved_as"] = subtitle_filename
+        _save_download_metadata(download_dir, metadata)
+    return subtitle_filename
+
+
+def _normalize_downloaded_song_filename(download_dir, song_item):
+    """Rename legacy hash-based media storage to the song's public filename."""
+    metadata = _load_download_metadata(download_dir)
+    record = metadata.get(song_item.get("id"))
+    if not isinstance(record, dict):
+        return None
+    target_filename = _safe_public_filename(song_item.get("name", ""), song_item["id"])
+    current_filename = record.get("saved_as")
+    if current_filename != target_filename:
+        current_path = os.path.join(download_dir, current_filename)
+        target_path = os.path.join(download_dir, target_filename)
+        if os.path.isfile(current_path) and not os.path.exists(target_path):
+            os.replace(current_path, target_path)
+        if os.path.isfile(target_path):
+            record["saved_as"] = target_filename
+            record["public_filename"] = target_filename
+            _save_download_metadata(download_dir, metadata)
+    return target_filename
+
+
+def _download_drive_media_once(file_id, access_token, expected_size, download_dir,
+                               extension=".mp4", output_filename=None):
     """Stream original Drive media to a temporary file and atomically publish it."""
     try:
         os.makedirs(download_dir, exist_ok=True)
@@ -849,7 +958,10 @@ def _download_drive_media_once(file_id, access_token, expected_size, download_di
     except OSError:
         raise DriveStorageError("無法存取 KTV 主機的專用下載目錄。") from None
 
-    safe_filename = hashlib.sha256(file_id.encode("utf-8")).hexdigest() + ".mp4"
+    normalized_extension = extension if str(extension).startswith(".") else "." + str(extension)
+    safe_filename = output_filename or (
+        hashlib.sha256(file_id.encode("utf-8")).hexdigest() + normalized_extension.lower()
+    )
     final_path = os.path.join(download_dir, safe_filename)
     if os.path.exists(final_path):
         raise FileExistsError("此 Drive 歌曲已存在於原型下載目錄。")
@@ -934,7 +1046,8 @@ def _download_drive_media_once(file_id, access_token, expected_size, download_di
     return safe_filename
 
 
-def _download_drive_media(file_id, access_token, expected_size, download_dir):
+def _download_drive_media(file_id, access_token, expected_size, download_dir,
+                          extension=".mp4", output_filename=None):
     """Retry a complete original-media download without ever publishing partial data."""
     for attempt in range(DRIVE_RATE_LIMIT_RETRIES + 1):
         try:
@@ -943,6 +1056,8 @@ def _download_drive_media(file_id, access_token, expected_size, download_dir):
                 access_token,
                 expected_size,
                 download_dir,
+                extension,
+                output_filename,
             )
         except DriveApiError as error:
             if not _retry_drive_request(error, attempt):
@@ -1005,12 +1120,25 @@ def _list_folder_children(folder_id, access_token):
         item for item in children
         if folder_id in item.get("parents", []) and not item.get("trashed", False)
     ]
+    lyrics_by_stem = {}
+    for item in direct_children:
+        name = item.get("name", "")
+        extension = os.path.splitext(name)[1].lower()
+        if extension in {".vtt", ".srt", ".lrc"}:
+            lyrics_by_stem.setdefault(os.path.splitext(name)[0].casefold(), []).append({
+                "id": item.get("id"),
+                "name": name,
+                "mimeType": item.get("mimeType", ""),
+                "size": item.get("size"),
+            })
+
     songs = [
         {
             "id": item.get("id"),
             "name": item.get("name", ""),
             "mimeType": item.get("mimeType", ""),
             "size": item.get("size"),
+            "lyrics": lyrics_by_stem.get(os.path.splitext(item.get("name", ""))[0].casefold(), []),
         }
         for item in direct_children
         if item.get("mimeType") != "application/vnd.google-apps.folder"
@@ -1181,6 +1309,7 @@ def register_google_drive_prototype(app):
         folder_id = state.get("folder_id")
         if not folder_id:
             return _json_response({"error": "尚未選擇 Google Drive 歌曲資料夾。"}, 409)
+        subtitle_saved_as = None
         try:
             with _download_lock:
                 item, expected_size = _validate_drive_song(folder_id, file_id, access_token)
@@ -1189,17 +1318,47 @@ def register_google_drive_prototype(app):
                     access_token,
                     expected_size,
                     download_dir,
+                    ".mp4",
+                    _safe_public_filename(item.get("name", ""), file_id),
                 )
+                subtitle_item = _find_drive_song_lyrics(folder_id, item, access_token)
+                if subtitle_item:
+                    subtitle_item, subtitle_size, subtitle_extension = _validate_drive_subtitle(
+                        folder_id,
+                        subtitle_item.get("id"),
+                        os.path.splitext(item.get("name", ""))[0],
+                        access_token,
+                    )
+                    try:
+                        subtitle_filename = os.path.splitext(
+                            _safe_public_filename(item.get("name", ""), file_id)
+                        )[0] + subtitle_extension
+                        subtitle_saved_as = _download_drive_media(
+                            subtitle_item["id"],
+                            access_token,
+                            subtitle_size,
+                            download_dir,
+                            subtitle_extension,
+                            subtitle_filename,
+                        )
+                    except FileExistsError:
+                        subtitle_saved_as = subtitle_filename
                 _save_downloaded_item(
                     download_dir,
                     folder_id,
                     item,
                     expected_size,
                     safe_filename,
+                    subtitle_saved_as,
                 )
         except ValueError as error:
             return _json_response({"error": str(error)}, 400)
         except FileExistsError:
+            try:
+                _normalize_downloaded_song_filename(download_dir, item)
+                _ensure_downloaded_song_subtitle(download_dir, folder_id, item, access_token)
+            except (DriveApiError, DriveStorageError, OSError, ValueError):
+                pass
             # 舊版流程可能已留下完整媒體檔但尚未寫入 metadata；確認大小相符後只補建索引，不重新下載或覆寫檔案。
             recovered_filename = hashlib.sha256(file_id.encode("utf-8")).hexdigest() + ".mp4"
             recovered_path = os.path.join(download_dir, recovered_filename)

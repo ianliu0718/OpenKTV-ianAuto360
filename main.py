@@ -61,6 +61,7 @@ from flask_socketio import SocketIO, emit
 from google_drive_prototype import (
     get_downloaded_song_path,
     get_downloaded_song_records,
+    get_downloaded_subtitle_path,
     register_google_drive_prototype,
 )
 import multiprocessing
@@ -1110,7 +1111,13 @@ def _song_has_subtitle(filename):
     if not filename:
         return False
     subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
-    return os.path.exists(subtitle_path)
+    if os.path.exists(subtitle_path):
+        return True
+    drive_subtitle_path = get_downloaded_subtitle_path(
+        DRIVE_DOWNLOAD_DIR,
+        os.path.splitext(filename)[0] + '.vtt',
+    )
+    return bool(drive_subtitle_path and drive_subtitle_path.lower().endswith('.vtt'))
 
 
 def _song_uses_plain_lyrics(filename):
@@ -1118,6 +1125,13 @@ def _song_uses_plain_lyrics(filename):
     if not filename:
         return False
     subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    if not os.path.exists(subtitle_path):
+        subtitle_path = get_downloaded_subtitle_path(
+            DRIVE_DOWNLOAD_DIR,
+            os.path.splitext(filename)[0] + '.vtt',
+        )
+    if not subtitle_path:
+        return False
     try:
         with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
             return any(line.strip().startswith('PLAIN_LYRICS_') for line in subtitle_file)
@@ -1153,6 +1167,10 @@ def _play_video_payload(filename):
 @app.route('/subtitles/<path:filename>')
 def serve_subtitle(filename):
     """Serve a stored WebVTT subtitle file for a song."""
+    subtitle_path = get_downloaded_subtitle_path(DRIVE_DOWNLOAD_DIR, filename)
+    if subtitle_path and subtitle_path.lower().endswith('.vtt'):
+        return send_from_directory(os.path.dirname(subtitle_path), os.path.basename(subtitle_path),
+                                   mimetype='text/vtt; charset=utf-8')
     return send_from_directory(SONGS_DIR, filename, mimetype='text/vtt; charset=utf-8')
 
 @app.route('/api/list')
@@ -1373,6 +1391,14 @@ def get_subtitle_list():
         for filename in os.listdir(SONGS_DIR)
         if filename.lower().endswith('.vtt')
     }
+    subtitles.update(
+        record['filename']
+        for record in get_downloaded_song_records(DRIVE_DOWNLOAD_DIR)
+        if get_downloaded_subtitle_path(
+            DRIVE_DOWNLOAD_DIR,
+            os.path.splitext(record['filename'])[0] + '.vtt',
+        )
+    )
     return json.dumps(sorted(subtitles), ensure_ascii=False)
 
 @app.route('/api/stickers')
