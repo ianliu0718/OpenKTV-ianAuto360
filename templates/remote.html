@@ -666,9 +666,9 @@
             background-size: 8px 8px;
         }
 
-        .sticker-option.selected {
-            border: 2px solid #2aa894;
-            background-color: #174d48;
+        .sticker-option:disabled {
+            cursor: wait;
+            opacity: 0.55;
         }
 
         .sticker-option img {
@@ -1040,7 +1040,7 @@
         </div>
         <div class="emotion-footer">
             <button class="btn" style="background:#607D8B;" type="button" onclick="closeDanmakuPanel()">取消</button>
-            <button class="btn" style="background:#e91e63;" type="button" onclick="sendEmotionAction()">送出</button>
+            <button id="emotion-submit-button" class="btn" style="background:#e91e63;" type="button" onclick="sendEmotionAction()">送出</button>
         </div>
     </div>
 
@@ -1283,17 +1283,19 @@
                 document.getElementById(`emotion-tab-${name}`).classList.toggle('active', active);
                 document.getElementById(`emotion-tab-${name}`).setAttribute('aria-selected', String(active));
             });
+            document.getElementById('emotion-submit-button').hidden = activeEmotionTab === 'sticker';
             if (activeEmotionTab === 'sticker') loadEmotionStickers();
         }
 
         let activeEmotionTab = 'danmaku';
         let pendingEmotionPhoto = '';
         let emotionStickerListPromise = null;
-        let pendingEmotionSticker = '';
+        let emotionStickerLocked = false;
+        let emotionStickerRequestId = 0;
 
         function sendEmotionAction() {
             if (activeEmotionTab === 'photo') sendEmotionPhoto();
-            else if (activeEmotionTab === 'sticker') sendEmotionSticker();
+            else if (activeEmotionTab === 'sticker') return;
             else if (activeEmotionTab === 'danmaku') sendCustomDanmaku();
         }
 
@@ -1309,17 +1311,16 @@
                         const button = document.createElement('button');
                         button.type = 'button';
                         button.className = 'btn sticker-option';
-                        button.setAttribute('aria-label', `選擇貼圖 ${filename}`);
-                        button.setAttribute('aria-pressed', 'false');
+                        button.setAttribute('aria-label', `立即送出貼圖 ${filename}`);
                         const image = document.createElement('img');
                         image.src = `/static/stickers/${encodeURIComponent(filename)}`;
                         image.alt = '';
                         image.loading = 'lazy';
                         button.appendChild(image);
-                        button.addEventListener('click', () => selectEmotionSticker(filename, button));
+                        button.addEventListener('click', () => sendEmotionSticker(filename));
                         grid.appendChild(button);
                     });
-                    status.textContent = stickers.length ? `選擇一張貼圖（${stickers.length} 張）` : '目前沒有可用貼圖。';
+                    status.textContent = stickers.length ? `點擊貼圖即可直接送出（${stickers.length} 張）` : '目前沒有可用貼圖。';
                 })
                 .catch((error) => {
                     emotionStickerListPromise = null;
@@ -1327,37 +1328,35 @@
                 });
         }
 
-        function selectEmotionSticker(filename, selectedButton) {
-            pendingEmotionSticker = filename;
+        function sendEmotionSticker(filename) {
+            if (emotionStickerLocked) return;
+            emotionStickerLocked = true;
+            const requestId = ++emotionStickerRequestId;
             document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
-                const selected = button === selectedButton;
-                button.classList.toggle('selected', selected);
-                button.setAttribute('aria-pressed', String(selected));
+                button.disabled = true;
             });
             const preview = document.getElementById('emotion-sticker-preview');
             preview.src = `/static/stickers/${encodeURIComponent(filename)}`;
             preview.style.display = 'block';
-            document.getElementById('emotion-sticker-status').textContent = filename;
-        }
-
-        function sendEmotionSticker() {
-            if (!pendingEmotionSticker) {
-                document.getElementById('emotion-sticker-status').textContent = '請先選擇貼圖。';
-                return;
-            }
-            socket.emit('sticker_submit', { filename: pendingEmotionSticker }, (result) => {
-                const status = document.getElementById('emotion-sticker-status');
+            const status = document.getElementById('emotion-sticker-status');
+            status.textContent = `傳送中：${filename}`;
+            window.setTimeout(() => {
+                emotionStickerLocked = false;
+                document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
+                    button.disabled = false;
+                });
+                preview.style.display = 'none';
+                if (status.textContent === `傳送中：${filename}`) {
+                    status.textContent = '冷卻結束，點擊貼圖即可直接送出。';
+                }
+            }, 2000);
+            socket.emit('sticker_submit', { filename }, (result) => {
+                if (requestId !== emotionStickerRequestId) return;
                 if (!result || !result.success) {
                     status.textContent = result && result.error ? result.error : '貼圖發送失敗。';
                     return;
                 }
-                status.textContent = `已送出：${pendingEmotionSticker}`;
-                pendingEmotionSticker = '';
-                document.getElementById('emotion-sticker-preview').style.display = 'none';
-                document.querySelectorAll('#emotion-sticker-grid .sticker-option').forEach((button) => {
-                    button.classList.remove('selected');
-                    button.setAttribute('aria-pressed', 'false');
-                });
+                status.textContent = `已送出：${filename}（2 秒內無法再次傳送）`;
             });
         }
 
@@ -1858,10 +1857,29 @@
 
         function songAudioExceptionLabel(filename) {
             const exception = songAudioExceptions[filename];
-            const measuredPeak = Number(exception?.c4_true_peak_dbtp);
-            if (!exception || !Number.isFinite(measuredPeak)) return '';
-            const peakText = `${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`;
-            return `<span class="song-audio-exception">⚠ c4 TP ${peakText}</span>`;
+            if (!exception) return '';
+            const labels = [];
+            const hasDetailedExceptions = Array.isArray(exception.audio_exceptions) && exception.audio_exceptions.length > 0;
+            const modeNames = { guide: '導唱 c2', instrumental: '伴奏 c4' };
+            const metricNames = { loudness: 'LUFS', true_peak: 'TP', loudness_range: 'LRA' };
+            for (const item of (hasDetailedExceptions ? exception.audio_exceptions : [])) {
+                const measured = Number(item.measured);
+                if (!Number.isFinite(measured) || !modeNames[item.mode] || !metricNames[item.metric]) continue;
+                const value = item.metric === 'true_peak'
+                    ? `${measured >= 0 ? '+' : ''}${measured.toFixed(1)} dBTP`
+                    : `${measured.toFixed(1)} ${item.unit}`;
+                labels.push(`${modeNames[item.mode]} ${metricNames[item.metric]} ${value}（標準 ${item.standard}）`);
+            }
+            const measuredPeak = Number(exception.c4_true_peak_dbtp);
+            const measuredLra = Number(exception.c4_lra_lu);
+            if (!hasDetailedExceptions && exception.c4_true_peak_dbtp != null && Number.isFinite(measuredPeak)) {
+                labels.push(`c4 TP ${measuredPeak >= 0 ? '+' : ''}${measuredPeak.toFixed(1)} dBTP`);
+            }
+            if (!hasDetailedExceptions && exception.c4_lra_lu != null && Number.isFinite(measuredLra)) {
+                labels.push(`c4 LRA ${measuredLra.toFixed(1)} LU`);
+            }
+            if (exception.metadata_error) labels.push('特殊歌曲標記無效');
+            return labels.length ? `<span class="song-audio-exception">⚠ ${labels.join(' · ')}</span>` : '';
         }
 
         function filter() {
@@ -2001,13 +2019,13 @@
             seekCorrectionEnabled = Boolean(enabled);
             // 伺服器未開啟畫面延遲功能時，遙控器不顯示無法使用的控制區。
             document.getElementById('seek-correction-control').style.display = seekCorrectionEnabled ? 'block' : 'none';
-            document.getElementById('song-seek-controls').style.display = seekCorrectionEnabled ? 'none' : 'grid';
             document.querySelectorAll('.seek-control').forEach((button) => {
                 button.disabled = !seekCorrectionEnabled;
                 button.style.opacity = seekCorrectionEnabled ? '1' : '0.45';
             });
             document.querySelectorAll('.song-seek-control').forEach((button) => {
                 button.disabled = seekCorrectionEnabled;
+                button.style.display = seekCorrectionEnabled ? 'none' : '';
                 button.style.opacity = seekCorrectionEnabled ? '0.45' : '1';
             });
             document.getElementById('seek-val').innerText = seekCorrectionEnabled
