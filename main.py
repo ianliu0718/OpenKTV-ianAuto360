@@ -58,6 +58,12 @@ from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, send_from_directory
 from flask_socketio import SocketIO, emit
+from google_drive_prototype import (
+    get_downloaded_song_path,
+    get_downloaded_song_records,
+    get_downloaded_subtitle_path,
+    register_google_drive_prototype,
+)
 import multiprocessing
 
 # Windows worker 必須沿用目前虛擬環境，避免子程序誤以系統 Python 再啟動一份伺服器。
@@ -66,7 +72,7 @@ multiprocessing.set_executable(sys.executable)
 # ==========================================
 # 設定區
 # ==========================================
-APP_VERSION = "v1.1.1.5"
+APP_VERSION = "v1.1.2.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable) 
@@ -128,7 +134,7 @@ def get_media_duration(song_path):
 
 def get_audio_channel_count(filename):
     """Return the first audio stream channel count for a song, or zero when unavailable."""
-    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    song_path = _resolve_song_path(filename)
     ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
     ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
     if not ffprobe_path or not os.path.exists(song_path):
@@ -146,7 +152,7 @@ def get_audio_channel_count(filename):
 
 def get_audio_channel_layout(filename):
     """Return the first audio stream channel layout for a song."""
-    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    song_path = _resolve_song_path(filename)
     ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
     ffprobe_path = get_ffprobe_path(ffmpeg_path) if ffmpeg_path else None
     if not ffprobe_path or not os.path.exists(song_path):
@@ -495,8 +501,8 @@ def _measure_stereo_source_metrics(ffmpeg_path, source_path):
 
 def get_audio_loudness(filename, mode='original'):
     """Return the selected mode's integrated loudness in LUFS, cached until the song changes."""
-    song_path = os.path.join(SONGS_DIR, os.path.basename(filename))
-    if not os.path.exists(song_path):
+    song_path = _resolve_song_path(filename)
+    if not song_path or not os.path.exists(song_path):
         return None
     cache_key = (song_path, os.path.getmtime(song_path), os.path.getsize(song_path), mode)
     cached_value = audio_loudness_cache.get((song_path, mode))
@@ -516,6 +522,7 @@ if ffmpeg_location:
 os.environ["PATH"] += os.pathsep + BASE_DIR
 
 SONGS_DIR = os.path.join(BASE_DIR, "ktv_songs")
+DRIVE_DOWNLOAD_DIR = os.path.join(BASE_DIR, "drive_downloads")
 EFFECTS_DIR = os.path.join(BASE_DIR, "static", "sounds")
 TEMP_BASE_DIR = os.path.join(BASE_DIR, "temp_processing") 
 SUBTITLE_EXTENSIONS = {"srt", "lrc", "vtt"}
@@ -546,7 +553,9 @@ if not os.path.exists(TEMP_BASE_DIR): os.makedirs(TEMP_BASE_DIR)
 # ==========================================
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=os.path.join(BASE_DIR, 'static'))
 app.config['SECRET_KEY'] = 'ktv_secret'
+app.config['DRIVE_PROTOTYPE_DOWNLOAD_DIR'] = DRIVE_DOWNLOAD_DIR
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+register_google_drive_prototype(app)
 
 def get_local_ip():
     try:
@@ -1076,7 +1085,22 @@ def page_index(): return render_template('remote.html')
 
 @app.route('/songs/<path:filename>')
 def serve_song(filename):
+    local_path = os.path.join(SONGS_DIR, os.path.basename(filename))
+    if os.path.isfile(local_path):
+        return send_from_directory(SONGS_DIR, os.path.basename(filename))
+    drive_path = get_downloaded_song_path(DRIVE_DOWNLOAD_DIR, filename)
+    if drive_path:
+        return send_from_directory(DRIVE_DOWNLOAD_DIR, os.path.basename(drive_path))
     return send_from_directory(SONGS_DIR, filename)
+
+
+def _resolve_song_path(filename):
+    """Resolve local songs first, then indexed Drive downloads for playback metadata."""
+    safe_filename = os.path.basename(str(filename))
+    local_path = os.path.join(SONGS_DIR, safe_filename)
+    if os.path.isfile(local_path):
+        return local_path
+    return get_downloaded_song_path(DRIVE_DOWNLOAD_DIR, safe_filename)
 
 @app.route('/effects/<path:filename>')
 def serve_effect(filename):
@@ -1087,7 +1111,13 @@ def _song_has_subtitle(filename):
     if not filename:
         return False
     subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
-    return os.path.exists(subtitle_path)
+    if os.path.exists(subtitle_path):
+        return True
+    drive_subtitle_path = get_downloaded_subtitle_path(
+        DRIVE_DOWNLOAD_DIR,
+        os.path.splitext(filename)[0] + '.vtt',
+    )
+    return bool(drive_subtitle_path and drive_subtitle_path.lower().endswith('.vtt'))
 
 
 def _song_uses_plain_lyrics(filename):
@@ -1095,6 +1125,13 @@ def _song_uses_plain_lyrics(filename):
     if not filename:
         return False
     subtitle_path = os.path.join(SONGS_DIR, os.path.splitext(filename)[0] + '.vtt')
+    if not os.path.exists(subtitle_path):
+        subtitle_path = get_downloaded_subtitle_path(
+            DRIVE_DOWNLOAD_DIR,
+            os.path.splitext(filename)[0] + '.vtt',
+        )
+    if not subtitle_path:
+        return False
     try:
         with open(subtitle_path, 'r', encoding='utf-8-sig') as subtitle_file:
             return any(line.strip().startswith('PLAIN_LYRICS_') for line in subtitle_file)
@@ -1130,11 +1167,22 @@ def _play_video_payload(filename):
 @app.route('/subtitles/<path:filename>')
 def serve_subtitle(filename):
     """Serve a stored WebVTT subtitle file for a song."""
+    subtitle_path = get_downloaded_subtitle_path(DRIVE_DOWNLOAD_DIR, filename)
+    if subtitle_path and subtitle_path.lower().endswith('.vtt'):
+        return send_from_directory(os.path.dirname(subtitle_path), os.path.basename(subtitle_path),
+                                   mimetype='text/vtt; charset=utf-8')
     return send_from_directory(SONGS_DIR, filename, mimetype='text/vtt; charset=utf-8')
 
 @app.route('/api/list')
 def get_song_list():
     songs = [f for f in os.listdir(SONGS_DIR) if f.lower().endswith('.mp4')]
+    local_names = {filename.casefold() for filename in songs}
+    # Keep the existing filename-based client contract while adding indexed Drive files.
+    for record in get_downloaded_song_records(DRIVE_DOWNLOAD_DIR):
+        filename = record["filename"]
+        if filename.casefold() not in local_names:
+            songs.append(filename)
+            local_names.add(filename.casefold())
     return json.dumps(songs) 
 
 @app.route('/api/songs/rename', methods=['POST'])
@@ -1343,6 +1391,14 @@ def get_subtitle_list():
         for filename in os.listdir(SONGS_DIR)
         if filename.lower().endswith('.vtt')
     }
+    subtitles.update(
+        record['filename']
+        for record in get_downloaded_song_records(DRIVE_DOWNLOAD_DIR)
+        if get_downloaded_subtitle_path(
+            DRIVE_DOWNLOAD_DIR,
+            os.path.splitext(record['filename'])[0] + '.vtt',
+        )
+    )
     return json.dumps(sorted(subtitles), ensure_ascii=False)
 
 @app.route('/api/stickers')
@@ -2508,7 +2564,7 @@ engine_debug_enabled = False
 def _guide_audio_control_state(filename):
     """Return synchronized guide-vocal controls and the song-specific guide mix gain."""
     ffmpeg_path = os.path.join(FFMPEG_DIR, 'ffmpeg.exe') if os.path.isdir(FFMPEG_DIR) else shutil.which('ffmpeg')
-    song_path = os.path.join(SONGS_DIR, os.path.basename(filename)) if filename else ''
+    song_path = _resolve_song_path(filename) if filename else ''
     metadata = _get_vocal_layout_metadata(ffmpeg_path, song_path)
     supports_vocal_control = metadata.startswith(VOCAL_STEM_LAYOUT_VERSION)
     return {
@@ -3468,6 +3524,8 @@ class ServerApp(tk.Tk):
         self.create_clickable_link(info_frame, "📱 遙控端 (手機用)", f"https://{LOCAL_IP}:{PORT}/remote", "#d32f2f")
         self.create_clickable_link(info_frame, "🕹️ 一體機 (單機用)", f"https://{LOCAL_IP}:{PORT}/combo", "#9C27B0")
         self.create_clickable_link(info_frame, "⚙️ 管理端 (加歌用)", f"https://{LOCAL_IP}:{PORT}/admin", "#F57C00")
+        # OAuth／Picker 僅允許 KTV 主機本機操作，因此使用 loopback 位址開啟 Google Drive 歌庫頁。
+        self.create_clickable_link(info_frame, "☁ Google Drive 歌庫", f"https://127.0.0.1:{PORT}/drive-prototype", "#1565C0")
 
         stat_frame = tk.Frame(self, bg="#f4f4f9")
         stat_frame.pack(fill="x", padx=20, pady=5)
