@@ -26,34 +26,43 @@
         }
 
         .drive-library-panel {
-            margin: 10px 0;
+            width: min(760px, calc(100vw - 32px));
+            max-height: calc(100dvh - 32px);
+            box-sizing: border-box;
+            margin: auto;
+            position: relative;
             padding: 10px;
             border: 1px solid #2aa894;
             border-radius: 8px;
             background: #123c36;
+            color: white;
+            overflow-y: auto;
+        }
+
+        .drive-library-panel::backdrop { background: rgba(0, 0, 0, .65); }
+
+        .drive-library-close {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 36px;
+            height: 36px;
+            margin: 0;
+            padding: 0;
+            background: #455a64;
+            font-size: 20px;
+            line-height: 1;
         }
 
         .drive-library-panel h4 { margin: 0 0 6px; }
         .drive-library-status { color: #b8fff2; margin: 6px 0; font-size: 14px; }
+        .drive-library-search { margin: 6px 0; }
         .drive-library-list { list-style: none; padding: 0; margin: 6px 0 0; }
         .drive-library-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
         .drive-library-row span { flex: 1; overflow-wrap: anywhere; }
         .drive-library-row button { width: auto; padding: 8px 10px; margin: 0; font-size: 14px; }
 
         /* 使用低飽和色搭配深色文字，降低雲端歌庫按鈕的刺眼感並提升辨識度。 */
-        #drive-library-refresh {
-            background: #cfe8e2;
-            border: 1px solid #9fc9be;
-            color: #24574f;
-        }
-
-        #drive-library-refresh:hover,
-        #drive-library-refresh:focus-visible {
-            background: #b9ddd4;
-            border-color: #83b9ab;
-            color: #1c463f;
-        }
-
         /* 下載／點歌使用柔和暖色，與重新整理按鈕形成清楚但不刺眼的功能區分。 */
         .drive-library-row button {
             background: #f0dfc5;
@@ -68,8 +77,7 @@
             color: #4d381f;
         }
 
-        .drive-library-row button:disabled,
-        #drive-library-refresh:disabled {
+        .drive-library-row button:disabled {
             background: #c8c6c0;
             border-color: #aaa7a0;
             color: #66645f;
@@ -946,12 +954,15 @@
                 </details>
             </div>
         </div>
-        <section id="drive-library-panel" class="drive-library-panel" hidden>
+        <dialog id="drive-library-panel" class="drive-library-panel" aria-label="Google Drive library">
             <h4>☁ Google Drive 歌庫</h4>
             <p id="drive-library-status" class="drive-library-status">讀取雲端歌庫中...</p>
-            <button id="drive-library-refresh" class="btn" type="button">重新整理雲端歌庫</button>
+            <input type="text" id="drive-library-search" class="drive-library-search"
+                placeholder="🔍 搜尋雲端歌曲..." aria-label="搜尋雲端歌曲">
             <ul id="drive-library-list" class="drive-library-list"></ul>
-        </section>
+            <button class="btn drive-library-close" type="button" aria-label="Close Google Drive library"
+                onclick="closeDriveLibrary()">×</button>
+        </dialog>
         <ul id="list"></ul>
     </section>
 
@@ -2087,7 +2098,8 @@
                 }
                 driveLibrarySongs = Array.isArray(payload.songs) ? payload.songs : [];
                 status.textContent = `資料夾「${payload.folder && payload.folder.name || ''}」：${driveLibrarySongs.length} 首 MP4`;
-                list.replaceChildren();
+                renderDriveLibrarySongs();
+                return;
                 for (const song of driveLibrarySongs) {
                     const row = document.createElement('li');
                     row.className = 'drive-library-row';
@@ -2107,14 +2119,47 @@
         }
 
         /** 切換雲端歌庫面板；首次展開時才向伺服器讀取歌曲清單。 */
+        function renderDriveLibrarySongs() {
+            const list = document.getElementById('drive-library-list');
+            const key = document.getElementById('drive-library-search').value.trim().toLowerCase();
+            const songs = driveLibrarySongs.filter((song) => {
+                const name = String(song.name || song.id || '').toLowerCase();
+                return !key || name.includes(key);
+            });
+            list.replaceChildren();
+            for (const song of songs) {
+                const row = document.createElement('li');
+                row.className = 'drive-library-row';
+                const label = document.createElement('span');
+                label.textContent = song.name || song.id;
+                const button = document.createElement('button');
+                button.className = 'btn';
+                button.type = 'button';
+                button.textContent = song.downloaded ? '已下載' : '下載並點歌';
+                button.addEventListener('click', () => queueDriveSong(button, song));
+                row.append(label, button);
+                list.appendChild(row);
+            }
+        }
+
         function toggleDriveLibrary() {
             const panel = document.getElementById('drive-library-panel');
             const toggle = document.getElementById('drive-library-toggle');
-            const shouldShow = panel.hidden;
-            panel.hidden = !shouldShow;
-            toggle.setAttribute('aria-expanded', String(shouldShow));
-            toggle.setAttribute('aria-label', shouldShow ? '關閉 Google Drive 歌庫' : '開啟 Google Drive 歌庫');
-            if (shouldShow) loadDriveLibrary();
+            if (panel.open) {
+                closeDriveLibrary();
+                return;
+            }
+            panel.showModal();
+            toggle.setAttribute('aria-expanded', 'true');
+            toggle.setAttribute('aria-label', '關閉 Google Drive 歌庫');
+            loadDriveLibrary();
+        }
+
+        function closeDriveLibrary() {
+            const panel = document.getElementById('drive-library-panel');
+            const toggle = document.getElementById('drive-library-toggle');
+            if (panel.open) panel.close();
+            toggle.setAttribute('aria-expanded', 'false');
         }
 
         function cmd(action) { socket.emit('control', action); }
@@ -2143,9 +2188,14 @@
             });
         }
 
+        // Keep the modal outside the tab panels so it also works from the control tab.
+        document.body.appendChild(document.getElementById('drive-library-panel'));
         loadList();
         document.getElementById('drive-library-toggle').addEventListener('click', toggleDriveLibrary);
-        document.getElementById('drive-library-refresh').addEventListener('click', loadDriveLibrary);
+        document.getElementById('drive-library-search').addEventListener('input', renderDriveLibrarySongs);
+        document.getElementById('drive-library-panel').addEventListener('close', () => {
+            document.getElementById('drive-library-toggle').setAttribute('aria-expanded', 'false');
+        });
         loadSubtitleList();
         // 監聽後台更新完畢事件，自動重整歌單
         socket.on('refresh_list', () => { loadList(); loadSubtitleList(); });
